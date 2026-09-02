@@ -153,9 +153,37 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
 - **Giorno 1**: 0.0 (backup, git init, repo GitHub, push) → 0.1
   (GitHub Pages + CNAME + DNS, ora che il dominio è posseduto) → 0.4
   (proprietà Search Console creata, avviata subito).
-- **Giorno 2**: 0.2 (CI/CD, primo deploy reale) → 0.3 (verifica OG/
-  sitemap sull'output pubblicato, non solo in locale) → 0.4 (robots.txt,
-  invio sitemap) → 0.6 (`type: blog`).
+
+  **✅ 0.0 fatto (2026-09-02)**: backup verificato (996 file, 35MB,
+  fuori dal progetto). `.gitignore` creato (build output, dipendenze,
+  stato locale `.claude/` escluso dopo revisione — solo permessi dello
+  strumento, nessun segreto). Primo commit (119 file). Account GitHub
+  `webGeoDS` autenticato in locale. Repository creato e pushato:
+  **`github.com/webGeoDS/webgeods`** (pubblico, branch `main`).
+  Nota tecnica risolta: il credential helper di git puntava ancora
+  all'account `DSwing` (già presente in locale per
+  `DSwing/webgeods-assets`) nonostante `gh` avesse `webGeoDS` attivo —
+  sistemato con `gh auth setup-git`.
+  **✅ 0.1 + 0.2 fatti insieme (2026-09-02)**: "abilitare Pages" senza
+  un modo di costruire l'output non avrebbe avuto senso, quindi fatti
+  in un solo passaggio. Creato `.github/workflows/deploy-blog.yml`
+  (render `blog/` con Quarto — **nessun R/Python necessario in CI**,
+  girano lato browser via WASM, verificato prima di scrivere il
+  workflow). Pages abilitato via API (`build_type=workflow`), dominio
+  custom `webgeods.com` impostato. Un bug reale trovato e corretto in
+  corsa: `./sync-shared-assets.sh` falliva in CI (exit 126, bit di
+  esecuzione perso nel checkout Linux) — risolto invocando `bash
+  sync-shared-assets.sh`. Deploy riuscito al secondo tentativo,
+  **sito confermato online**: `webgeods.com` risolve in HTTP (200) —
+  propagazione DNS più veloce del previsto (poche ore, non 24-48h).
+  **HTTPS non ancora pronto** (GitHub deve completare il provisioning
+  del certificato dopo la verifica DNS, tipicamente minuti-ore) — da
+  riverificare, non un errore.
+  Prossimo: 0.4 (Search Console) — 0.3 (verifica OG/sitemap
+  sull'output pubblicato) può slittare a dopo che HTTPS è pronto,
+  dato che Search Console preferisce l'URL https.
+- **Giorno 2**: 0.3 (verifica OG/sitemap sull'output pubblicato) →
+  0.4 (robots.txt, invio sitemap) → 0.6 (`type: blog`).
 - **Giorno 3**: 0.5 (analytics + eventi tool/funnel definiti in 0.5,
   collegati al Validator esistente) → 0.8 (form newsletter + lead
   magnet cheatsheet, riusa contenuto già scritto).
