@@ -1,0 +1,66 @@
+project:
+  type: website # open alternative: "blog" would give listing/categories/RSS for free
+                # — to be decided based on the acquisition strategy (plan §8)
+  resources:
+    - "runtime.js"
+    - "python.js"
+    - "r.js"
+    - "code-cell.js"
+    - "map.js"
+    - "table.js"
+    - "upload.js"
+    - "styles.css"
+    - "alidade_smooth.json"
+    - "webgeods-logo.svg"
+    - "maplibre-gl.js"
+    - "maplibre-gl.css"
+    - "fonts.css"
+    - "fonts/*.woff2"
+    - "codemirror-bundle.js"
+    - "gridjs.umd.js"
+    - "gridjs-mermaid.min.css"
+
+website:
+  title: "webgeods"
+  navbar:
+    logo: webgeods-logo.svg
+    background: "#eee5d2" # dark-paper — light navbar in the reference design,
+    foreground: "#2a2117" # not a bar filled with the primary color (the cosmo
+                           # theme's default behavior, not what's wanted here)
+    left:
+      - href: index.qmd
+        text: Home
+      - href: tools/index.qmd
+        text: Tools
+      - about.qmd
+    # "Blog" is not yet a separate entry: index.qmd already acts as the
+    # listing/home for now. Add it once a real, distinct landing page exists.
+  open-graph: true
+  # sitemap.xml is not a key of its own: Quarto generates it automatically in
+  # _site/ when site-url is set. Placeholder to be confirmed — change it if
+  # the final domain/path of the blog section differs (see plan §5).
+  site-url: "https://webgeods.com"
+
+format:
+  html:
+    theme:
+      - cosmo
+      - brand # from _brand.yml, copied here from shared/ via sync-shared-assets.sh
+    css: [styles.css, fonts.css]
+    page-layout: article # for full-width PoCs/webapps: override per-page with `page-layout: full`
+    embed-resources: true
+    include-in-header:
+      - text: |
+          <script>window.WEBGEODS_ASSET_BASE = "/";</script>
+    include-after-body:
+      - text: |
+          <script src="/runtime.js"></script>
+          <script src="/python.js"></script>
+          <script src="/r.js"></script>
+          <script src="/code-cell.js"></script>
+          <script src="/map.js"></script>
+          <script src="/table.js"></script>
+          <script src="/upload.js"></script>
+    toc: true
+filters:
+  - webgeods-cells.lua

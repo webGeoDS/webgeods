@@ -1,0 +1,163 @@
+---
+title: "R → MapLibre Bridge"
+subtitle: "Bringing data from an R cell to a reactive map"
+---
+
+## What this bridge is
+
+As with [the Python bridge](bridge-python-maplibre.qmd): R **has no
+idea MapLibre exists**. An R cell returns plain GeoJSON — a nested
+list, or the equivalent of a converted `sf` object — as its last
+expression; an `{ojs}` cell reads that value and draws it on the map.
+No map-specific R function, however light: nothing to learn beyond R
+itself.
+
+::: {.callout-note}
+**Historical note**: an earlier version of this page taught some
+webgeods-specific R functions (`webgeods_map()` and similar) that
+accumulated a queue of MapLibre commands to replay — because R
+doesn't have (and never had) convenient access to Kyle Walker's real
+`mapgl` library: `library(mapgl)` alone took **~120 seconds and
+67MB** on first use in webR, because of heavy dependencies (`terra`,
+`shiny`, `bslib`, `rmarkdown`) loaded regardless even if never used.
+With the model described here, that problem no longer arises: R
+doesn't need ANY map-specific function, it just returns GeoJSON — the
+question "is it worth loading a package just for this" doesn't even
+come up, because no package is needed.
+:::
+
+## The map on this page
+
+It's created only once, when the page opens — same as in the Python
+lesson.
+
+<div id="bridge-map-r" style="height: 400px; width: 100%; border: 1px solid #5a4f3e;"></div>
+
+```{ojs}
+//| echo: false
+bridgeMapR = {
+  const m = new WebGeoDS.Map("bridge-map-r", {
+    center: [12.4964, 41.9028], // Rome
+    zoom: 5,
+    style: "https://tiles.openfreemap.org/styles/positron"
+  });
+  await m.ready();
+  return m;
+}
+```
+
+## The two parts of the bridge
+
+### 1. The R cell — return GeoJSON, not a map object
+
+```r
+list(type = "FeatureCollection", features = list(
+  list(type = "Feature", properties = list(name = "Rome"), geometry = list(type = "Point", coordinates = c(12.4964, 41.9028)))
+))
+```
+
+A nested R list, the cell's last expression — no installation, no
+`library()`. With an `sf` object, the conversion goes through
+`geojsonsf`/`jsonlite`, already used elsewhere on this site:
+
+```r
+geojsonsf::sf_geojson(sf::st_transform(data, 4326)) |> jsonlite::fromJSON(simplifyVector = FALSE)
+```
+
+`sf_geojson()` doesn't reproject on its own (verified: with an `sf`
+in EPSG:3857 it produces coordinates in meters, not degrees) —
+`st_transform(data, 4326)` must be called explicitly first, exactly
+like `.to_crs(4326)` on the Python side.
+
+### 2. `getCellValue` + `setGeoJSON` — read and draw
+
+Identical to the Python lesson — not by chance: it's the **exact
+same** pair of functions, generic with respect to whichever language
+produced the GeoJSON.
+
+```js
+value = WebGeoDS.getCellValue("my-cell-id", Generators)
+{
+  if (value) await myMap.setGeoJSON("my-source", value);
+}
+```
+
+::: {.callout-note}
+**Watch out for state**: as with Python, it isn't the R cell that
+"remembers" what's on the map, it's the **source** — it stays as it
+is until you update it with another `setGeoJSON()` on the same id, or
+clear it.
+:::
+
+## Example 1 — a source with one point
+
+```{.webgeods-r #bridge-cell-r1}
+list(type = "FeatureCollection", features = list(
+  list(type = "Feature", properties = list(name = "Rome"), geometry = list(type = "Point", coordinates = c(12.4964, 41.9028)))
+))
+```
+
+```{ojs}
+//| echo: false
+bridgeCellR1 = WebGeoDS.getCellValue("bridge-cell-r1", Generators)
+{
+  if (bridgeCellR1) await bridgeMapR.setGeoJSON("bridge-points-r", bridgeCellR1);
+}
+```
+
+## Example 2 — updating the same source with more points
+
+Same `"bridge-points-r"` source as Example 1: it doesn't recreate it,
+it updates it.
+
+```{.webgeods-r #bridge-cell-r2}
+list(type = "FeatureCollection", features = list(
+  list(type = "Feature", properties = list(name = "Rome"), geometry = list(type = "Point", coordinates = c(12.4964, 41.9028))),
+  list(type = "Feature", properties = list(name = "Milan"), geometry = list(type = "Point", coordinates = c(9.19, 45.4642)))
+))
+```
+
+```{ojs}
+//| echo: false
+bridgeCellR2 = WebGeoDS.getCellValue("bridge-cell-r2", Generators)
+{
+  if (bridgeCellR2) await bridgeMapR.setGeoJSON("bridge-points-r", bridgeCellR2);
+}
+```
+
+## Example 3 — restyling: a JS job, not an R one
+
+As in the Python lesson: changing the color or radius isn't about
+the data, so it's not R's concern. `{ojs}` decides it, directly on
+the native MapLibre instance:
+
+```{ojs}
+//| echo: false
+restyleBridgePointsR = {
+  const button = document.createElement("button");
+  button.textContent = "Color the points terracotta";
+  button.onclick = () => {
+    bridgeMapR.map.setPaintProperty("bridge-points-r", "circle-color", "#b0522c");
+    bridgeMapR.map.setPaintProperty("bridge-points-r", "circle-radius", 10);
+  };
+  return button;
+}
+```
+
+${restyleBridgePointsR}
+
+Same rule as the Python lesson: **R answers "what is this data", JS
+decides "what should the user see of it"** — neither language knows
+about the other beyond this boundary.
+
+## Reference — the part of `map.js` relevant here
+
+| Method | Effect |
+|---|---|
+| `setGeoJSON(sourceId, data, options)` | Creates the source/layer if it doesn't exist, otherwise just updates the data. `options.paint` sets the style ONLY at creation time. |
+| `getGeoJSON(sourceId)` | Reads back the GeoJSON currently on the source. |
+| `addMarkers(sourceId, options)` / `clearMarkers(sourceId)` | Markers on a subset of features (`options.filter`/`options.property`). |
+| `highlight(sourceId, featureIds)` / `clearHighlights(sourceId)` | Highlights specific features on a dedicated layer, without touching the base style. |
+
+For anything more specific than these, `sharedMap.map` is the native
+MapLibre GL JS instance — no wrapper to work around.

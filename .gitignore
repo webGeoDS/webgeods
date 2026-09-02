@@ -1,0 +1,21 @@
+# Build/render output
+_site/
+.quarto/
+blog/_site/
+blog/.quarto/
+lessons/_site/
+lessons/.quarto/
+
+# Dependencies (reproducible via npm install)
+node_modules/
+codemirror-build/node_modules/
+
+# R / RStudio project state
+.Rproj.user/
+.Rhistory
+.RData
+
+# Logs and scratch files from previous sessions
+*.log
+_blog-server.log
+.claude/

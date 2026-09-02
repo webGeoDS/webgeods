@@ -1,0 +1,100 @@
+/* css styles */
+
+/* Code cell container — "Field Atlas" palette. Source of truth: the
+   "webgeods Field Atlas System" Claude Design canvas (Tokens/Components
+   artboards) — hex values transcribed from there. Sharp corners
+   throughout (no border-radius) by design, matching the canvas. */
+.webgeods-editor-container {
+  margin-bottom: 20px;
+  border: 1px solid #5a4f3e;
+  background-color: #eee5d2;
+}
+
+/* Top toolbar: language label on the left, Run button on the right. */
+.webgeods-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #ddd1b8;
+  padding: 6px 12px;
+  border-bottom: 1px solid #5a4f3e;
+}
+
+/* Language label (R/Python). */
+.webgeods-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8a7a5f;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Run button. */
+.webgeods-run-btn {
+  background: #42583c;
+  color: #f3ede1;
+  border: none;
+  border-radius: 0;
+  padding: 4px 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.webgeods-run-btn:hover {
+  background: #526b4a;
+}
+
+.webgeods-run-btn:disabled {
+  background: #ddd1b8;
+  color: #8a7a5f;
+  cursor: not-allowed;
+}
+
+/* Log colors by status level — same semantic tokens as _brand.yml
+   (info/successo/errore), for readable contrast against the
+   carta/carta-scura backgrounds above. */
+.webgeods-log-waiting { color: #8a7a5f; font-style: italic; }
+.webgeods-log-running { color: #3d5a73; font-weight: bold; }
+.webgeods-log-error   { color: #8b2f24; }
+.webgeods-log-success { color: #42583c; }
+
+/* Optional detail line (second argument of CellOutput.log()). */
+.webgeods-log-detail {
+  color: #8a7a5f;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* Output area — same shade as the editor body, one step darker than
+   the page background so the whole cell reads as a distinct panel. */
+.webgeods-output {
+  background: #eee5d2;
+  border-top: 1px solid #5a4f3e;
+  padding: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  min-height: 45px;
+  white-space: pre-wrap;
+  color: #2a2117;
+}
+
+.webgeods-map-container {
+  width: 100%;
+  height: 500px; /* explicit height required for MapLibre to render */
+  border: 1px solid #5a4f3e;
+  border-radius: 0;
+  margin-top: 20px;
+  background-color: #f3ede1;
+}
+
+/* Row-level coloring for WebGeoDS.Map.table()'s rowClassName option —
+   tints of the same red/green already used for MapLibre fill paint
+   throughout the topology-fix examples (#e05252/#2ea44f), so the
+   table and the map speak the same color language. */
+.webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); }
+.webgeods-row-fixed   { background-color: rgba(46, 164, 79, 0.15); }

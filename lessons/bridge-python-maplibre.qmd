@@ -1,0 +1,162 @@
+---
+title: "Python → MapLibre Bridge"
+subtitle: "Bringing data from a Python cell to a reactive map"
+---
+
+## What this bridge is
+
+Python **has no idea MapLibre exists**. A Python cell returns plain
+GeoJSON — a `dict`, or the equivalent of a GeoDataFrame — as its last
+expression; an `{ojs}` cell reads that value and draws it on the map.
+No package to install, no "map" object to build on the Python side.
+
+The practical advantage is the same as before: you can add a layer or
+update data **without reloading the whole map** — every cell you run
+only updates the source it writes to, and the map already visible
+below stays right where it is.
+
+## The map on this page
+
+It's created only once, when the page opens. The Python cells further
+down update it incrementally — they don't recreate it.
+
+<div id="bridge-map" style="height: 400px; width: 100%; border: 1px solid #5a4f3e;"></div>
+
+```{ojs}
+//| echo: false
+bridgeMap = {
+  const m = new WebGeoDS.Map("bridge-map", {
+    center: [12.4964, 41.9028], // Rome
+    zoom: 5,
+    style: "https://tiles.openfreemap.org/styles/positron"
+  });
+  await m.ready();
+  return m;
+}
+```
+
+## The two parts of the bridge
+
+### 1. The Python cell — return GeoJSON, not a map object
+
+```python
+{"type": "FeatureCollection", "features": [
+    {"type": "Feature", "properties": {"name": "Rome"}, "geometry": {"type": "Point", "coordinates": [12.4964, 41.9028]}}
+]}
+```
+
+No special `import`, no package to install: it's a plain Python
+`dict`, the cell's last expression. With a `GeoDataFrame` (geopandas)
+it's just as direct — `gdf.__geo_interface__` produces the same
+structure, properties included (verified: unlike
+`gdf.geometry.__geo_interface__`, which returns empty `properties:
+{}`, you need to use the whole GeoDataFrame, not just its geometry
+column). If the CRS isn't already WGS84, it needs to be reprojected
+first — `__geo_interface__` doesn't do that on its own:
+
+```python
+gdf.to_crs(epsg=4326).__geo_interface__
+```
+
+### 2. `getCellValue` + `setGeoJSON` — read and draw
+
+```js
+value = WebGeoDS.getCellValue("my-cell-id", Generators)
+{
+  if (value) await myMap.setGeoJSON("my-source", value);
+}
+```
+
+`WebGeoDS.getCellValue(cellId, Generators)` (defined in
+`shared/code-cell.js`) reactively observes the current value of a
+Python/R cell identified by its id; `sharedMap.setGeoJSON(sourceId,
+data, options)` (`shared/map.js`) draws it — creates the source/layer
+if they don't exist yet, otherwise just updates the data. No queue of
+calls to replay, no delta tracking: it's just "read the current
+value, show it".
+
+::: {.callout-note}
+**Watch out for state**: it isn't the Python cell that "remembers"
+what's on the map, it's the **source** — it stays exactly as it is
+until you update it (another `setGeoJSON()` on the same id) or clear
+it (`setGeoJSON(id, {type: "FeatureCollection", features: []})`).
+Re-running the same Python cell with the same result does nothing
+new; running it with a different result updates the source, without
+ever recreating the map.
+:::
+
+## Example 1 — a source with one point
+
+```{.webgeods-python #bridge-cell-1}
+{"type": "FeatureCollection", "features": [
+    {"type": "Feature", "properties": {"name": "Rome"}, "geometry": {"type": "Point", "coordinates": [12.4964, 41.9028]}}
+]}
+```
+
+```{ojs}
+//| echo: false
+bridgeCell1 = WebGeoDS.getCellValue("bridge-cell-1", Generators)
+{
+  if (bridgeCell1) await bridgeMap.setGeoJSON("bridge-points", bridgeCell1);
+}
+```
+
+## Example 2 — updating the same source with more points
+
+Same `"bridge-points"` source as Example 1: it doesn't recreate it,
+it updates it — `setGeoJSON()` calls `source.setData()` when the
+source already exists.
+
+```{.webgeods-python #bridge-cell-2}
+{"type": "FeatureCollection", "features": [
+    {"type": "Feature", "properties": {"name": "Rome"}, "geometry": {"type": "Point", "coordinates": [12.4964, 41.9028]}},
+    {"type": "Feature", "properties": {"name": "Milan"}, "geometry": {"type": "Point", "coordinates": [9.19, 45.4642]}}
+]}
+```
+
+```{ojs}
+//| echo: false
+bridgeCell2 = WebGeoDS.getCellValue("bridge-cell-2", Generators)
+{
+  if (bridgeCell2) await bridgeMap.setGeoJSON("bridge-points", bridgeCell2);
+}
+```
+
+## Example 3 — restyling: a JS job, not a Python one
+
+Changing the color or radius of the points isn't a question about
+the data — Python has nothing to say here. The `{ojs}` cell decides
+it directly, calling the native MapLibre instance exposed by
+`sharedMap.map` (no dedicated method needed for a case this
+straightforward):
+
+```{ojs}
+//| echo: false
+restyleBridgePoints = {
+  const button = document.createElement("button");
+  button.textContent = "Color the points terracotta";
+  button.onclick = () => {
+    bridgeMap.map.setPaintProperty("bridge-points", "circle-color", "#b0522c");
+    bridgeMap.map.setPaintProperty("bridge-points", "circle-radius", 10);
+  };
+  return button;
+}
+```
+
+${restyleBridgePoints}
+
+This is the central point of the model: **Python answers "what is
+this data", JS decides "what should the user see of it"**. Neither
+language needs to know about the other beyond this boundary.
+
+## Reference — the part of `map.js` relevant here
+
+| Method | Effect |
+|---|---|
+| `setGeoJSON(sourceId, data, options)` | Creates the source/layer if it doesn't exist, otherwise just updates the data. `options.paint` sets the style ONLY at creation time. |
+| `getGeoJSON(sourceId)` | Reads back the GeoJSON currently on the source. |
+| `addMarkers(sourceId, options)` / `clearMarkers(sourceId)` | Markers on a subset of features (`options.filter`/`options.property`). |
+| `highlight(sourceId, featureIds)` / `clearHighlights(sourceId)` | Highlights specific features on a dedicated layer, without touching the base style. |
+
+For anything more specific than these, `sharedMap.map` is the native
+MapLibre GL JS instance — no wrapper to work around.

@@ -1,0 +1,37 @@
+project:
+  type: website
+  resources:
+    - "runtime.js"
+    - "python.js"
+    - "r.js"
+    - "code-cell.js"
+    - "map.js"
+    - "styles.css"
+    - "alidade_smooth.json"
+website:
+  title: "test7"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
+      - about.qmd
+
+format:
+  html:
+    theme:
+      - cosmo
+      - brand
+    css: styles.css
+    embed-resources: true
+    include-after-body:
+      - text: |
+          <script src="runtime.js"></script>
+          <script src="python.js"></script>
+          <script src="r.js"></script>
+          <script src="code-cell.js"></script>
+          <script src="map.js"></script>
+    toc: true
+filters:
+  - webgeods-cells.lua
+
+

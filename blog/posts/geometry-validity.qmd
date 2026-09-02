@@ -1,0 +1,680 @@
+---
+title: "Geometry validity: find and understand invalid geometries"
+date: 2026-08-29
+categories: [tool, geometry, bilingual]
+description: "An interactive lab with Python, R and MapLibre — upload a GeoJSON, find out which geometries are invalid and why, compare how the two languages diagnose the same problem. Repair is a separate, optional step."
+---
+
+Upload a GeoJSON, find out which geometries are invalid and why, and
+run the same diagnosis in Python and in R on the same map — repair
+(`make_valid()`/`st_make_valid()`) is a separate, optional step, at
+the bottom of the page.
+
+A `.geojson`, or a shapefile (either as a single `.zip`, or as
+`.shp`/`.dbf`/`.shx` selected together) — see the section below.
+
+Just want to quickly validate or fix a file, without the rest of the
+reading? Use the
+[standalone tool](/tools/geojson-shapefile-validator.html) — same
+engine, less prose.
+
+```{ojs}
+//| echo: false
+// The input and the writing logic into the virtual filesystem live in
+// shared/upload.js (WebGeoDS.Upload) — same helper used in
+// topology-errors.qmd, not rewritten here.
+viewof uploadedFiles = WebGeoDS.Upload.createInput()
+```
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+## Can a polygon look normal and still be invalid?
+
+```{mermaid}
+flowchart TD
+    A["Looks fine on the map"] --> B["Polygon"]
+    B --> C["Geometry validator"]
+    C --> D["❌ INVALID"]
+    D --> E["Why?"]
+```
+
+Yes — a polygon can have a boundary that crosses itself, a hole that
+extends outside the outer boundary, or two holes that overlap, and it's
+not uncommon for the shape on the map to look perfectly fine. Below you
+can find out exactly what to look for, in your own file or in one of
+the four ready-made examples further down.
+
+## Shared map and table
+
+A single map and table, shared by every example on the page: run the
+same diagnosis in Python or R and compare the result here.
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The color is decided by JS, not by Python/R: the Python/R cells only
+// return GeoJSON with properties like "valid" — neither language knows
+// or needs to know who's going to draw it red or green.
+//
+// Used ONLY on the first setGeoJSON() call on a source (when it
+// creates the layer — setGeoJSON() on an already-existing source only
+// calls setData(), never setPaintProperty): the paint chosen at
+// diagnosis time stays fixed for the layer's whole lifetime, even
+// after Repair replaces the data with different properties
+// (valid_before/valid_after, no longer "valid"). That's why it checks
+// BOTH possible keys — not just "valid" — otherwise the color would
+// stay red forever after the repair (verified empirically: a real
+// bug, not a theoretical one).
+VALIDITY_PAINT = ({
+  "fill-color": [
+    "case",
+    ["any", ["==", ["get", "valid"], true], ["==", ["get", "valid_after"], true]],
+    "#2ea44f",
+    "#e05252"
+  ],
+  "fill-opacity": 0.55
+})
+```
+
+```{ojs}
+//| echo: false
+topologyTable = sharedMap.tableCell(["geometry-py", "geometry-r"], null, Generators, {
+  rowClassName: (row) => {
+    if (row.valid_after === "false") return "webgeods-row-invalid";
+    if (row.valid_before === "false") return "webgeods-row-fixed";
+    if (row.valid === "false") return "webgeods-row-invalid";
+    return "";
+  }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Reactive report above the table: totals + valid/invalid count,
+// recomputed every time the content of one of the two sources
+// actually changes (same 'sourcedata'/'content' event tableCell()
+// already uses internally, listened to directly here because this
+// needs a count, not a table). Reads both the diagnosis property
+// ("valid") and the post-repair one ("valid_after"), so it stays
+// correct even after the Repair section further down has run.
+validationStats = Generators.observe((change) => {
+  const isInvalid = (feature) => {
+    const p = feature.properties ?? {};
+    return "valid_after" in p ? p.valid_after === false : p.valid === false;
+  };
+  const compute = () => {
+    const features = ["geometry-py", "geometry-r"].flatMap((id) => sharedMap.getGeoJSON(id)?.features ?? []);
+    const total = features.length;
+    const invalid = features.filter(isInvalid).length;
+    change({ total, valid: total - invalid, invalid });
+  };
+  compute();
+  const handler = (e) => {
+    if (e.dataType === "source" && e.sourceDataType === "content" && (e.sourceId === "geometry-py" || e.sourceId === "geometry-r")) {
+      compute();
+    }
+  };
+  sharedMap.map.on("sourcedata", handler);
+  return () => sharedMap.map.off("sourcedata", handler);
+})
+```
+
+**Geometry validity** — ${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid.
+
+```{ojs}
+//| echo: false
+resetTopology = async () => {
+  for (const id of ["geometry-py", "geometry-r"]) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and table";
+  button.onclick = () => resetTopology();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+// Factory for the "Load this example" buttons: replaces the code of
+// the diagnosis cell pair via WebGeoDS.CodeCell.find() + setCode() —
+// doesn't run anything on its own, leaves the "Run" click to the
+// student.
+loadExampleButton = (label, pyCode, rCode) => {
+  const button = document.createElement("button");
+  button.textContent = label;
+  button.onclick = async () => {
+    await Promise.all([
+      window.WebGeoDS.CodeCell.find("geometry-diagnose-py")?.setCode(pyCode),
+      window.WebGeoDS.CodeCell.find("geometry-diagnose-r")?.setCode(rCode)
+    ]);
+    document.getElementById("geometry-diagnose-py")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+pyBowtieCode = `import geopandas as gpd
+from shapely.geometry import shape, mapping
+from shapely.validation import explain_validity
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+if gdf is None:
+    bowtie = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.55, 41.95], [12.45, 41.95], [12.55, 41.85], [12.45, 41.85]]]}
+    gdf = gpd.GeoDataFrame({"name": ["bowtie"]}, geometry=[shape(bowtie)], crs="EPSG:4326")
+
+if "name" not in gdf.columns:
+    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+gdf["valid"] = gdf.geometry.is_valid
+gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+
+{
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"name": row["name"], "valid": bool(row["valid"]), "reason": row["reason"]}, "geometry": mapping(row.geometry)}
+        for _, row in gdf.iterrows()
+    ]
+}`
+rBowtieCode = `data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(sf::st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+if (is.null(data)) {
+  wkt <- "POLYGON((12.45 41.85, 12.55 41.95, 12.45 41.95, 12.55 41.85, 12.45 41.85))"
+  data <- sf::st_sf(name = "bowtie", geometry = sf::st_as_sfc(wkt, crs = 4326))
+}
+if (!("name" %in% names(data))) {
+  data$name <- paste("geometry", seq_len(nrow(data)))
+}
+
+data$valid <- sf::st_is_valid(data)
+data$reason <- sf::st_is_valid(data, reason = TRUE)
+data$reason[data$valid] <- NA
+
+jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)`
+```
+
+```{ojs}
+//| echo: false
+tryExampleButton = loadExampleButton("▶ Try an example (bowtie polygon)", pyBowtieCode, rBowtieCode)
+```
+
+## Diagnose: validate your geometry
+
+Run the same check in Python or R on the current data (your file
+uploaded above, or the example already loaded below) — no repair yet,
+just diagnosis: is the geometry valid? If not, why?
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #geometry-diagnose-py}
+#| package: geopandas, shapely
+import geopandas as gpd
+from shapely.geometry import shape, mapping
+from shapely.validation import explain_validity
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+if gdf is None:
+    bowtie = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.55, 41.95], [12.45, 41.95], [12.55, 41.85], [12.45, 41.85]]]}
+    gdf = gpd.GeoDataFrame({"name": ["bowtie"]}, geometry=[shape(bowtie)], crs="EPSG:4326")
+
+if "name" not in gdf.columns:
+    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+gdf["valid"] = gdf.geometry.is_valid
+gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+
+{
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"name": row["name"], "valid": bool(row["valid"]), "reason": row["reason"]}, "geometry": mapping(row.geometry)}
+        for _, row in gdf.iterrows()
+    ]
+}
+```
+
+## R
+
+```{.webgeods-r #geometry-diagnose-r}
+#| package: sf, geojsonsf, jsonlite
+data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(sf::st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+if (is.null(data)) {
+  wkt <- "POLYGON((12.45 41.85, 12.55 41.95, 12.45 41.95, 12.55 41.85, 12.45 41.85))"
+  data <- sf::st_sf(name = "bowtie", geometry = sf::st_as_sfc(wkt, crs = 4326))
+}
+if (!("name" %in% names(data))) {
+  data$name <- paste("geometry", seq_len(nrow(data)))
+}
+
+data$valid <- sf::st_is_valid(data)
+data$reason <- sf::st_is_valid(data, reason = TRUE)
+data$reason[data$valid] <- NA
+
+jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+//| output: false
+// No Map()/webgeods_map() involved: the cells above return plain
+// GeoJSON as their own value (no MapLibre API in their code,
+// verified). WebGeoDS.getCellValue() reads it reactively,
+// sharedMap.setGeoJSON() draws it — no queue of calls to replay, no
+// delta tracking: it's just "read the current value, show it". gdf
+// (Python) and data (R) stay in the session to be reused by the
+// Repair section further down.
+pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
+{
+  if (pyDiagnose) {
+    await sharedMap.setGeoJSON("geometry-py", pyDiagnose, { paint: VALIDITY_PAINT });
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rDiagnose = WebGeoDS.getCellValue("geometry-diagnose-r", Generators)
+{
+  if (rDiagnose) {
+    await sharedMap.setGeoJSON("geometry-r", rDiagnose, { paint: VALIDITY_PAINT });
+  }
+}
+```
+
+## Same spatial question, two languages
+
+Python and R answer the same question with one line each:
+
+**Python**
+
+```python
+gdf.geometry.is_valid
+```
+
+**R**
+
+```r
+sf::st_is_valid(data)
+```
+
+Both go through the same geometry engine, GEOS, for this calculation —
+but don't expect the exact same text when you ask *why* a geometry is
+invalid: `explain_validity()` in Python includes the coordinates of the
+problem (e.g. `"Self-intersection[12.5 41.9]"`), while
+`st_is_valid(reason = TRUE)` in R describes the edges involved without
+coordinates (e.g. `"Edge 0 crosses edge 2"`) — same calculation,
+different vocabulary. It's exactly the kind of detail that
+distinguishes one spatial ecosystem from the other, not a bug in
+either one.
+
+## Valid according to whom?
+
+"Valid" isn't absolute: it depends on the geometric model and the
+engine checking it.
+
+- **Python** → `shapely` → always GEOS.
+- **R** → `sf` → GEOS or S2, depending on `sf::sf_use_s2()`.
+
+For the diagnosis above the difference doesn't show. It becomes
+concrete in the repair, below:
+
+::: {.callout-important}
+**Why `sf_use_s2(FALSE)` before `st_make_valid()`?** With geographic
+coordinates (lon/lat) and `sf_use_s2(TRUE)` (the default),
+`st_make_valid()` in R dispatches to `s2::s2_rebuild()` instead of
+GEOS — a different algorithm that, on these cases, **fixes nothing**,
+returning the geometry unchanged without an error. Verified not just
+on webR but also on real R 4.3.3 with sf 1.0.15: this isn't a bug in
+this project, it's documented `sf` behavior (see issues #1985 and
+#1771 on [r-spatial/sf](https://github.com/r-spatial/sf/issues/1985)).
+Forcing `sf_use_s2(FALSE)` routes the call through GEOS, which works
+correctly here; it's turned back on right after, because other
+operations (distances, areas) on geographic coordinates benefit from
+S2. `shapely` in Python doesn't have this problem because it has no
+alternative S2 engine: it always goes through GEOS.
+:::
+
+## Gallery of geometric errors
+
+| Error | What happens | Detect | Fix |
+|---|---|---|---|
+| Self-intersection | The boundary crosses itself | ✓ | ✓ |
+| Hole outside the boundary | An inner ring extends outside | ✓ | ✓ |
+| Self-touching ring | The boundary touches itself at a point | ✓ | ✓ |
+| Overlapping holes | Two inner rings intersect | ✓ | ✓ |
+
+Each example below loads its own data into the diagnosis cell pair
+above — no repair here, that's in the Repair section at the bottom of
+the page.
+
+### Self-intersection ("bowtie")
+
+<svg viewBox="0 0 220 170" style="max-width: 320px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Bowtie polygon: the boundary crosses itself at the center">
+  <rect x="1" y="1" width="218" height="168" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
+  <path d="M 20 140 L 200 20 L 20 20 L 200 140 Z" fill="#e05252" fill-opacity="0.35" stroke="#2a2117" stroke-width="2"/>
+  <circle cx="110" cy="80" r="5" fill="#e05252" stroke="#2a2117" stroke-width="1.5"/>
+  <text x="110" y="105" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">self-intersection</text>
+</svg>
+
+The polygon's boundary crosses itself, forming a bowtie shape instead
+of a single closed area — the most common case in practice, often the
+result of imprecise manual digitizing.
+
+```{ojs}
+//| echo: false
+loadBowtieButton = loadExampleButton("📋 Load this example", pyBowtieCode, rBowtieCode)
+```
+
+Scroll to the **Repair** section at the bottom of the page to see how
+it's fixed.
+
+### Hole extending outside the boundary
+
+<svg viewBox="0 0 260 220" style="max-width: 320px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Polygon with a hole extending outside the outer boundary">
+  <rect x="1" y="1" width="258" height="218" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
+  <rect x="40" y="40" width="160" height="160" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
+  <rect x="140" y="40" width="60" height="80" fill="#f3ede1"/>
+  <rect x="140" y="20" width="100" height="20" fill="#e05252" fill-opacity="0.7"/>
+  <rect x="200" y="40" width="40" height="80" fill="#e05252" fill-opacity="0.7"/>
+  <rect x="140" y="20" width="100" height="100" fill="none" stroke="#2a2117" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="130" y="205" text-anchor="middle" font-family="monospace" font-size="11" fill="#2a2117">hole extends past the boundary</text>
+</svg>
+
+A "hole" (inner ring, e.g. a lake inside a land polygon) must lie
+entirely within the outer boundary. If even part of the hole extends
+outside it, the geometry violates the Simple Features validity rules.
+
+```{ojs}
+//| echo: false
+pyHoleCode = `import geopandas as gpd
+from shapely.geometry import shape, mapping
+from shapely.validation import explain_validity
+
+geom = shape({
+  "type": "Polygon",
+  "coordinates": [
+    [[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]],
+    [[3, 3], [5, 3], [5, 5], [3, 5], [3, 3]]
+  ]
+})
+
+{
+    "type": "FeatureCollection",
+    "features": [{
+        "type": "Feature",
+        "properties": {"name": "hole-outside-boundary", "valid": geom.is_valid, "reason": None if geom.is_valid else explain_validity(geom)},
+        "geometry": mapping(geom)
+    }]
+}`
+rHoleCode = `wkt <- "POLYGON((0 0, 4 0, 4 4, 0 4, 0 0), (3 3, 5 3, 5 5, 3 5, 3 3))"
+geom <- sf::st_as_sfc(wkt, crs = 4326)
+data <- sf::st_sf(name = "hole-outside-boundary", geometry = geom)
+data$valid <- sf::st_is_valid(data)
+data$reason <- sf::st_is_valid(data, reason = TRUE)
+data$reason[data$valid] <- NA
+
+jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)`
+```
+
+```{ojs}
+//| echo: false
+loadHoleButton = loadExampleButton("📋 Load this example", pyHoleCode, rHoleCode)
+```
+
+Scroll to the **Repair** section at the bottom of the page to see how
+it's fixed.
+
+### Ring touching itself (hourglass)
+
+<svg viewBox="0 0 220 220" style="max-width: 320px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Two lobes of a polygon touching at a single vertex, without crossing">
+  <rect x="1" y="1" width="218" height="218" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
+  <path d="M 20 20 L 200 20 L 110 110 Z" fill="#e05252" fill-opacity="0.35" stroke="#2a2117" stroke-width="2"/>
+  <path d="M 110 110 L 20 200 L 200 200 Z" fill="#e05252" fill-opacity="0.35" stroke="#2a2117" stroke-width="2"/>
+  <circle cx="110" cy="110" r="5" fill="#e05252" stroke="#2a2117" stroke-width="1.5"/>
+  <text x="110" y="135" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">a single shared vertex</text>
+</svg>
+
+The polygon's boundary touches itself at one point, without crossing,
+effectively splitting the shape into two lobes joined by a single
+vertex — not cleanly connected, so invalid.
+
+```{ojs}
+//| echo: false
+pyTouchCode = `import geopandas as gpd
+from shapely.geometry import shape, mapping
+from shapely.validation import explain_validity
+
+geom = shape({"type": "Polygon", "coordinates": [[[0, 0], [2, 2], [4, 0], [4, 4], [2, 2], [0, 4], [0, 0]]]})
+
+{
+    "type": "FeatureCollection",
+    "features": [{
+        "type": "Feature",
+        "properties": {"name": "hourglass", "valid": geom.is_valid, "reason": None if geom.is_valid else explain_validity(geom)},
+        "geometry": mapping(geom)
+    }]
+}`
+rTouchCode = `wkt <- "POLYGON((0 0, 2 2, 4 0, 4 4, 2 2, 0 4, 0 0))"
+geom <- sf::st_as_sfc(wkt, crs = 4326)
+data <- sf::st_sf(name = "hourglass", geometry = geom)
+data$valid <- sf::st_is_valid(data)
+data$reason <- sf::st_is_valid(data, reason = TRUE)
+data$reason[data$valid] <- NA
+
+jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)`
+```
+
+```{ojs}
+//| echo: false
+loadTouchButton = loadExampleButton("📋 Load this example", pyTouchCode, rTouchCode)
+```
+
+Scroll to the **Repair** section at the bottom of the page to see how
+it's fixed.
+
+### Overlapping holes
+
+<svg viewBox="0 0 260 260" style="max-width: 320px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Two holes overlapping inside the same polygon, like a Venn diagram">
+  <defs>
+    <clipPath id="holeA-clip"><circle cx="105" cy="130" r="55"/></clipPath>
+  </defs>
+  <rect x="1" y="1" width="258" height="258" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
+  <rect x="20" y="20" width="220" height="220" fill="#42583c" fill-opacity="0.15" stroke="#2a2117" stroke-width="2"/>
+  <circle cx="105" cy="130" r="55" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
+  <circle cx="155" cy="130" r="55" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
+  <circle cx="155" cy="130" r="55" fill="#e05252" fill-opacity="0.85" clip-path="url(#holeA-clip)"/>
+  <text x="130" y="230" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">the two holes overlap</text>
+</svg>
+
+If a polygon has more than one hole, they can't overlap each other:
+two intersecting holes create an ambiguous area — inside or outside
+the polygon? — which the model doesn't allow.
+
+```{ojs}
+//| echo: false
+pyOverlapHolesCode = `import geopandas as gpd
+from shapely.geometry import shape, mapping
+from shapely.validation import explain_validity
+
+geom = shape({
+  "type": "Polygon",
+  "coordinates": [
+    [[0, 0], [6, 0], [6, 6], [0, 6], [0, 0]],
+    [[1, 1], [3, 1], [3, 3], [1, 3], [1, 1]],
+    [[2, 2], [4, 2], [4, 4], [2, 4], [2, 2]]
+  ]
+})
+
+{
+    "type": "FeatureCollection",
+    "features": [{
+        "type": "Feature",
+        "properties": {"name": "overlapping-holes", "valid": geom.is_valid, "reason": None if geom.is_valid else explain_validity(geom)},
+        "geometry": mapping(geom)
+    }]
+}`
+rOverlapHolesCode = `wkt <- "POLYGON((0 0, 6 0, 6 6, 0 6, 0 0), (1 1, 3 1, 3 3, 1 3, 1 1), (2 2, 4 2, 4 4, 2 4, 2 2))"
+geom <- sf::st_as_sfc(wkt, crs = 4326)
+data <- sf::st_sf(name = "overlapping-holes", geometry = geom)
+data$valid <- sf::st_is_valid(data)
+data$reason <- sf::st_is_valid(data, reason = TRUE)
+data$reason[data$valid] <- NA
+
+jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)`
+```
+
+```{ojs}
+//| echo: false
+loadOverlapHolesButton = loadExampleButton("📋 Load this example", pyOverlapHolesCode, rOverlapHolesCode)
+```
+
+Scroll to the **Repair** section below to see how it's fixed.
+
+## Repair (optional)
+
+The diagnosis tells you what's wrong. Repair changes the data —
+`make_valid()`/`st_make_valid()` rebuild the geometry into an
+equivalent, valid form. **Requires having run the diagnosis above at
+least once**: it reuses exactly the same data just diagnosed (`gdf` in
+Python, `data` in R stay in the session between one cell and the next,
+like in a notebook) — no new reading of the file.
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #geometry-repair-py}
+from shapely.geometry import mapping
+from shapely.validation import make_valid
+
+gdf["valid_before"] = gdf["valid"]
+gdf["geometry"] = gdf.geometry.apply(lambda g: make_valid(g) if not g.is_valid else g)
+gdf["valid_after"] = gdf.geometry.is_valid
+
+{
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"name": row["name"], "valid_before": bool(row["valid_before"]), "valid_after": bool(row["valid_after"])}, "geometry": mapping(row.geometry)}
+        for _, row in gdf.iterrows()
+    ]
+}
+```
+
+## R
+
+```{.webgeods-r #geometry-repair-r}
+data$valid_before <- data$valid
+
+sf::sf_use_s2(FALSE)
+data <- sf::st_make_valid(data)
+sf::sf_use_s2(TRUE)
+
+data$valid_after <- sf::st_is_valid(data)
+
+jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+//| output: false
+// No `{ paint: ... }` here: the source already exists from the
+// diagnosis, so setGeoJSON() only calls setData() — the paint option
+// would only be read if it had to create the layer from scratch,
+// which never happens at this point.
+pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
+{
+  if (pyRepair) {
+    await sharedMap.setGeoJSON("geometry-py", pyRepair);
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rRepair = WebGeoDS.getCellValue("geometry-repair-r", Generators)
+{
+  if (rRepair) {
+    await sharedMap.setGeoJSON("geometry-r", rRepair);
+  }
+}
+```
+
+The table and the report above update themselves — the
+`valid_before`/`valid_after` columns automatically appear next to the
+diagnosis ones.
+
+## What about relationships between geometries?
+
+A geometry can be perfectly valid on its own and still be wrong in
+relation to other geometries — two valid polygons overlapping when
+they shouldn't, a gap between areas that should touch. That's a
+different problem: topology. It's covered in
+[Topology Errors in a GeoJSON](topology-errors.qmd).

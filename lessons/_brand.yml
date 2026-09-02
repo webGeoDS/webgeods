@@ -1,0 +1,69 @@
+# _brand.yml — webgeods.com brand identity (Quarto brand.yml spec)
+#
+# Source of truth: the "webgeods Field Atlas System" Claude Design
+# canvas — hex values, font names and the logo mark are transcribed
+# from its Tokens/Logo/Components artboards, not invented here.
+#
+# Palette concept: warm paper/ink cartography ("field atlas") — see
+# styles.css for the matching code-cell design. Logo: webgeods-logo.svg
+# (triangle/peak with a terracotta point), copied into blog/ and
+# lessons/ by sync-shared-assets.sh.
+
+meta:
+  name: "webgeods"
+  # link: https://webgeods.com
+
+logo:
+  images:
+    webgeods-logo:
+      path: webgeods-logo.svg
+  small: webgeods-logo
+  medium: webgeods-logo
+  large: webgeods-logo
+
+color:
+  palette:
+    carta: "#f3ede1"          # paper — page background
+    carta-scura: "#eee5d2"    # darker paper — toolbars, cards, callout fill
+    inchiostro: "#2a2117"     # ink — body text, headings
+    inchiostro-tenue: "#5a4f3e" # muted ink — secondary text
+    terracotta: "#b0522c"     # primary accent — CTAs, data points/lines on the map
+    muschio: "#42583c"        # moss — success state, area/region fills on the map
+    hairline: "#ddd1b8"       # borders throughout, no rounded corners by design
+    etichetta: "#8a7a5f"      # muted label color (uppercase eyebrow text, tags)
+    info: "#3d5a73"
+    attenzione: "#c48a2e"
+    errore: "#8b2f24"
+
+  foreground: inchiostro
+  background: carta
+  primary: terracotta
+  secondary: muschio
+  success: muschio
+  info: info
+  warning: attenzione
+  danger: errore
+  dark: inchiostro
+  light: carta-scura
+
+typography:
+  # No `fonts:` here: tried `source: file` pointing at the vendored
+  # .woff2 files below, but this Quarto version (1.7.29) never
+  # generates the @font-face rules for it — confirmed by grepping the
+  # installed quarto.js bundle, the string "font-face" doesn't appear
+  # in it at all. Font loading is handled directly by fonts.css
+  # instead (@font-face + explicit body/heading rules), same file
+  # lessons/ already uses (it has no _brand.yml of its own).
+  base: "Source Sans 3"
+  headings:
+    family: "Source Serif 4"
+    weight: 700
+  # IBM Plex Mono is also the font used inside the cells (.webgeods-label
+  # / .webgeods-output in styles.css) — kept identical here so inline
+  # code in page prose matches the font used inside the interactive
+  # cells themselves.
+  monospace: "IBM Plex Mono"
+  monospace-inline: "IBM Plex Mono"
+  link:
+    color: primary
+    decoration: none

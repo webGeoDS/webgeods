@@ -1,0 +1,422 @@
+---
+title: "GeoJSON & Shapefile Validator"
+date: 2026-09-01
+categories: [tool, geometry, bilingual]
+description: "Upload a GeoJSON or a Shapefile and check whether every geometry is valid under the Simple Features model — with the reason for each error and an optional automatic repair you can download. Free, runs entirely in your browser: the file never leaves your computer."
+---
+
+Upload a file — `.geojson`, or a shapefile as a single `.zip` or as
+`.shp`/`.dbf`/`.shx` selected together — and find out whether every
+geometry is valid. If it isn't, the exact reason; if you want, we'll
+fix it and you can download the result.
+
+The check runs entirely in your browser (Python and R executed via
+WebAssembly): the file is never uploaded to a server. Want to
+understand **why** a geometry can be invalid, with a gallery of the
+most common errors? Read the
+[full article](/posts/geometry-validity.html).
+
+```{ojs}
+//| echo: false
+// The input and the writing logic into the virtual filesystem live in
+// shared/upload.js (WebGeoDS.Upload) — same helper used across the
+// blog's articles, not rewritten here.
+viewof uploadedFiles = WebGeoDS.Upload.createInput()
+```
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The color is decided by JS, not Python/R — see geometry-validity.qmd
+// for the full explanation of this pattern. Checks BOTH possible keys
+// (valid / valid_after) because the paint chosen at diagnosis time
+// stays fixed even after Repair replaces the properties.
+VALIDITY_PAINT = ({
+  "fill-color": [
+    "case",
+    ["any", ["==", ["get", "valid"], true], ["==", ["get", "valid_after"], true]],
+    "#2ea44f",
+    "#e05252"
+  ],
+  "fill-opacity": 0.55
+})
+```
+
+```{ojs}
+//| echo: false
+validatorTable = sharedMap.tableCell(["geometry-py", "geometry-r"], null, Generators, {
+  rowClassName: (row) => {
+    if (row.valid_after === "false") return "webgeods-row-invalid";
+    if (row.valid_before === "false") return "webgeods-row-fixed";
+    if (row.valid === "false") return "webgeods-row-invalid";
+    return "";
+  }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+validationStats = Generators.observe((change) => {
+  const isInvalid = (feature) => {
+    const p = feature.properties ?? {};
+    return "valid_after" in p ? p.valid_after === false : p.valid === false;
+  };
+  const compute = () => {
+    const features = ["geometry-py", "geometry-r"].flatMap((id) => sharedMap.getGeoJSON(id)?.features ?? []);
+    const total = features.length;
+    const invalid = features.filter(isInvalid).length;
+    change({ total, valid: total - invalid, invalid });
+  };
+  compute();
+  const handler = (e) => {
+    if (e.dataType === "source" && e.sourceDataType === "content" && (e.sourceId === "geometry-py" || e.sourceId === "geometry-r")) {
+      compute();
+    }
+  };
+  sharedMap.map.on("sourcedata", handler);
+  return () => sharedMap.map.off("sourcedata", handler);
+})
+```
+
+**Result** — ${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid.
+
+```{ojs}
+//| echo: false
+resetValidator = async () => {
+  for (const id of ["geometry-py", "geometry-r"]) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and table";
+  button.onclick = () => resetValidator();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+loadExampleButton = (label, pyCode, rCode) => {
+  const button = document.createElement("button");
+  button.textContent = label;
+  button.onclick = async () => {
+    await Promise.all([
+      window.WebGeoDS.CodeCell.find("geometry-diagnose-py")?.setCode(pyCode),
+      window.WebGeoDS.CodeCell.find("geometry-diagnose-r")?.setCode(rCode)
+    ]);
+    document.getElementById("geometry-diagnose-py")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+pyBowtieCode = `import geopandas as gpd
+from shapely.geometry import shape, mapping
+from shapely.validation import explain_validity
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+if gdf is None:
+    bowtie = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.55, 41.95], [12.45, 41.95], [12.55, 41.85], [12.45, 41.85]]]}
+    gdf = gpd.GeoDataFrame({"name": ["bowtie"]}, geometry=[shape(bowtie)], crs="EPSG:4326")
+
+if "name" not in gdf.columns:
+    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+gdf["valid"] = gdf.geometry.is_valid
+gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+
+{
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"name": row["name"], "valid": bool(row["valid"]), "reason": row["reason"]}, "geometry": mapping(row.geometry)}
+        for _, row in gdf.iterrows()
+    ]
+}`
+rBowtieCode = `data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(sf::st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+if (is.null(data)) {
+  wkt <- "POLYGON((12.45 41.85, 12.55 41.95, 12.45 41.95, 12.55 41.85, 12.45 41.85))"
+  data <- sf::st_sf(name = "bowtie", geometry = sf::st_as_sfc(wkt, crs = 4326))
+}
+if (!("name" %in% names(data))) {
+  data$name <- paste("geometry", seq_len(nrow(data)))
+}
+
+data$valid <- sf::st_is_valid(data)
+data$reason <- sf::st_is_valid(data, reason = TRUE)
+data$reason[data$valid] <- NA
+
+jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)`
+```
+
+```{ojs}
+//| echo: false
+tryExampleButton = loadExampleButton("▶ Try an example (bowtie polygon)", pyBowtieCode, rBowtieCode)
+```
+
+## Validate
+
+Run the check in Python or R on the current data (your file uploaded
+above, or the example loaded above) — no repair yet, just diagnosis:
+is the geometry valid? If not, why?
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #geometry-diagnose-py}
+#| package: geopandas, shapely
+import geopandas as gpd
+from shapely.geometry import shape, mapping
+from shapely.validation import explain_validity
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+if gdf is None:
+    bowtie = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.55, 41.95], [12.45, 41.95], [12.55, 41.85], [12.45, 41.85]]]}
+    gdf = gpd.GeoDataFrame({"name": ["bowtie"]}, geometry=[shape(bowtie)], crs="EPSG:4326")
+
+if "name" not in gdf.columns:
+    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+gdf["valid"] = gdf.geometry.is_valid
+gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+
+{
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"name": row["name"], "valid": bool(row["valid"]), "reason": row["reason"]}, "geometry": mapping(row.geometry)}
+        for _, row in gdf.iterrows()
+    ]
+}
+```
+
+## R
+
+```{.webgeods-r #geometry-diagnose-r}
+#| package: sf, geojsonsf, jsonlite
+data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(sf::st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+if (is.null(data)) {
+  wkt <- "POLYGON((12.45 41.85, 12.55 41.95, 12.45 41.95, 12.55 41.85, 12.45 41.85))"
+  data <- sf::st_sf(name = "bowtie", geometry = sf::st_as_sfc(wkt, crs = 4326))
+}
+if (!("name" %in% names(data))) {
+  data$name <- paste("geometry", seq_len(nrow(data)))
+}
+
+data$valid <- sf::st_is_valid(data)
+data$reason <- sf::st_is_valid(data, reason = TRUE)
+data$reason[data$valid] <- NA
+
+jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+//| output: false
+pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
+{
+  if (pyDiagnose) {
+    await sharedMap.setGeoJSON("geometry-py", pyDiagnose, { paint: VALIDITY_PAINT });
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rDiagnose = WebGeoDS.getCellValue("geometry-diagnose-r", Generators)
+{
+  if (rDiagnose) {
+    await sharedMap.setGeoJSON("geometry-r", rDiagnose, { paint: VALIDITY_PAINT });
+  }
+}
+```
+
+Python (Shapely/GEOS) and R (sf/GEOS) are two independent
+implementations: if they agree on the same geometry, that's extra
+confirmation the result is reliable, not just the output of a single
+tool.
+
+## Fix (optional)
+
+`make_valid()`/`st_make_valid()` rebuild the geometry into an
+equivalent, valid form. **Requires having run Validate above at least
+once**: it reuses exactly the same data just diagnosed, no new reading
+of the file.
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #geometry-repair-py}
+from shapely.geometry import mapping
+from shapely.validation import make_valid
+
+gdf["valid_before"] = gdf["valid"]
+gdf["geometry"] = gdf.geometry.apply(lambda g: make_valid(g) if not g.is_valid else g)
+gdf["valid_after"] = gdf.geometry.is_valid
+
+{
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"name": row["name"], "valid_before": bool(row["valid_before"]), "valid_after": bool(row["valid_after"])}, "geometry": mapping(row.geometry)}
+        for _, row in gdf.iterrows()
+    ]
+}
+```
+
+## R
+
+```{.webgeods-r #geometry-repair-r}
+data$valid_before <- data$valid
+
+sf::sf_use_s2(FALSE)
+data <- sf::st_make_valid(data)
+sf::sf_use_s2(TRUE)
+
+data$valid_after <- sf::st_is_valid(data)
+
+jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+//| output: false
+pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
+{
+  if (pyRepair) {
+    await sharedMap.setGeoJSON("geometry-py", pyRepair);
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rRepair = WebGeoDS.getCellValue("geometry-repair-r", Generators)
+{
+  if (rRepair) {
+    await sharedMap.setGeoJSON("geometry-r", rRepair);
+  }
+}
+```
+
+## Download the result
+
+Download the current state of each source — fixed if you ran the
+section above, otherwise diagnosed as-is.
+
+```{ojs}
+//| echo: false
+// Not promoted to shared/ (still only one tool using it): a Blob +
+// a temporary <a download> is enough, no library needed. If a second
+// tool ends up duplicating this same function, that's the point to
+// move it into a shared file, not before.
+downloadGeoJSON = (sourceId, filename) => {
+  const data = sharedMap.getGeoJSON(sourceId);
+  if (!data) return;
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/geo+json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+```
+
+```{ojs}
+//| echo: false
+downloadPyButton = {
+  const button = document.createElement("button");
+  button.textContent = "⬇ Download Python result";
+  button.onclick = () => downloadGeoJSON("geometry-py", "validated-geojson-python.geojson");
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+downloadRButton = {
+  const button = document.createElement("button");
+  button.textContent = "⬇ Download R result";
+  button.onclick = () => downloadGeoJSON("geometry-r", "validated-geojson-r.geojson");
+  return button;
+}
+```
+
+${downloadPyButton} ${downloadRButton}
+
+---
+
+Want to understand more about what makes a geometry invalid —
+self-intersecting boundaries, holes outside the perimeter, the
+difference between what Python sees and what R sees? The
+[full article](/posts/geometry-validity.html) uses this same engine
+with a gallery of common errors explained one by one.
