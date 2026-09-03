@@ -204,6 +204,15 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
   dato che Search Console preferisce l'URL https.
 - **Giorno 2**: 0.3 (verifica OG/sitemap sull'output pubblicato) →
   0.4 (robots.txt, invio sitemap) → 0.6 (`type: blog`).
+
+  **✅ 0.3 + 0.4 fatti (2026-09-03)**: OG tags verificati live
+  (`og:title`, `og:site_name` presenti e corretti). `robots.txt`
+  verificato live (generato automaticamente da Quarto, referenzia
+  correttamente la sitemap). Proprietà Search Console creata
+  (prefisso URL, verificata via tag HTML), sitemap
+  `https://webgeods.com/sitemap.xml` verificata (200, contiene tutte
+  le pagine) e inviata. Resta solo 0.6 (`type: blog`) per chiudere il
+  Giorno 2.
 - **Giorno 3**: 0.5 (analytics + eventi tool/funnel definiti in 0.5,
   collegati al Validator esistente) → 0.8 (form newsletter + lead
   magnet cheatsheet, riusa contenuto già scritto).
