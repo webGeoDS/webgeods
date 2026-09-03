@@ -21,12 +21,16 @@ Want to see the actual code, understand **why** a geometry can be
 invalid, or compare against R's independent implementation? Read the
 [full article](/posts/geometry-validity.html).
 
+<script src="/htl.min.js"></script>
+<script src="/observable-inputs.min.js"></script>
+
 ```{ojs}
 //| echo: false
-// The input and the writing logic into the virtual filesystem live in
-// shared/upload.js (WebGeoDS.Upload) — same helper used across the
-// blog's articles, not rewritten here.
-viewof uploadedFiles = WebGeoDS.Upload.createInput()
+// The widget is window.Inputs.file() (Observable Inputs, vendored —
+// see shared/observable-inputs.min.js); the writing logic into the
+// virtual filesystem lives in shared/upload.js (WebGeoDS.Upload) —
+// same helper used across the blog's articles, not rewritten here.
+viewof uploadedFiles = window.Inputs.file({ multiple: true, accept: WebGeoDS.Upload.accept, label: "Upload" })
 ```
 
 ```{ojs}

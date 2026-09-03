@@ -2,10 +2,17 @@
  * WebGeoDS.Upload
  *
  * Shared "upload a vector file into both runtimes' virtual
- * filesystems" helper — factors out the upload widget that was
- * duplicated identically in topology-fix.qmd and topology-errors.qmd,
- * and extends it to accept a shapefile (several sidecar files, or a
- * single .zip bundling them) in addition to a single GeoJSON.
+ * filesystems" helper. The widget itself is `window.Inputs.file(...)`
+ * (Observable Inputs, vendored — see shared/observable-inputs.min.js),
+ * called directly in each page (`viewof uploadedFiles =
+ * window.Inputs.file({ multiple: true, accept: WebGeoDS.Upload.accept,
+ * ... })`), not wrapped here: this file used to build the plain
+ * <input type="file"> itself, but that was a needless indirection
+ * once Inputs.file() covers the same one-line construction — the
+ * `accept` list stays centralized below as a plain constant instead.
+ * What's actually shared and non-trivial is load()/baseName(): they
+ * accept a shapefile (several sidecar files, or a single .zip
+ * bundling them) in addition to a single GeoJSON.
  *
  * A shapefile isn't one file: .shp (geometry) + .dbf (attributes) +
  * .shx (index), often .prj (CRS) — GDAL/OGR (used by both
@@ -49,29 +56,6 @@
     "uploaded.cpg",
     "uploaded.zip"
   ];
-
-
-  // ============================================================
-  // createInput() — the <input> element for a `viewof` cell
-  // ============================================================
-
-  function createInput() {
-
-    const input =
-      document.createElement("input");
-
-    input.type =
-      "file";
-
-    input.multiple =
-      true;
-
-    input.accept =
-      ACCEPT;
-
-    return input;
-
-  }
 
 
   // ============================================================
@@ -311,9 +295,9 @@
   // ============================================================
 
   window.WebGeoDS.Upload = {
-    createInput,
     load,
     baseName,
+    accept: ACCEPT,
     defaultStatus: DEFAULT_STATUS
   };
 

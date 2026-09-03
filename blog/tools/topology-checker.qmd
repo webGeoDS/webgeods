@@ -22,12 +22,16 @@ always requires a human decision (see the
 [full article](/posts/topology-errors.html) for why), so there's no
 "Fix" step here, just the report and a map to inspect it on.
 
+<script src="/htl.min.js"></script>
+<script src="/observable-inputs.min.js"></script>
+
 ```{ojs}
 //| echo: false
-// The input and the writing logic into the virtual filesystem live in
-// shared/upload.js (WebGeoDS.Upload) — same helper used across the
-// blog's articles, not rewritten here.
-viewof uploadedFiles = WebGeoDS.Upload.createInput()
+// The widget is window.Inputs.file() (Observable Inputs, vendored —
+// see the <script> tags above); the writing logic into the virtual
+// filesystem lives in shared/upload.js (WebGeoDS.Upload) — same
+// helper used across the blog's articles, not rewritten here.
+viewof uploadedFiles = window.Inputs.file({ multiple: true, accept: WebGeoDS.Upload.accept, label: "Upload" })
 ```
 
 ```{ojs}
@@ -79,17 +83,12 @@ before a gap between them counts — larger finds gaps further apart.
 Adjust either below before checking if the defaults don't match your
 data.
 
-<script src="/htl.min.js"></script>
-<script src="/observable-inputs.min.js"></script>
-
 ```{ojs}
 //| echo: false
-// window.Inputs, not a bare import: vendored locally (shared/
-// observable-inputs.min.js + its htl.min.js runtime dependency —
-// verified empirically it needs htl as a real window global, Quarto's
-// own OJS runtime uses htl internally but doesn't expose it), loaded
-// via a page-level <script> tag above rather than the site-wide
-// include-after-body list, since only this one page uses it so far.
+// window.Inputs, loaded via the page-level <script> tags near the
+// top of this page (shared/observable-inputs.min.js +
+// shared/htl.min.js, its runtime dependency), not the site-wide
+// include-after-body list — only tool pages use it so far.
 sliverControl = {
   const el = window.Inputs.range([0.01, 0.9], {
     value: 0.15,

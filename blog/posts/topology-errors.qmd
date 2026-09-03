@@ -35,12 +35,16 @@ A `.geojson`, or a shapefile: either as a single `.zip`, or as the
 individual `.shp`/`.dbf`/`.shx` files (and optionally `.prj`) selected
 together.
 
+<script src="/htl.min.js"></script>
+<script src="/observable-inputs.min.js"></script>
+
 ```{ojs}
 //| echo: false
-// The input and the writing logic into the virtual filesystem live in
-// shared/upload.js (WebGeoDS.Upload) — same helper used in
-// geometry-validity.qmd, not rewritten here.
-viewof uploadedFiles = WebGeoDS.Upload.createInput()
+// The widget is window.Inputs.file() (Observable Inputs, vendored —
+// see the <script> tags above); the writing logic into the virtual
+// filesystem lives in shared/upload.js (WebGeoDS.Upload) — same
+// helper used in geometry-validity.qmd, not rewritten here.
+viewof uploadedFiles = window.Inputs.file({ multiple: true, accept: WebGeoDS.Upload.accept, label: "Upload" })
 ```
 
 ```{ojs}
