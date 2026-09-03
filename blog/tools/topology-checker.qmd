@@ -1,0 +1,385 @@
+---
+title: "Topology Checker"
+date: 2026-09-03
+categories: [tool, geometry]
+description: "Upload a GeoJSON or a Shapefile and check it for the five recurring topology errors — overlap, gap, sliver, duplicates, dangle. Free, runs entirely in your browser: the file never leaves your computer."
+---
+
+Upload a file — `.geojson`, or a shapefile as a single `.zip` or as
+`.shp`/`.dbf`/`.shx` selected together — and find out whether any
+feature overlaps, leaves a gap, is a sliver, duplicates another, or
+(for lines) dangles unconnected.
+
+Runs entirely in your browser (Python via WebAssembly): the file is
+never uploaded to a server. This is diagnosis only, not repair —
+fixing a topology error almost always requires a human decision (see
+the [full article](/posts/topology-errors.html) for why), so there's
+no "Fix" step here, just the report and a map to inspect it on.
+
+```{ojs}
+//| echo: false
+// The input and the writing logic into the virtual filesystem live in
+// shared/upload.js (WebGeoDS.Upload) — same helper used across the
+// blog's articles, not rewritten here.
+viewof uploadedFiles = WebGeoDS.Upload.createInput()
+```
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "topology-checker" });
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The color is decided by JS, not Python — see topology-errors.qmd for
+// the full explanation. The geometry type isn't fixed (polygons for
+// overlap/gap/sliver/duplicates, lines for dangle), so the paint
+// itself depends on the data: setGeoJSON() (shared/map.js) detects on
+// its own when the layer's TYPE needs to change and recreates it.
+errorPaint = (data) => {
+  const geometryType = data?.features?.find((f) => f?.geometry?.type)?.geometry?.type ?? "";
+  const colorExpr = ["case", ["==", ["get", "has_error"], true], "#e05252", "#3d5a73"];
+  if (geometryType === "LineString" || geometryType === "MultiLineString") {
+    return { "line-color": colorExpr, "line-width": 4 };
+  }
+  if (geometryType === "Point" || geometryType === "MultiPoint") {
+    return { "circle-color": colorExpr, "circle-radius": 6 };
+  }
+  return { "fill-color": colorExpr, "fill-opacity": 0.55 };
+}
+```
+
+```{ojs}
+//| echo: false
+topologyTable = sharedMap.tableCell(["topology-py"], null, Generators, {
+  rowClassName: (row) => row.has_error === "true" ? "webgeods-row-invalid" : ""
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+topologyStats = Generators.observe((change) => {
+  const compute = () => {
+    const features = sharedMap.getGeoJSON("topology-py")?.features ?? [];
+    const total = features.length;
+    const errors = features.filter((f) => f.properties?.has_error === true).length;
+    change({ total, errors });
+  };
+  compute();
+  const handler = (e) => {
+    if (e.dataType === "source" && e.sourceDataType === "content" && e.sourceId === "topology-py") {
+      compute();
+    }
+  };
+  sharedMap.map.on("sourcedata", handler);
+  return () => sharedMap.map.off("sourcedata", handler);
+})
+```
+
+**Result** — ${topologyStats.total} feature, ${topologyStats.errors} with an error.
+
+```{ojs}
+//| echo: false
+resetChecker = async () => {
+  if (sharedMap.getGeoJSON("topology-py")) {
+    await sharedMap.setGeoJSON("topology-py", { type: "FeatureCollection", features: [] });
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and table";
+  button.onclick = () => resetChecker();
+  return button;
+}
+```
+
+## Check
+
+Click Check to run the five checks on the current data — your file
+uploaded above, or (if nothing's uploaded) a built-in two-polygon
+overlap example.
+
+The code itself isn't shown here — it's a fixed, non-editable check
+using GeoPandas/Shapely underneath; see the
+[full article](/posts/topology-errors.html) for the actual code,
+editable and explained one check at a time.
+
+```{.webgeods-python #topology-diagnose-py}
+#| package: geopandas, shapely
+import math
+from shapely.geometry import mapping, shape
+
+def geom_family(gdf):
+    types = set(gdf.geometry.geom_type)
+    if types <= {"Polygon", "MultiPolygon"}:
+        return "polygon"
+    if types <= {"LineString", "MultiLineString"}:
+        return "line"
+    if types <= {"Point", "MultiPoint"}:
+        return "point"
+    return "mixed"
+
+def check_overlap(gdf):
+    n = len(gdf)
+    results = [[] for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            gi, gj = gdf.geometry.iloc[i], gdf.geometry.iloc[j]
+            if gi.overlaps(gj):
+                area = gi.intersection(gj).area
+                results[i].append(("overlap", j, area))
+                results[j].append(("overlap", i, area))
+    return results
+
+def check_duplicate(gdf):
+    n = len(gdf)
+    results = [[] for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            if gdf.geometry.iloc[i].equals(gdf.geometry.iloc[j]):
+                results[i].append(("duplicate", j, 0))
+                results[j].append(("duplicate", i, 0))
+    return results
+
+def check_sliver(gdf, compactness_threshold=0.15):
+    results = [[] for _ in range(len(gdf))]
+    for i, geom in enumerate(gdf.geometry):
+        perim = geom.length
+        area = geom.area
+        if perim > 0:
+            compactness = 4 * math.pi * area / (perim ** 2)
+            if compactness < compactness_threshold:
+                results[i].append(("sliver", None, compactness))
+    return results
+
+def check_gap(gdf, min_area=1e-6, proximity=0.06):
+    n = len(gdf)
+    gaps = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            gi, gj = gdf.geometry.iloc[i], gdf.geometry.iloc[j]
+            if gi.overlaps(gj):
+                continue
+            if gi.equals(gj):
+                continue
+            if gi.distance(gj) > proximity:
+                continue
+            pair_union = gi.union(gj)
+            gap_geom = pair_union.convex_hull.difference(pair_union)
+            if not gap_geom.is_empty:
+                parts = gap_geom.geoms if hasattr(gap_geom, "geoms") else [gap_geom]
+                for part in parts:
+                    if part.area > min_area:
+                        gaps.append(part)
+    return gaps
+
+def check_dangle(gdf, tolerance=1e-9):
+    endpoints = []
+    for i, geom in enumerate(gdf.geometry):
+        coords = list(geom.coords)
+        endpoints.append((i, "start", coords[0]))
+        endpoints.append((i, "end", coords[-1]))
+    results = [[] for _ in range(len(gdf))]
+    for i, which, (x, y) in endpoints:
+        connected = False
+        for j, which2, (x2, y2) in endpoints:
+            if j == i:
+                continue
+            if ((x - x2) ** 2 + (y - y2) ** 2) ** 0.5 <= tolerance:
+                connected = True
+                break
+        if not connected:
+            results[i].append(("dangle", which, 0))
+    return results
+
+def detect_and_check(gdf):
+    family = geom_family(gdf)
+    n = len(gdf)
+    per_feature = [[] for _ in range(n)]
+    extra_features = []
+
+    dup = check_duplicate(gdf)
+    for i in range(n):
+        per_feature[i].extend(dup[i])
+
+    if family == "polygon":
+        ov = check_overlap(gdf)
+        sl = check_sliver(gdf)
+        for i in range(n):
+            per_feature[i].extend(ov[i])
+            per_feature[i].extend(sl[i])
+        for gap_geom in check_gap(gdf):
+            extra_features.append({
+                "type": "Feature",
+                "properties": {
+                    "name": "gap", "error_type": "gap", "has_error": True,
+                    "partner": "", "metric": round(gap_geom.area, 6), "severity": "warning"
+                },
+                "geometry": mapping(gap_geom)
+            })
+    elif family == "line":
+        dg = check_dangle(gdf)
+        for i in range(n):
+            per_feature[i].extend(dg[i])
+
+    names = gdf["name"] if "name" in gdf.columns else [f"geometry {i+1}" for i in range(n)]
+    features = []
+    for i in range(n):
+        errs = per_feature[i]
+        has_error = len(errs) > 0
+        error_type = errs[0][0] if has_error else ""
+        partner_idx = errs[0][1] if has_error and isinstance(errs[0][1], int) else None
+        partner = str(names.iloc[partner_idx] if hasattr(names, "iloc") else names[partner_idx]) if partner_idx is not None else ""
+        metric = round(errs[0][2], 6) if has_error else 0
+        features.append({
+            "type": "Feature",
+            "properties": {
+                "name": names.iloc[i] if hasattr(names, "iloc") else names[i],
+                "error_type": error_type, "has_error": has_error,
+                "partner": partner, "metric": metric,
+                "severity": "error" if has_error else ""
+            },
+            "geometry": mapping(gdf.geometry.iloc[i])
+        })
+    features.extend(extra_features)
+    return {"type": "FeatureCollection", "features": features}
+
+import geopandas as gpd
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+if gdf is not None and "name" not in gdf.columns:
+    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+if gdf is None:
+    a = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.52, 41.85], [12.52, 41.92], [12.45, 41.92], [12.45, 41.85]]]}
+    b = {"type": "Polygon", "coordinates": [[[12.50, 41.87], [12.57, 41.87], [12.57, 41.94], [12.50, 41.94], [12.50, 41.87]]]}
+    gdf = gpd.GeoDataFrame({"name": ["A (example)", "B (example)"]}, geometry=[shape(a), shape(b)], crs="EPSG:4326")
+
+detect_and_check(gdf)
+```
+
+```{ojs}
+//| echo: false
+checkButton = {
+  const button = document.createElement("button");
+  button.textContent = "▶ Check";
+  button.onclick = async () => {
+    button.disabled = true;
+    button.textContent = "⌛ Checking...";
+    try {
+      await window.WebGeoDS.CodeCell.find("topology-diagnose-py").run();
+    } finally {
+      button.disabled = false;
+      button.textContent = "▶ Check";
+    }
+  };
+  return button;
+}
+```
+
+${checkButton}
+
+```{ojs}
+//| echo: false
+//| output: false
+pyErrors = WebGeoDS.getCellValue("topology-diagnose-py", Generators)
+{
+  if (pyErrors) await sharedMap.setGeoJSON("topology-py", pyErrors, { paint: errorPaint(pyErrors) });
+}
+```
+
+## Download the result
+
+```{ojs}
+//| echo: false
+// Not promoted to shared/ (still only one other tool using it, the
+// Validator, with a slightly different call site): a Blob + a
+// temporary <a download> is enough, no library needed.
+downloadGeoJSON = (sourceId, filename) => {
+  const data = sharedMap.getGeoJSON(sourceId);
+  if (!data) return;
+  window.WebGeoDS.track?.("download_clicked", { tool: "topology-checker", sourceId });
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/geo+json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+```
+
+```{ojs}
+//| echo: false
+downloadButton = {
+  const button = document.createElement("button");
+  button.textContent = "⬇ Download result";
+  button.onclick = () => downloadGeoJSON("topology-py", "topology-report.geojson");
+  return button;
+}
+```
+
+${downloadButton}
+
+<style>
+/* topology-diagnose-py is functional (the CodeCell engine still runs
+   it), just not shown — see geojson-shapefile-validator.qmd for the
+   full rationale and the display:none pitfall (breaks maplibre-gl.js
+   loading) already found and avoided here from the start. */
+#topology-diagnose-py {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+---
+
+Want to understand each of the five errors, see the actual code, or
+compare against R's independent implementation? The
+[full article](/posts/topology-errors.html) covers all of it, with a
+worked example for each one.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
