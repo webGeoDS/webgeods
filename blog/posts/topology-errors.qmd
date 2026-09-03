@@ -863,4 +863,4 @@ noise or a real island. A future article may cover repair strategies;
 this one deliberately stops before that, where geometry alone can no
 longer answer the question.
 
-<script async data-uid="cfffd6d286" src="https://webgeods.kit.com/cfffd6d286/index.js"></script>
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

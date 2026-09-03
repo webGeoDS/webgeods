@@ -679,4 +679,4 @@ they shouldn't, a gap between areas that should touch. That's a
 different problem: topology. It's covered in
 [Topology Errors in a GeoJSON](topology-errors.qmd).
 
-<script async data-uid="cfffd6d286" src="https://webgeods.kit.com/cfffd6d286/index.js"></script>
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
