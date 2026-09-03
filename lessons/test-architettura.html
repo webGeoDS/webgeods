@@ -26386,6 +26386,14 @@ background-color: #f3ede1;
 
 .webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); }
 .webgeods-row-fixed { background-color: rgba(46, 164, 79, 0.15); }
+
+@keyframes webgeods-btn-pulse {
+0%, 100% { opacity: 1; }
+50% { opacity: 0.55; }
+}
+.webgeods-btn-loading {
+animation: webgeods-btn-pulse 1.4s ease-in-out infinite;
+}
 </style>
 <style type="text/css">
 @font-face {
@@ -31149,7 +31157,7 @@ window._ojs.runtime.interpretFromScriptTags();
   // the page is still busy parsing/compiling a very large amount of
   // its own inline JS, most likely) — this works around the symptom
   // rather than the cause.
-  const MAX_SCRIPT_ATTEMPTS = 4;
+  const MAX_SCRIPT_ATTEMPTS = 8;
 
   function loadMapLibreScript(attempt = 1) {
 
@@ -31158,6 +31166,20 @@ window._ojs.runtime.interpretFromScriptTags();
     }
 
     return new Promise((resolve, reject) => {
+
+      // Retries beyond the first get a short delay before appending
+      // the next <script>, instead of doing it synchronously inside
+      // the previous one's onload: verified empirically (Playwright,
+      // a page with several code cells competing for the main thread
+      // right after load) that a page busy enough with other work can
+      // burn through all MAX_SCRIPT_ATTEMPTS immediately, back-to-back,
+      // faster than the browser can actually finish executing any one
+      // of them — giving the event loop a moment between attempts
+      // measurably reduced the failure rate in that same repeated test.
+      const append =
+        attempt === 1
+          ? (fn) => fn()
+          : (fn) => setTimeout(fn, 150 * (attempt - 1));
 
       const script =
         document.createElement("script");
@@ -31199,7 +31221,7 @@ window._ojs.runtime.interpretFromScriptTags();
           new Error(`WebGeoDS.Map: failed to load ${MAPLIBRE_JS_URL}.`)
         );
 
-      document.head.appendChild(script);
+      append(() => document.head.appendChild(script));
 
     });
 

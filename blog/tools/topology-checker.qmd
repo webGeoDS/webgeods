@@ -51,81 +51,6 @@ sharedMap = {
 }
 ```
 
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// The color is decided by JS, not Python — see topology-errors.qmd for
-// the full explanation. The geometry type isn't fixed (polygons for
-// overlap/gap/sliver/duplicates, lines for dangle), so the paint
-// itself depends on the data: setGeoJSON() (shared/map.js) detects on
-// its own when the layer's TYPE needs to change and recreates it.
-errorPaint = (data) => {
-  const geometryType = data?.features?.find((f) => f?.geometry?.type)?.geometry?.type ?? "";
-  const colorExpr = ["case", ["==", ["get", "has_error"], true], "#e05252", "#3d5a73"];
-  if (geometryType === "LineString" || geometryType === "MultiLineString") {
-    return { "line-color": colorExpr, "line-width": 4 };
-  }
-  if (geometryType === "Point" || geometryType === "MultiPoint") {
-    return { "circle-color": colorExpr, "circle-radius": 6 };
-  }
-  return { "fill-color": colorExpr, "fill-opacity": 0.55 };
-}
-```
-
-```{ojs}
-//| echo: false
-topologyTable = sharedMap.tableCell(["topology-py"], null, Generators, {
-  rowClassName: (row) => row.has_error === "true" ? "webgeods-row-invalid" : ""
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-topologyStats = Generators.observe((change) => {
-  const compute = () => {
-    const features = sharedMap.getGeoJSON("topology-py")?.features ?? [];
-    const total = features.length;
-    const errors = features.filter((f) => f.properties?.has_error === true).length;
-    change({ total, errors });
-  };
-  compute();
-  const handler = (e) => {
-    if (e.dataType === "source" && e.sourceDataType === "content" && e.sourceId === "topology-py") {
-      compute();
-    }
-  };
-  sharedMap.map.on("sourcedata", handler);
-  return () => sharedMap.map.off("sourcedata", handler);
-})
-```
-
-**Result** — ${topologyStats.total} feature, ${topologyStats.errors} with an error.
-
-```{ojs}
-//| echo: false
-resetChecker = async () => {
-  if (sharedMap.getGeoJSON("topology-py")) {
-    await sharedMap.setGeoJSON("topology-py", { type: "FeatureCollection", features: [] });
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and table";
-  button.onclick = () => resetChecker();
-  return button;
-}
-```
-
 ## Check
 
 Click Check to run the five checks on the current data — your file
@@ -305,11 +230,13 @@ checkButton = {
   button.textContent = "▶ Check";
   button.onclick = async () => {
     button.disabled = true;
+    button.classList.add("webgeods-btn-loading");
     button.textContent = "⌛ Checking...";
     try {
       await window.WebGeoDS.CodeCell.find("topology-diagnose-py").run();
     } finally {
       button.disabled = false;
+      button.classList.remove("webgeods-btn-loading");
       button.textContent = "▶ Check";
     }
   };
@@ -319,6 +246,35 @@ checkButton = {
 
 ${checkButton}
 
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The color is decided by JS, not Python — see topology-errors.qmd for
+// the full explanation. The geometry type isn't fixed (polygons for
+// overlap/gap/sliver/duplicates, lines for dangle), so the paint
+// itself depends on the data: setGeoJSON() (shared/map.js) detects on
+// its own when the layer's TYPE needs to change and recreates it.
+errorPaint = (data) => {
+  const geometryType = data?.features?.find((f) => f?.geometry?.type)?.geometry?.type ?? "";
+  const colorExpr = ["case", ["==", ["get", "has_error"], true], "#e05252", "#3d5a73"];
+  if (geometryType === "LineString" || geometryType === "MultiLineString") {
+    return { "line-color": colorExpr, "line-width": 4 };
+  }
+  if (geometryType === "Point" || geometryType === "MultiPoint") {
+    return { "circle-color": colorExpr, "circle-radius": 6 };
+  }
+  return { "fill-color": colorExpr, "fill-opacity": 0.55 };
+}
+```
+
 ```{ojs}
 //| echo: false
 //| output: false
@@ -327,6 +283,57 @@ pyErrors = WebGeoDS.getCellValue("topology-diagnose-py", Generators)
   if (pyErrors) await sharedMap.setGeoJSON("topology-py", pyErrors, { paint: errorPaint(pyErrors) });
 }
 ```
+
+```{ojs}
+//| echo: false
+topologyTable = sharedMap.tableCell(["topology-py"], null, Generators, {
+  rowClassName: (row) => row.has_error === "true" ? "webgeods-row-invalid" : ""
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+topologyStats = Generators.observe((change) => {
+  const compute = () => {
+    const features = sharedMap.getGeoJSON("topology-py")?.features ?? [];
+    const total = features.length;
+    const errors = features.filter((f) => f.properties?.has_error === true).length;
+    change({ total, errors });
+  };
+  compute();
+  const handler = (e) => {
+    if (e.dataType === "source" && e.sourceDataType === "content" && e.sourceId === "topology-py") {
+      compute();
+    }
+  };
+  sharedMap.map.on("sourcedata", handler);
+  return () => sharedMap.map.off("sourcedata", handler);
+})
+```
+
+**Result** — ${topologyStats.total} feature, ${topologyStats.errors} with an error.
+
+```{ojs}
+//| echo: false
+resetChecker = async () => {
+  if (sharedMap.getGeoJSON("topology-py")) {
+    await sharedMap.setGeoJSON("topology-py", { type: "FeatureCollection", features: [] });
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and table";
+  button.onclick = () => resetChecker();
+  return button;
+}
+```
+
+${resetMapButton}
 
 ## Download the result
 

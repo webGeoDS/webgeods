@@ -28,8 +28,13 @@
   const ACCEPT =
     ".geojson,.json,.shp,.shx,.dbf,.prj,.cpg,.zip";
 
+  // Generic on purpose: this message is shared by both articles
+  // (where the next step is pressing "Run" on a visible code cell)
+  // and standalone tools (where it's clicking a Validate/Check
+  // button, no visible cell at all) — each page's own surrounding
+  // prose already says which, so this only needs to state the fact.
   const DEFAULT_STATUS =
-    "No file uploaded yet — you can still press \"Run\" on the cells below to try it with example data.";
+    "No file uploaded yet — you can still try it with the built-in example data.";
 
   // Every path a page's Python/R "read the uploaded file" try-loop
   // might look for, across all upload kinds this helper supports —

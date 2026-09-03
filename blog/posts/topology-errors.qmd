@@ -25,6 +25,10 @@ On load, the code detects whether your data is **polygons** or
 - **Polygons** → overlap, gap, sliver, duplicates
 - **Lines** → dangle, duplicates
 
+Just want to quickly check a file, without the rest of the reading?
+Use the [standalone tool](/tools/topology-checker.html) — same
+engine, less prose.
+
 ## 1. Upload your file
 
 A `.geojson`, or a shapefile: either as a single `.zip`, or as the

@@ -53,6 +53,89 @@ sharedMap = {
 
 ```{ojs}
 //| echo: false
+//| output: false
+// Whether Validate has ever completed successfully — gates the Fix
+// button below (see fixButton): clicking Fix first would hit a
+// Python NameError (`gdf` doesn't exist yet) instead of a clear
+// message, since Fix reuses Validate's session state rather than
+// reading the file itself.
+mutable validateSucceeded = false
+```
+
+## Validate
+
+Click Validate to run the check on the current data — your file
+uploaded above, or (if nothing's uploaded) a built-in bowtie-polygon
+example. No repair yet, just diagnosis: is the geometry valid? If
+not, why?
+
+The code itself isn't shown here — it's a fixed, non-editable check
+using Shapely/GEOS underneath; see the
+[full article](/posts/geometry-validity.html) for the actual code,
+editable and explained line by line.
+
+```{.webgeods-python #geometry-diagnose-py}
+#| package: geopandas, shapely
+import geopandas as gpd
+from shapely.geometry import shape, mapping
+from shapely.validation import explain_validity
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+if gdf is None:
+    bowtie = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.55, 41.95], [12.45, 41.95], [12.55, 41.85], [12.45, 41.85]]]}
+    gdf = gpd.GeoDataFrame({"name": ["bowtie"]}, geometry=[shape(bowtie)], crs="EPSG:4326")
+
+if "name" not in gdf.columns:
+    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+gdf["valid"] = gdf.geometry.is_valid
+gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+
+{
+    "type": "FeatureCollection",
+    "features": [
+        {"type": "Feature", "properties": {"name": row["name"], "valid": bool(row["valid"]), "reason": row["reason"]}, "geometry": mapping(row.geometry)}
+        for _, row in gdf.iterrows()
+    ]
+}
+```
+
+```{ojs}
+//| echo: false
+validateButton = {
+  const button = document.createElement("button");
+  button.textContent = "▶ Validate";
+  button.onclick = async () => {
+    button.disabled = true;
+    button.classList.add("webgeods-btn-loading");
+    button.textContent = "⌛ Validating...";
+    try {
+      await window.WebGeoDS.CodeCell.find("geometry-diagnose-py").run();
+      mutable validateSucceeded = true;
+    } finally {
+      button.disabled = false;
+      button.classList.remove("webgeods-btn-loading");
+      button.textContent = "▶ Validate";
+    }
+  };
+  return button;
+}
+```
+
+${validateButton}
+
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+```{ojs}
+//| echo: false
 sharedMapEl = sharedMap.element
 ```
 
@@ -72,6 +155,17 @@ VALIDITY_PAINT = ({
   ],
   "fill-opacity": 0.55
 })
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
+{
+  if (pyDiagnose) {
+    await sharedMap.setGeoJSON("geometry-py", pyDiagnose, { paint: VALIDITY_PAINT });
+  }
+}
 ```
 
 ```{ojs}
@@ -132,82 +226,7 @@ resetMapButton = {
 }
 ```
 
-## Validate
-
-Click Validate to run the check on the current data — your file
-uploaded above, or (if nothing's uploaded) a built-in bowtie-polygon
-example. No repair yet, just diagnosis: is the geometry valid? If
-not, why?
-
-The code itself isn't shown here — it's a fixed, non-editable check
-using Shapely/GEOS underneath; see the
-[full article](/posts/geometry-validity.html) for the actual code,
-editable and explained line by line.
-
-```{.webgeods-python #geometry-diagnose-py}
-#| package: geopandas, shapely
-import geopandas as gpd
-from shapely.geometry import shape, mapping
-from shapely.validation import explain_validity
-
-gdf = None
-for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
-    try:
-        gdf = gpd.read_file(path)
-        break
-    except Exception:
-        pass
-
-if gdf is None:
-    bowtie = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.55, 41.95], [12.45, 41.95], [12.55, 41.85], [12.45, 41.85]]]}
-    gdf = gpd.GeoDataFrame({"name": ["bowtie"]}, geometry=[shape(bowtie)], crs="EPSG:4326")
-
-if "name" not in gdf.columns:
-    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
-
-gdf["valid"] = gdf.geometry.is_valid
-gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
-
-{
-    "type": "FeatureCollection",
-    "features": [
-        {"type": "Feature", "properties": {"name": row["name"], "valid": bool(row["valid"]), "reason": row["reason"]}, "geometry": mapping(row.geometry)}
-        for _, row in gdf.iterrows()
-    ]
-}
-```
-
-```{ojs}
-//| echo: false
-validateButton = {
-  const button = document.createElement("button");
-  button.textContent = "▶ Validate";
-  button.onclick = async () => {
-    button.disabled = true;
-    button.textContent = "⌛ Validating...";
-    try {
-      await window.WebGeoDS.CodeCell.find("geometry-diagnose-py").run();
-    } finally {
-      button.disabled = false;
-      button.textContent = "▶ Validate";
-    }
-  };
-  return button;
-}
-```
-
-${validateButton}
-
-```{ojs}
-//| echo: false
-//| output: false
-pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
-{
-  if (pyDiagnose) {
-    await sharedMap.setGeoJSON("geometry-py", pyDiagnose, { paint: VALIDITY_PAINT });
-  }
-}
-```
+${resetMapButton}
 
 ## Fix (optional)
 
@@ -234,16 +253,23 @@ gdf["valid_after"] = gdf.geometry.is_valid
 
 ```{ojs}
 //| echo: false
+// Depends on (reads) validateSucceeded, so this cell — and the button
+// it returns — is recreated the moment Validate first succeeds,
+// switching from disabled to enabled without a page reload.
 fixButton = {
   const button = document.createElement("button");
   button.textContent = "🔧 Fix";
+  button.disabled = !validateSucceeded;
+  button.title = validateSucceeded ? "" : "Run Validate above first";
   button.onclick = async () => {
     button.disabled = true;
+    button.classList.add("webgeods-btn-loading");
     button.textContent = "⌛ Fixing...";
     try {
       await window.WebGeoDS.CodeCell.find("geometry-repair-py").run();
     } finally {
       button.disabled = false;
+      button.classList.remove("webgeods-btn-loading");
       button.textContent = "🔧 Fix";
     }
   };

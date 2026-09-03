@@ -98,3 +98,18 @@
    table and the map speak the same color language. */
 .webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); }
 .webgeods-row-fixed   { background-color: rgba(46, 164, 79, 0.15); }
+
+/* Standalone-tool action buttons (Validate/Fix/Check, see
+   geojson-shapefile-validator.qmd and topology-checker.qmd): a cold
+   run loads a whole Python runtime + packages first, 30-40s with
+   nothing else happening on the page — a static "⌛ Validating..."
+   button alone reads as stalled/broken. A slow, gentle opacity pulse
+   is enough to signal "still working", added/removed via JS
+   alongside the disabled state, not left permanently on. */
+@keyframes webgeods-btn-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.webgeods-btn-loading {
+  animation: webgeods-btn-pulse 1.4s ease-in-out infinite;
+}
