@@ -776,6 +776,53 @@ resta **visione**, non impegno preso: la sequenza reale dei corsi 4 e
 5 dipende dai dati di Fase 4 e dalle metriche di resa qui sotto, non
 da una data fissata oggi.
 
+**Idea futura, non decisa (2026-09-03): motore JS-first come estensione
+Quarto pubblica**, legata al corso #2 sopra. `#| inject`,
+`getCellValue()` e il caricamento lazy dei motori (Pyodide/webR
+caricati solo al primo uso reale, non da subito) sono vantaggi
+concreti già verificati in questa codebase rispetto a
+[quarto-live](https://github.com/r-wasm/quarto-live) (l'estensione
+di riferimento, mantenuta dal team r-wasm/webR) — ma il confronto
+preciso (interop OJS di quarto-live, suo comportamento di default sul
+caricamento, se supporti davvero `terra`) non è stato verificato
+empiricamente, solo ipotizzato. `terra` in sé funziona in webR
+(confermato: più lento di `stars` per il linking dinamico di GDAL,
+vedi [[project-webgeods-raster-libraries]] — non "non supportato").
+
+**Ritorno economico diretto: debole.** Le estensioni Quarto non hanno
+un mercato a pagamento — nessun marketplace, distribuzione gratuita
+via `quarto add`. Sponsorizzazioni (GitHub Sponsors) irrilevanti a
+questa scala. **Ritorno indiretto plausibile**: credibilità e lead-gen
+per il mini-corso "webgeods stack" (sviluppatori, non praticanti GIS)
+— "l'ho costruita io, funziona, eccola" è un pitch forte. Contro: il
+costo di manutenzione continua compete con un progetto già
+affermato/finanziato (r-wasm/webR), ed è **fuori dal framework Core
+Tools/Vertical Apps attuale** — stessa logica di gate già usata per
+la Fase 4 (non costruire prima che il funnel principale abbia dati
+reali) si applica qui, anzi più forte, dato lo stato attuale del sito
+(giorno 3, zero iscritti reali).
+
+**Packaging interno (solo per uso tra `blog/`/`lessons/`, indipendente
+dalla domanda "pubblicarla o no")**: verificato che **non converrebbe
+farlo ora**. Le estensioni Quarto non si installano centralmente, si
+copiano dentro `_extensions/` di ogni progetto consumatore — stesso
+problema di duplicazione che risolve già `sync-shared-assets.sh`,
+solo con la cerimonia di `quarto add`/`quarto update` al posto di un
+copia-e-incolla via script, e se l'estensione vive su GitHub ogni
+modifica richiederebbe commit→push→tag prima che `quarto update` la
+veda (contro il ciclo attuale: modifica `shared/*.js` → script →
+`quarto render`, pochi secondi). I vantaggi del packaging
+(versionamento, meccanismo di update standard, portabilità) pagano
+solo quando esiste un pubblico esterno — cioè nel momento stesso in
+cui si decidesse di pubblicarla, non prima.
+
+**Conclusione**: rimandata, non abbandonata. Riconsiderare quando la
+Fase 1 avrà dati reali E si starà pianificando concretamente il
+mini-corso "webgeods stack" — a quel punto, prima di impegnarsi,
+verificare empiricamente il confronto con quarto-live (pagina
+quarto-live minima, provare `terra`, controllare l'interop OJS e il
+network waterfall al caricamento) invece di assumerlo.
+
 ### Prezzo (ipotesi di partenza, da correggere con dati reali)
 
 - **Corsi generalisti**: 149–249 $. Ampiezza, progressione,
