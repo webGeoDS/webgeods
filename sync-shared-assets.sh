@@ -28,6 +28,8 @@ FILES=(
   codemirror-bundle.js
   gridjs.umd.js
   gridjs-mermaid.min.css
+  htl.min.js
+  observable-inputs.min.js
 )
 
 for target in "${TARGET_DIRS[@]}"; do

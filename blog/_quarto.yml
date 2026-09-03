@@ -26,6 +26,8 @@ project:
     - "gridjs.umd.js"
     - "gridjs-mermaid.min.css"
     - "downloads/*.pdf"
+    - "htl.min.js"
+    - "observable-inputs.min.js"
 
 website:
   title: "webgeods"

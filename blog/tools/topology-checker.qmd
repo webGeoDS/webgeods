@@ -72,49 +72,48 @@ using GeoPandas/Shapely underneath; see the
 editable and explained one check at a time.
 
 Gap and sliver aren't absolute properties of a dataset — they depend
-on a judgment call (how close counts as "should touch"? how thin
-counts as "not a real shape"?). Adjust the two thresholds below
-before checking if the defaults don't match your data.
+on a judgment call. **Sliver threshold** (compactness, 0-1): how thin
+counts as "not a real shape" — lower catches only thinner slivers.
+**Gap search distance** (degrees): how close two features need to be
+before a gap between them counts — larger finds gaps further apart.
+Adjust either below before checking if the defaults don't match your
+data.
+
+<script src="/htl.min.js"></script>
+<script src="/observable-inputs.min.js"></script>
 
 ```{ojs}
 //| echo: false
+// window.Inputs, not a bare import: vendored locally (shared/
+// observable-inputs.min.js + its htl.min.js runtime dependency —
+// verified empirically it needs htl as a real window global, Quarto's
+// own OJS runtime uses htl internally but doesn't expose it), loaded
+// via a page-level <script> tag above rather than the site-wide
+// include-after-body list, since only this one page uses it so far.
 sliverControl = {
-  const wrap = document.createElement("div");
-  const label = document.createElement("label");
-  label.textContent = "Sliver threshold (compactness, 0-1 — lower catches only thinner slivers): ";
-  const input = document.createElement("input");
-  input.type = "range";
-  input.id = "sliver-threshold-input";
-  input.min = "0.01";
-  input.max = "0.9";
-  input.step = "0.01";
-  input.value = "0.15";
-  const output = document.createElement("span");
-  output.textContent = input.value;
-  input.oninput = () => { output.textContent = input.value; };
-  wrap.append(label, input, " ", output);
-  return wrap;
+  const el = window.Inputs.range([0.01, 0.9], {
+    value: 0.15,
+    step: 0.01,
+    label: "Sliver threshold"
+  });
+  // Read imperatively by id in checkButton's onclick below, not by
+  // referencing this OJS variable directly — doing the latter would
+  // make OJS recreate checkButton's whole cell on every drag tick.
+  el.id = "sliver-threshold-control";
+  return el;
 }
 ```
 
 ```{ojs}
 //| echo: false
 gapControl = {
-  const wrap = document.createElement("div");
-  const label = document.createElement("label");
-  label.textContent = "Gap search distance (degrees — larger finds gaps between features further apart): ";
-  const input = document.createElement("input");
-  input.type = "range";
-  input.id = "gap-proximity-input";
-  input.min = "0.01";
-  input.max = "0.5";
-  input.step = "0.01";
-  input.value = "0.06";
-  const output = document.createElement("span");
-  output.textContent = input.value;
-  input.oninput = () => { output.textContent = input.value; };
-  wrap.append(label, input, " ", output);
-  return wrap;
+  const el = window.Inputs.range([0.01, 0.5], {
+    value: 0.06,
+    step: 0.01,
+    label: "Gap search distance"
+  });
+  el.id = "gap-proximity-control";
+  return el;
 }
 ```
 
@@ -300,8 +299,8 @@ checkButton = {
       // so this button's own cell stays independent of the sliders:
       // referencing an OJS variable by name here would make OJS
       // re-create this whole button on every drag tick.
-      window.sliverThreshold = +document.getElementById("sliver-threshold-input").value;
-      window.gapProximity = +document.getElementById("gap-proximity-input").value;
+      window.sliverThreshold = +document.getElementById("sliver-threshold-control").value;
+      window.gapProximity = +document.getElementById("gap-proximity-control").value;
       await window.WebGeoDS.CodeCell.find("topology-diagnose-py").run();
     } finally {
       button.disabled = false;
