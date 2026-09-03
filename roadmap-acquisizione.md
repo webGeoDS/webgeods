@@ -583,12 +583,35 @@ completo (celle editabili, entrambi i linguaggi, confronto Python/R)
 resta il posto per chi vuole leggere/modificare il codice — linkato
 in modo prominente dal tool, mai duplicato.
 
+**Aggiunta importante (2026-09-03), stessa convenzione**: un tool
+Python-only deve chiamare `WebGeoDS.Upload.load(files, { languages:
+["python"] })`, non `WebGeoDS.Upload.load(files)` nudo — il default è
+`["python", "r"]` (giusto per gli articoli bilingue, che ne hanno
+bisogno). Trovato empiricamente: senza l'opzione esplicita, caricare
+un file su un tool Python-only faceva comunque partire il caricamento
+completo di webR in background (ogni `writeFile()` carica prima
+l'intero motore se non già attivo) — vanificando silenziosamente la
+scelta Python-only fatta apposta per la velocità. Nessun errore
+visibile, si scopre solo controllando la console o i tempi reali.
+
+**Parametri di soglia/giudizio (gap/sliver e simili in tool futuri)**:
+esporli come slider nativi (`<input type="range">`, pattern già in
+`shared/upload.js`'s `createInput()`), non con la libreria Observable
+Inputs — verificato che carica da CDN esterni (jsdelivr,
+observablehq.com) a runtime, incoerente con "tutto vendorizzato
+localmente" già seguito per ogni altra libreria del progetto. Il
+meccanismo `#| inject` (documentato da tempo, mai usato prima
+d'ora) è lo strumento giusto per farli arrivare a Python/R: legge da
+`window[nome]`, quindi va impostato dentro il click del pulsante
+(letto dal DOM dello slider, non dal valore reattivo OJS — altrimenti
+il pulsante si ricrea a ogni tick di trascinamento).
+
 | # | Tool | Stato | Priorità | Difficoltà | Note |
 |---|---|---|---|---|---|
 | 1.1 | **Geometry Validation & Repair** | ✅ Fatto | — | — | `blog/tools/geojson-shapefile-validator.qmd`, live in produzione, ridisegnato a pulsanti (vedi 2026-09-03 sotto), cross-linkato con l'articolo |
 | 1.2 | **GeoSpatial File Inspector** | Da fare | Alta | Bassa-media | Vedi dettaglio sotto — probabilmente il tool più economico rimasto |
 | 1.3 | **CRS Inspector & Converter** | Da fare | Alta | Media | Vedi dettaglio sotto |
-| 1.4 | **Topology Check & Report** (standalone) | ✅ Fatto (2026-09-03) | — | — | `blog/tools/topology-checker.qmd`, live in produzione — costruito fuori dall'ordine originale (dopo 1.1, prima di 1.2/1.3): costo marginale basso avendo appena costruito il pattern a pulsanti per 1.1, motore già scritto in `topology-errors.qmd`. Solo diagnosi, niente Fix (una topologia rotta richiede quasi sempre una decisione umana) |
+| 1.4 | **Topology Check & Report** (standalone) | ✅ Fatto (2026-09-03) | — | — | `blog/tools/topology-checker.qmd`, live in produzione — costruito fuori dall'ordine originale (dopo 1.1, prima di 1.2/1.3): costo marginale basso avendo appena costruito il pattern a pulsanti per 1.1, motore già scritto in `topology-errors.qmd`. Solo diagnosi, niente Fix (una topologia rotta richiede quasi sempre una decisione umana). **Soglie sliver/gap rese configurabili (2026-09-03)** via due slider nativi (niente libreria — Observable Inputs verificato caricare da CDN esterni, incoerente con "tutto vendorizzato localmente") e `#| inject` (prima vera applicazione del meccanismo nel progetto) |
 
 ### 1.2 — GeoSpatial File Inspector (dettaglio)
 
