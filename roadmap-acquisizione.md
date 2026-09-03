@@ -211,8 +211,12 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
   correttamente la sitemap). Proprietà Search Console creata
   (prefisso URL, verificata via tag HTML), sitemap
   `https://webgeods.com/sitemap.xml` verificata (200, contiene tutte
-  le pagine) e inviata. Resta solo 0.6 (`type: blog`) per chiudere il
-  Giorno 2.
+  le pagine) e inviata.
+
+  **✅ 0.6 fatto (2026-09-03)**: vedi dettaglio nella sezione 0.6 più
+  sotto — `type: blog` non esiste, RSS ottenuto via `feed: true` sul
+  listing, più un bug indipendente (`embed-resources: true`
+  sopprimeva il feed) trovato e corretto. Giorno 2 chiuso.
 - **Giorno 3**: 0.5 (analytics + eventi tool/funnel definiti in 0.5,
   collegati al Validator esistente) → 0.8 (form newsletter + lead
   magnet cheatsheet, riusa contenuto già scritto).
@@ -313,10 +317,31 @@ un repository git.
 
 ### 0.6 `type: website` → `type: blog`
 
-- Decisione già segnalata da un commento nel codice
-  (`blog/_quarto.yml`): `type: blog` dà RSS e categorie gratis, utile
-  per la distribuzione (feed reader, aggregatori di settore come
-  Planet Python/R-bloggers).
+- **✅ fatto (2026-09-03), ma non come previsto**: `type: blog` **non
+  è un tipo di progetto Quarto valido** — il commento nel codice che
+  lo suggeriva era sbagliato (`quarto render` fallisce con `ERROR:
+  Unsupported project type blog`; i tipi validi sono
+  `default`/`website`/`book`/`manuscript`). Resta `type: website`,
+  comment corretto in `_quarto.yml`.
+  RSS/categorie si ottengono comunque, dalla configurazione del
+  listing stesso (`categories: true` e `feed: true` su
+  `blog/index.qmd`), non dal tipo di progetto — obiettivo raggiunto,
+  meccanismo diverso da quello ipotizzato.
+  Nel farlo, trovato e risolto un secondo bug indipendente:
+  `embed-resources: true` (impostato nel blog, probabilmente per
+  copia da `lessons/_quarto.yml`, dove è invece un requisito reale
+  per l'embedding in iframe Teachable) sopprimeva silenziosamente la
+  generazione di `index.xml` — nessun errore, nessun warning, feed
+  semplicemente assente. Corretto a `embed-resources: false`, che è
+  anche la scelta architetturalmente corretta per il blog (pagine
+  scopribili/condivisibili con asset condivisi tra pagine via
+  `site_libs/`, non file singoli autosufficienti) — non solo un
+  workaround per l'RSS. Aggiunto anche `description:` sotto
+  `website:`, richiesto insieme a `site-url` perché Quarto generi il
+  feed. Verificato con render pulito: `index.xml` generato
+  correttamente, `sitemap.xml` invariato, pagine ancora corrette
+  (asset caricati da `site_libs/`, non più incorporati). Commit
+  `25dd1a0`, push effettuato — CI in corso.
 
 ### 0.7 Gestione continuativa (non un evento singolo)
 
