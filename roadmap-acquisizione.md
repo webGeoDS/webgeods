@@ -195,6 +195,17 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
   (forza un nuovo tentativo di emissione) — non eseguita
   automaticamente, richiede conferma esplicita prima di toccare
   un'impostazione di dominio live.
+
+  **✅ Sbloccato manualmente (2026-09-03, poche ore dopo)**: non
+  aspettate le 24h — la causa probabile (tentativo iniziale caduto
+  nella finestra DNS ancora sporca) rendeva improbabile un recupero
+  automatico. Rimosso e re-impostato il custom domain via
+  `gh api -X PUT repos/webGeoDS/webgeods/pages -f cname=...` (prima
+  vuoto, poi di nuovo `webgeods.com`) — confermato con l'utente prima
+  di toccare l'impostazione live. Nessuna interruzione del sito
+  durante l'operazione (verificato: HTTP 200 subito dopo). Nuovo
+  tentativo di emissione certificato partito da zero — normalmente
+  minuti-ore, da riverificare.
   **✅ Incidente DNS trovato e risolto (2026-09-02/03)**: il sito
   risultava intermittente (~1 richiesta su 5 falliva) — causa: OVH
   aggiunge di default una **redirezione parcheggio** su ogni dominio
