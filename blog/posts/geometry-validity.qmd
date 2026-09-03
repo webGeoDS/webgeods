@@ -678,3 +678,10 @@ relation to other geometries — two valid polygons overlapping when
 they shouldn't, a gap between areas that should touch. That's a
 different problem: topology. It's covered in
 [Topology Errors in a GeoJSON](topology-errors.qmd).
+
+## Want more like this?
+
+Practical GeoJSON/Shapefile QA notes and new free tools, roughly every
+1–2 weeks — no spam, unsubscribe anytime.
+
+<script async data-uid="a5b2ceb51d" src="https://webgeods.kit.com/a5b2ceb51d/index.js"></script>

@@ -862,3 +862,10 @@ polygon to move, who to assign a gap to, whether a 2 m² sliver is
 noise or a real island. A future article may cover repair strategies;
 this one deliberately stops before that, where geometry alone can no
 longer answer the question.
+
+## Want more like this?
+
+Practical GeoJSON/Shapefile QA notes and new free tools, roughly every
+1–2 weeks — no spam, unsubscribe anytime.
+
+<script async data-uid="a5b2ceb51d" src="https://webgeods.kit.com/a5b2ceb51d/index.js"></script>
