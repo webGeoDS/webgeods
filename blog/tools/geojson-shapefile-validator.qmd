@@ -423,9 +423,4 @@ difference between what Python sees and what R sees? The
 [full article](/posts/geometry-validity.html) uses this same engine
 with a gallery of common errors explained one by one.
 
-## Want more like this?
-
-Practical GeoJSON/Shapefile QA notes and new free tools, roughly every
-1–2 weeks — no spam, unsubscribe anytime.
-
 <script async data-uid="cfffd6d286" src="https://webgeods.kit.com/cfffd6d286/index.js"></script>

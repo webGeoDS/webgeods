@@ -863,9 +863,4 @@ noise or a real island. A future article may cover repair strategies;
 this one deliberately stops before that, where geometry alone can no
 longer answer the question.
 
-## Want more like this?
-
-Practical GeoJSON/Shapefile QA notes and new free tools, roughly every
-1–2 weeks — no spam, unsubscribe anytime.
-
 <script async data-uid="cfffd6d286" src="https://webgeods.kit.com/cfffd6d286/index.js"></script>
