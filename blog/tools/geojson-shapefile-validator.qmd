@@ -428,4 +428,4 @@ with a gallery of common errors explained one by one.
 Practical GeoJSON/Shapefile QA notes and new free tools, roughly every
 1–2 weeks — no spam, unsubscribe anytime.
 
-<script async data-uid="a5b2ceb51d" src="https://webgeods.kit.com/a5b2ceb51d/index.js"></script>
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
