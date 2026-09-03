@@ -206,6 +206,19 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
   durante l'operazione (verificato: HTTP 200 subito dopo). Nuovo
   tentativo di emissione certificato partito da zero — normalmente
   minuti-ore, da riverificare.
+
+  **✅ HTTPS live (2026-09-03, ~30-60 min dopo lo sblocco)**:
+  `https_certificate.state: "approved"` (copre `webgeods.com` e
+  `www.webgeods.com`, scade 2026-12-02). Verificato con WebFetch (TLS
+  reale, non ignorato) e con `curl -sL http://webgeods.com/` →
+  redirect a `https://webgeods.com/`, 200. Attivato anche **"Enforce
+  HTTPS"** (`https_enforced: true` via API, sintassi corretta:
+  `gh api -F https_enforced=true`, non `-f` che tratta il valore come
+  stringa e viene rifiutato) — coerente con `site-url:
+  https://webgeods.com` già dichiarato ovunque (sitemap, tag
+  canonici, Open Graph, RSS) fin dall'inizio, non una nuova decisione.
+  **Fase 0 di deploy/infrastruttura effettivamente chiusa al 100%.**
+
   **✅ Incidente DNS trovato e risolto (2026-09-02/03)**: il sito
   risultava intermittente (~1 richiesta su 5 falliva) — causa: OVH
   aggiunge di default una **redirezione parcheggio** su ogni dominio
