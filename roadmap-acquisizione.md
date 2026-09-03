@@ -179,6 +179,26 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
   **HTTPS non ancora pronto** (GitHub deve completare il provisioning
   del certificato dopo la verifica DNS, tipicamente minuti-ore) — da
   riverificare, non un errore.
+  **✅ Incidente DNS trovato e risolto (2026-09-02/03)**: il sito
+  risultava intermittente (~1 richiesta su 5 falliva) — causa: OVH
+  aggiunge di default una **redirezione parcheggio** su ogni dominio
+  nuovo (apex → www "visibile", www → pagina "welcome" OVH
+  "invisibile"), che inietta un record A proprio (`213.186.33.5`)
+  in round-robin con i 4 IP corretti di GitHub. Non visibile come
+  "record DNS normale" — va cercata in una sezione **Redirezione/
+  Multisito** separata dalla Zona DNS. Cancellata (con un errore del
+  pannello OVH alla prima cancellazione, poi effettivamente rimossa
+  nonostante il messaggio di errore — verificare sempre lo stato
+  reale, non fidarsi solo del messaggio del pannello). **Verificato
+  a fondo**: nslookup pulito su due resolver pubblici (8.8.8.8,
+  1.1.1.1) — solo i 4 IP GitHub; 8/8 richieste HTTP consecutive a
+  200. **Lezione per il futuro**: quando si registra un dominio su
+  OVH (o probabilmente altri registrar) per puntarlo altrove, cercare
+  esplicitamente ed eliminare qualunque redirezione/parcheggio di
+  default PRIMA di aggiungere i propri record — non assumere che la
+  Zona DNS mostri tutto quello che è attivo sul dominio.
+  Opzionale, non fatto: CNAME `www` → `webgeods.github.io.` (il sito
+  funziona già senza `www.`).
   Prossimo: 0.4 (Search Console) — 0.3 (verifica OG/sitemap
   sull'output pubblicato) può slittare a dopo che HTTPS è pronto,
   dato che Search Console preferisce l'URL https.
