@@ -270,12 +270,50 @@
 
 
   // ============================================================
+  // baseName(value) — the original uploaded filename, extension
+  // stripped, for naming a downloaded result after it (e.g.
+  // "parcels.geojson" -> "parcels"). Used by every standalone tool's
+  // download button, not just one, so it lives here rather than
+  // being copy-pasted per tool (same threshold already applied to
+  // downloadGeoJSON itself, still tool-local since only one uses it
+  // so far).
+  //
+  // Prefers the "main" file (.geojson/.json/.zip/.shp) over a
+  // shapefile's sidecars (.dbf/.shx/.prj) when several were selected
+  // together — a rough heuristic, not the full kind-classification
+  // load() does, good enough for a filename. Returns null for no
+  // selection, letting the caller fall back to its own generic name.
+  // ============================================================
+
+  function baseName(value) {
+
+    const files =
+      toFileArray(value);
+
+    if (files.length === 0) {
+
+      return null;
+
+    }
+
+    const main =
+      files.find((f) =>
+        /\.(geojson|json|zip|shp)$/i.test(f.name)
+      ) ?? files[0];
+
+    return main.name.replace(/\.[^.]+$/, "");
+
+  }
+
+
+  // ============================================================
   // Public WebGeoDS API
   // ============================================================
 
   window.WebGeoDS.Upload = {
     createInput,
     load,
+    baseName,
     defaultStatus: DEFAULT_STATUS
   };
 

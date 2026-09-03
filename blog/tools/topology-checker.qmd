@@ -10,11 +10,17 @@ Upload a file — `.geojson`, or a shapefile as a single `.zip` or as
 feature overlaps, leaves a gap, is a sliver, duplicates another, or
 (for lines) dangles unconnected.
 
-Runs entirely in your browser (Python via WebAssembly): the file is
-never uploaded to a server. This is diagnosis only, not repair —
-fixing a topology error almost always requires a human decision (see
-the [full article](/posts/topology-errors.html) for why), so there's
-no "Fix" step here, just the report and a map to inspect it on.
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (Python via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+This is diagnosis only, not repair — fixing a topology error almost
+always requires a human decision (see the
+[full article](/posts/topology-errors.html) for why), so there's no
+"Fix" step here, just the report and a map to inspect it on.
 
 ```{ojs}
 //| echo: false
@@ -424,7 +430,10 @@ downloadGeoJSON = (sourceId, filename) => {
 downloadButton = {
   const button = document.createElement("button");
   button.textContent = "⬇ Download result";
-  button.onclick = () => downloadGeoJSON("topology-py", "topology-report.geojson");
+  button.onclick = () => {
+    const base = WebGeoDS.Upload.baseName(uploadedFiles);
+    downloadGeoJSON("topology-py", base ? `${base}-topology-report.geojson` : "topology-report.geojson");
+  };
   return button;
 }
 ```

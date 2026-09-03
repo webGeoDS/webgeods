@@ -9,3 +9,14 @@ listing:
   exclude:
     filename: "index.qmd"
 ---
+
+## Spatial Data Quality Toolkit
+
+A small, focused suite for checking geospatial data before you trust
+it. Free, no account, nothing ever leaves your browser.
+
+**Inspect** → **Validate** → **Check Topology** → *CRS Inspector
+(planned)*
+
+Two are live so far — Validate geometry, and Check Topology. Inspect
+(what's actually in this file?) and the CRS Inspector are next.
