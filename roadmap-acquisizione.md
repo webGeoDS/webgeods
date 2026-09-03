@@ -260,6 +260,30 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
   motore già scritto. Vedi dettaglio nella tabella Fase 1 più sotto.
   Non tocca la stima di 1.2/1.3, entrambi ancora da fare.
 
+  **✅ Rassegna UX del sito pubblicato (2026-09-03)**, su richiesta
+  esplicita prima di continuare con 1.2/1.3: giro completo del sito
+  live (screenshot desktop+mobile, ogni pagina) prima di costruire
+  altro. Trovati e corretti: nessun feedback durante l'attesa a
+  freddo di 30-40s su Validate/Check (aggiunta animazione pulse +
+  nota esplicita sui tempi, `shared/styles.css`); mappa/tabella/
+  risultato vuoti mostrati PRIMA del pulsante su entrambi i tool
+  (riordinato: pulsante prima, risultati dopo); il pulsante Fix del
+  Validator cliccabile anche prima di Validate (ora disabilitato via
+  `mutable validateSucceeded`, si abilita al primo successo); il
+  messaggio di default upload ("premi Run sulle celle sotto") ancora
+  mostrato sui tool ridisegnati che non hanno più celle visibili
+  (genericizzato in `shared/upload.js`); descrizione di
+  `tools/index.qmd` ancora "Python and R" (corretta); `topology-
+  errors.qmd` non linkava ancora il proprio tool standalone (aggiunto,
+  come già faceva `geometry-validity.qmd`).
+
+  **Rimandati esplicitamente, non dimenticati**: pagina About ancora
+  un placeholder ("About webgeods.") — vuoto di credibilità reale per
+  acquisizione fredda, ma richiede contenuto vero, non un fix rapido;
+  lo stato vuoto della tabella ("No matching records found") prima di
+  qualunque check è un testo generico di libreria, poco calzante ma
+  minore.
+
 **Fuori da questa settimana, esplicitamente**: Fase 2, Vertical Apps,
 ads (esclusi dal piano).
 
