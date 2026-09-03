@@ -301,12 +301,27 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
   errors.qmd` non linkava ancora il proprio tool standalone (aggiunto,
   come già faceva `geometry-validity.qmd`).
 
-  **Rimandati esplicitamente, non dimenticati**: pagina About ancora
-  un placeholder ("About webgeods.") — vuoto di credibilità reale per
-  acquisizione fredda, ma richiede contenuto vero, non un fix rapido;
-  lo stato vuoto della tabella ("No matching records found") prima di
-  qualunque check è un testo generico di libreria, poco calzante ma
-  minore.
+  **Rimandato allora, fatto ora**: la pagina About era ancora un
+  placeholder ("About webgeods."). Lo stato vuoto della tabella ("No
+  matching records found") resta rimandato — testo generico di
+  libreria, poco calzante ma minore.
+
+  **✅ Pagina About scritta (2026-09-04)**: struttura sulle quattro
+  domande che contano per acquisizione fredda (cos'è / per chi / cosa
+  la differenzia / cosa ci si può fare), non autobiografia né elenco
+  tecnologie. Scritta dopo aver criticato una bozza esterna proposta
+  dall'utente: tolta una sezione dedicata alle tecnologie che
+  contraddiceva il proprio stesso principio dichiarato ("non
+  enfatizzare la tecnologia"), accorciate ~8 sezioni a 5, sostituita
+  una lista generica di categorie professionali con una descrizione
+  del problema durevole (non legata ai soli due tool di oggi — non
+  invecchierà male quando Inspector/CRS/Academy esisteranno),
+  registro allineato al resto del sito (niente "at the heart of X").
+  Aggiunto il form newsletter — l'unico passaggio del funnel "learn →
+  use → subscribe → course" dichiarato ma assente dalla bozza
+  originale. Nessuna CTA "compra un corso" — non c'è ancora nulla da
+  vendere. Verificato: nessun errore, link CTA funzionanti, form
+  identico alle altre pagine.
 
 **Fuori da questa settimana, esplicitamente**: Fase 2, Vertical Apps,
 ads (esclusi dal piano).
