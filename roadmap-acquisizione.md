@@ -236,6 +236,11 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
 - **Giorno 3**: 0.5 (analytics + eventi tool/funnel definiti in 0.5,
   collegati al Validator esistente) → 0.8 (form newsletter + lead
   magnet cheatsheet, riusa contenuto già scritto).
+
+  **✅ 0.5 fatto (2026-09-03)**: vedi dettaglio nella sezione 0.5 più
+  sotto — GoatCounter scelto e live, eventi instrumentati al livello
+  condiviso invece che per singolo tool. Resta 0.8 per chiudere il
+  Giorno 3.
 - **Giorno 4-5**: 1.2 GeoSpatial File Inspector — upload, statistiche
   (riusa la logica diagnosi del Validator), cross-link verso
   Validate/Repair/Topology, render + verifica funzionale + eventi.
@@ -306,30 +311,52 @@ un repository git.
 
 ### 0.5 Analytics
 
-- Soluzione leggera e rispettosa della privacy (Plausible o
-  equivalente) — oggi zero tracciamento, quindi zero visibilità su
-  quali articoli/tool funzionano davvero. Necessario per le decisioni
-  guidate da dati previste in Fase 4.
-- **Eventi da definire PRIMA del deploy** (aggiunto 2026-09-02, su
-  suggerimento esterno): senza eventi nominati esplicitamente, tra due
-  mesi si avranno solo "12.400 page views" senza sapere cosa
-  significhino. Due gruppi:
+- **✅ fatto (2026-09-03)**: **GoatCounter** scelto tra le alternative
+  (vs Plausible: nessun piano gratuito permanente; vs GA4: richiede
+  banner di consenso GDPR, in contrasto col posizionamento
+  privacy-friendly) — gratuito, nessun cookie, nessun banner
+  necessario. Account creato (`webgeods.goatcounter.com`), script
+  incorporato in `blog/_quarto.yml`.
 
-  **Eventi tool** (per calcolare il Tool Utility Rate, vedi
-  "Metriche da leggere"): `tool_loaded`, `file_uploaded`,
-  `validation_started`, `validation_completed`, `repair_started`,
-  `repair_completed`, `download_clicked`.
+  Instrumentazione fatta **al livello generico condiviso**
+  (`shared/runtime.js`, `shared/code-cell.js`, `shared/upload.js`),
+  non pagina per pagina — ogni tool presente e futuro (Inspector, CRS
+  Converter, ...) eredita il tracciamento gratis, senza wiring
+  ripetuto:
+  - `window.WebGeoDS.track(name, props)` (in `runtime.js`): wrapper
+    sicuro (no-op se GoatCounter non è caricato) attorno a
+    `goatcounter.count()`.
+  - `code_run_started`/`code_run_completed`/`code_run_error` (in
+    `code-cell.js`, dentro `run()`): fira per OGNI esecuzione di cella
+    Python/R, ovunque nel sito, con `cellId`+`language`. **Sostituisce**
+    `validation_started/completed` e `repair_started/completed`
+    previsti sotto — stessi eventi, nome più generico
+    (distinguibili a posteriori filtrando per `cellId`, es.
+    `geometry-diagnose-py` vs `geometry-repair-py`), riusabile da
+    qualunque tool futuro senza codice nuovo.
+  - `file_uploaded` (in `upload.js`, con `kind`): su ogni upload
+    riuscito, ovunque `WebGeoDS.Upload` sia usato.
+  - `tool_click` (listener generico in `blog/_quarto.yml`, click su
+    qualunque link a `/tools/`): cattura l'intento di click-through
+    anche se il runtime WASM di destinazione non finisce di caricare.
 
-  **Eventi funnel** (per misurare il percorso completo, non solo il
-  traffico): `article_view`, `tool_click`, `tool_loaded`,
-  `newsletter_view`, `newsletter_signup`, `course_page_view`,
-  `checkout_started`, `purchase`.
+  Specifici solo per il Validator (non generici):
+  `tool_loaded`, `download_clicked` — aggiunti direttamente in
+  `geojson-shapefile-validator.qmd`.
 
-  Non serve implementarli tutti dal primo giorno con la stessa
-  precisione — ma vanno **nominati ora**, in modo che l'analytics
-  scelto (Plausible o equivalente) li tracci fin dal lancio invece di
-  scoprire mesi dopo che mancano i dati per rispondere alle domande
-  che contano.
+  `article_view` non ha codice dedicato: GoatCounter traccia le
+  pageview in automatico, e la visita a un articolo È già una
+  pageview.
+
+  **Non ancora implementati** (dipendono da funzionalità non ancora
+  esistenti): `newsletter_view`/`newsletter_signup` (0.8, prossimo),
+  `course_page_view`/`checkout_started`/`purchase` (Fase 5, Academy —
+  non esiste ancora nulla da tracciare).
+
+  Verificato: 51/51 check della suite `lessons/test-architettura`
+  ancora verdi dopo le modifiche al motore condiviso; script
+  GoatCounter e chiamate di tracking confermati presenti
+  sull'HTML live (`http://webgeods.com/tools/geojson-shapefile-validator.html`).
 
 ### 0.6 `type: website` → `type: blog`
 
