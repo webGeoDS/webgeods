@@ -595,23 +595,51 @@ scelta Python-only fatta apposta per la velocità. Nessun errore
 visibile, si scopre solo controllando la console o i tempi reali.
 
 **Parametri di soglia/giudizio (gap/sliver e simili in tool futuri)**:
-esporli come slider nativi (`<input type="range">`, pattern già in
-`shared/upload.js`'s `createInput()`), non con la libreria Observable
-Inputs — verificato che carica da CDN esterni (jsdelivr,
-observablehq.com) a runtime, incoerente con "tutto vendorizzato
-localmente" già seguito per ogni altra libreria del progetto. Il
-meccanismo `#| inject` (documentato da tempo, mai usato prima
-d'ora) è lo strumento giusto per farli arrivare a Python/R: legge da
+esporli come slider. Prima scelta (2026-09-03, mattina): nativi
+(`<input type="range">`) per evitare la dipendenza da CDN esterni di
+Observable Inputs. **Decisione ribaltata lo stesso giorno, su
+richiesta esplicita**: Observable Inputs **vendorizzata** localmente
+(non più caricata da CDN — il problema originale era il CDN, non la
+libreria in sé) e usata per gli stessi slider. Il meccanismo
+`#| inject` (documentato da tempo, mai usato prima d'ora) resta lo
+strumento giusto per farli arrivare a Python/R: legge da
 `window[nome]`, quindi va impostato dentro il click del pulsante
-(letto dal DOM dello slider, non dal valore reattivo OJS — altrimenti
-il pulsante si ricrea a ogni tick di trascinamento).
+(letto dal DOM dello slider — `el.id` assegnato a mano, non dal
+valore reattivo OJS — altrimenti il pulsante si ricrea a ogni tick di
+trascinamento). Funziona identicamente sia con lo slider nativo che
+con quello di Observable Inputs, dato che entrambi espongono
+`.value` sull'elemento.
+
+**Vendoring di Observable Inputs — due insidie reali trovate
+(`vendor-observable-inputs.sh`, `shared/observable-inputs.min.js` +
+`shared/htl.min.js`)**:
+1. Il bundle UMD richiede **`htl` (hypertext literal) come vero
+   global `window.htl`**, non incluso nel bundle stesso — va
+   vendorizzato a parte. Quarto usa `htl` internamente nel proprio
+   runtime OJS ma non lo espone su `window`: non dare per scontato che
+   sia già disponibile solo perché appare nei log di errore delle
+   celle OJS.
+2. **Solo `Inputs.file` esiste** come funzione pubblica (non
+   `Inputs.files`, nonostante il minified suggerisca il contrario a
+   un grep superficiale) — ma il suo valore è un wrapper tipo
+   "Observable file attachment", non un `File`/`FileList` grezzo:
+   **non sostituire** `shared/upload.js`'s input di caricamento file
+   con questo senza riscrivere `load()`/`toFileArray()`/`baseName()`
+   in tutte e quattro le pagine che li usano — costo sproporzionato
+   al beneficio, valutato e scartato.
+3. Ogni pagina che vendorizza un asset condiviso deve caricarlo con
+   **path assoluto** (`src="/htl.min.js"`, non `src="htl.min.js"`) —
+   un tool sotto `/tools/` risolve un path relativo contro quella
+   sottocartella, non contro la radice dove i file vengono
+   effettivamente copiati. Bug reale, trovato e corretto prima del
+   deploy, non solo teorico.
 
 | # | Tool | Stato | Priorità | Difficoltà | Note |
 |---|---|---|---|---|---|
 | 1.1 | **Geometry Validation & Repair** | ✅ Fatto | — | — | `blog/tools/geojson-shapefile-validator.qmd`, live in produzione, ridisegnato a pulsanti (vedi 2026-09-03 sotto), cross-linkato con l'articolo |
 | 1.2 | **GeoSpatial File Inspector** | Da fare | Alta | Bassa-media | Vedi dettaglio sotto — probabilmente il tool più economico rimasto |
 | 1.3 | **CRS Inspector & Converter** | Da fare | Alta | Media | Vedi dettaglio sotto |
-| 1.4 | **Topology Check & Report** (standalone) | ✅ Fatto (2026-09-03) | — | — | `blog/tools/topology-checker.qmd`, live in produzione — costruito fuori dall'ordine originale (dopo 1.1, prima di 1.2/1.3): costo marginale basso avendo appena costruito il pattern a pulsanti per 1.1, motore già scritto in `topology-errors.qmd`. Solo diagnosi, niente Fix (una topologia rotta richiede quasi sempre una decisione umana). **Soglie sliver/gap rese configurabili (2026-09-03)** via due slider nativi (niente libreria — Observable Inputs verificato caricare da CDN esterni, incoerente con "tutto vendorizzato localmente") e `#| inject` (prima vera applicazione del meccanismo nel progetto) |
+| 1.4 | **Topology Check & Report** (standalone) | ✅ Fatto (2026-09-03) | — | — | `blog/tools/topology-checker.qmd`, live in produzione — costruito fuori dall'ordine originale (dopo 1.1, prima di 1.2/1.3): costo marginale basso avendo appena costruito il pattern a pulsanti per 1.1, motore già scritto in `topology-errors.qmd`. Solo diagnosi, niente Fix (una topologia rotta richiede quasi sempre una decisione umana). **Soglie sliver/gap rese configurabili (2026-09-03)** — prima con slider nativi hand-rolled (niente libreria, per evitare il CDN esterno di Observable Inputs), **poi Observable Inputs vendorizzata su richiesta esplicita** (`shared/observable-inputs.min.js` + `shared/htl.min.js`, sua dipendenza runtime non ovvia — vedi sezione dedicata più sotto) e usata per gli stessi due slider. `#| inject` resta la prima vera applicazione del meccanismo nel progetto |
 
 ### 1.2 — GeoSpatial File Inspector (dettaglio)
 
