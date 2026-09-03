@@ -46,6 +46,7 @@ ${uploadStatus}
 sharedMap = {
   const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
   await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "geojson-shapefile-validator" });
   return map;
 }
 ```
@@ -381,6 +382,7 @@ section above, otherwise diagnosed as-is.
 downloadGeoJSON = (sourceId, filename) => {
   const data = sharedMap.getGeoJSON(sourceId);
   if (!data) return;
+  window.WebGeoDS.track?.("download_clicked", { tool: "geojson-shapefile-validator", sourceId });
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/geo+json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

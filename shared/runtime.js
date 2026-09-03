@@ -967,4 +967,44 @@
     new RuntimeManager();
 
 
+  // ============================================================
+  // Analytics
+  // ============================================================
+
+  // Thin, safe wrapper around GoatCounter's window.goatcounter.count()
+  // (see blog/_quarto.yml for the script tag that defines it). A
+  // no-op if that script hasn't loaded (blocked, local dev via
+  // static-server.mjs without the tag, ...) — callers never need to
+  // check for its presence themselves. `props` values are joined into
+  // GoatCounter's free-text `title` field (it has no structured
+  // custom-property concept), e.g. track("file_uploaded", { kind:
+  // "shapefile" }) records path "file_uploaded", title "kind=shapefile".
+  window.WebGeoDS.track =
+    function track(eventName, props) {
+
+      if (
+        !window.goatcounter ||
+        typeof window.goatcounter.count !== "function"
+      ) {
+
+        return;
+
+      }
+
+      const title =
+        props
+          ? Object.entries(props)
+              .map(([key, value]) => `${key}=${value}`)
+              .join(", ")
+          : undefined;
+
+      window.goatcounter.count({
+        path: eventName,
+        title,
+        event: true
+      });
+
+    };
+
+
 })();

@@ -70,6 +70,26 @@ format:
       - text: |
           <meta name="google-site-verification" content="qJP5C72-4WUUqIsBrZ3qXz62Hk1hTsQI8A9nztQemfg" />
           <script>window.WEBGEODS_ASSET_BASE = "/";</script>
+          <!-- GoatCounter: privacy-friendly (no cookies, no personal
+               data), so no consent banner is required. Automatically
+               tracks pageviews (= article_view / tool_click-through as
+               a pageview on the destination); WebGeoDS.track() (see
+               shared/runtime.js) sends the additional named events
+               from the plan (tool_loaded, file_uploaded,
+               code_run_started/completed, download_clicked, ...). -->
+          <script data-goatcounter="https://webgeods.goatcounter.com/count"
+                  async src="//gc.zgo.at/count.js"></script>
+          <script>
+            // Generic funnel signal: a click on any link to /tools/,
+            // from anywhere on the site (this article today, any
+            // future one) — captures click-through intent even if the
+            // destination tool's own WASM runtime never finishes
+            // loading (so tool_loaded never fires for that visit).
+            document.addEventListener("click", (e) => {
+              const a = e.target.closest('a[href*="/tools/"]');
+              if (a) window.WebGeoDS?.track?.("tool_click", { href: a.getAttribute("href") });
+            });
+          </script>
     include-after-body:
       - text: |
           <script src="/runtime.js"></script>

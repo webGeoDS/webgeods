@@ -947,6 +947,11 @@
       this._runBtn.textContent =
         "⌛ ...";
 
+      window.WebGeoDS.track?.("code_run_started", {
+        cellId: this.element.id,
+        language: this._language
+      });
+
 
       // No generic "running" message here — the loading/execution
       // phases are onRun's responsibility via output.waiting(...),
@@ -992,6 +997,11 @@
           new Event("input", { bubbles: true })
         );
 
+        window.WebGeoDS.track?.("code_run_completed", {
+          cellId: this.element.id,
+          language: this._language
+        });
+
 
         return result;
 
@@ -1008,6 +1018,11 @@
           "WebGeoDS Execution Error:",
           err
         );
+
+        window.WebGeoDS.track?.("code_run_error", {
+          cellId: this.element.id,
+          language: this._language
+        });
 
         throw err;
 

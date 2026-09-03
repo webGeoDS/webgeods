@@ -237,6 +237,8 @@
     const names =
       targets.map(([, name]) => name).join(", ");
 
+    window.WebGeoDS.track?.("file_uploaded", { kind });
+
     return {
       ok: true,
       kind,
