@@ -179,6 +179,22 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
   **HTTPS non ancora pronto** (GitHub deve completare il provisioning
   del certificato dopo la verifica DNS, tipicamente minuti-ore) — da
   riverificare, non un errore.
+  **Riverificato (2026-09-03, dopo il fix 0.6)**: ancora non pronto —
+  `gh api repos/webGeoDS/webgeods/pages` mostra `https_enforced:
+  false` e nessun oggetto `https_certificate` nella risposta; il
+  certificato servito è ancora quello generico `*.github.io`, non uno
+  emesso per `webgeods.com` (confermato sia con curl locale che con
+  WebFetch: entrambi rifiutano l'handshake TLS per mismatch di
+  hostname). Il sito funziona correttamente in HTTP (confermato: feed
+  RSS raggiungibile e valido su `http://webgeods.com/index.xml`).
+  Probabile causa del ritardo: l'incidente DNS OVH (redirect di
+  default) risolto solo il giorno prima potrebbe aver fatto ripartire
+  da zero il tentativo automatico di GitHub. Se non si risolve da
+  solo entro 24h da questa nota, l'azione nota per "sbloccare" è
+  rimuovere e re-impostare il custom domain nelle impostazioni Pages
+  (forza un nuovo tentativo di emissione) — non eseguita
+  automaticamente, richiede conferma esplicita prima di toccare
+  un'impostazione di dominio live.
   **✅ Incidente DNS trovato e risolto (2026-09-02/03)**: il sito
   risultava intermittente (~1 richiesta su 5 falliva) — causa: OVH
   aggiunge di default una **redirezione parcheggio** su ogni dominio
