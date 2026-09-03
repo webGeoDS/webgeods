@@ -621,12 +621,22 @@ con quello di Observable Inputs, dato che entrambi espongono
    celle OJS.
 2. **Solo `Inputs.file` esiste** come funzione pubblica (non
    `Inputs.files`, nonostante il minified suggerisca il contrario a
-   un grep superficiale) — ma il suo valore è un wrapper tipo
-   "Observable file attachment", non un `File`/`FileList` grezzo:
-   **non sostituire** `shared/upload.js`'s input di caricamento file
-   con questo senza riscrivere `load()`/`toFileArray()`/`baseName()`
-   in tutte e quattro le pagine che li usano — costo sproporzionato
-   al beneficio, valutato e scartato.
+   un grep superficiale). **Corretto il 2026-09-03/04**: la nota
+   precedente qui diceva che il suo valore fosse un wrapper tipo
+   "Observable file attachment" (letto dalla documentazione ufficiale,
+   che in realtà descrive `FileAttachment`, un'API diversa) e
+   scartava la sostituzione per costo sproporzionato — **conclusione
+   sbagliata**. Leggendo il sorgente vendorizzato direttamente
+   (funzione `e.file=`), con `multiple:true` il valore è un `Array` di
+   veri `File` nativi. `shared/upload.js`'s `toFileArray()` già
+   gestiva `Array.isArray(value)`, e `load()`/`baseName()` usano solo
+   `.name`/`.arrayBuffer()` — zero modifiche necessarie a quelle tre
+   funzioni. **`createInput()` sostituita e rimossa** (vedi voce 1.5
+   sotto): sostituzione a basso rischio, non un costo sproporzionato.
+   Lezione: quando il codice sorgente vendorizzato è leggibile
+   direttamente, verificarlo così invece di fidarsi di un riassunto
+   di documentazione — ha portato a una conclusione opposta e
+   corretta.
 3. Ogni pagina che vendorizza un asset condiviso deve caricarlo con
    **path assoluto** (`src="/htl.min.js"`, non `src="htl.min.js"`) —
    un tool sotto `/tools/` risolve un path relativo contro quella
@@ -640,6 +650,37 @@ con quello di Observable Inputs, dato che entrambi espongono
 | 1.2 | **GeoSpatial File Inspector** | Da fare | Alta | Bassa-media | Vedi dettaglio sotto — probabilmente il tool più economico rimasto |
 | 1.3 | **CRS Inspector & Converter** | Da fare | Alta | Media | Vedi dettaglio sotto |
 | 1.4 | **Topology Check & Report** (standalone) | ✅ Fatto (2026-09-03) | — | — | `blog/tools/topology-checker.qmd`, live in produzione — costruito fuori dall'ordine originale (dopo 1.1, prima di 1.2/1.3): costo marginale basso avendo appena costruito il pattern a pulsanti per 1.1, motore già scritto in `topology-errors.qmd`. Solo diagnosi, niente Fix (una topologia rotta richiede quasi sempre una decisione umana). **Soglie sliver/gap rese configurabili (2026-09-03)** — prima con slider nativi hand-rolled (niente libreria, per evitare il CDN esterno di Observable Inputs), **poi Observable Inputs vendorizzata su richiesta esplicita** (`shared/observable-inputs.min.js` + `shared/htl.min.js`, sua dipendenza runtime non ovvia — vedi sezione dedicata più sotto) e usata per gli stessi due slider. `#| inject` resta la prima vera applicazione del meccanismo nel progetto |
+
+**Input di upload migrato a Observable Inputs (2026-09-04)**:
+`shared/upload.js`'s `createInput()` rimossa del tutto — ogni pagina
+chiama `window.Inputs.file({ multiple: true, accept:
+WebGeoDS.Upload.accept, label: "Upload" })` direttamente (coerente col
+pattern già usato dagli slider, nessun wrapper `shared/` per una
+chiamata a una riga). `accept` esposta come costante pubblica invece
+che incapsulata in una funzione. Le 3 pagine che non caricavano ancora
+`htl.min.js`/`observable-inputs.min.js` (`geometry-validity.qmd`,
+`topology-errors.qmd`, `geojson-shapefile-validator.qmd`) ora li
+caricano. Verificato end-to-end su tutte e 4 le pagine (upload, esito
+Validate/Check, nome file scaricato) + 16/16 map-tests + 51/51
+smoke-test lessons — nessuna regressione.
+
+**Tabelle Grid.js: NON sostituite con `Inputs.table()`, deciso
+esplicitamente (2026-09-04)**. Stessa indagine sul sorgente
+vendorizzato: la visualizzazione dati funzionerebbe (stessa forma di
+array di righe), ma **non esiste un equivalente di `rowClassName`**
+(l'unico hook è un formatter per cella, senza riferimento alla riga) —
+la colorazione rosso/verde delle righe errore, in uso su tutte e
+quattro le pagine con tabella, non ha un modo pulito di essere
+riprodotta. Neanche l'aggiornamento in-place esiste (ogni chiamata
+crea un `<form>` nuovo). In cambio si guadagnerebbe una vera selezione
+righe (`.value` = oggetti riga selezionati, non indici — si
+collegherebbe bene a `highlight()` già esistente in `map.js`, mai
+usato da nessuna pagina) — ma nessuna pagina oggi userebbe quella
+capacità. Deciso con l'utente: lasciare Grid.js com'è. Da
+riconsiderare solo se si costruisce davvero l'interazione
+mappa↔tabella (candidato naturale: l'Inspector, non ancora
+pianificato nel dettaglio) — a quel punto va risolto anche il
+problema della colorazione riga persa, non prima.
 
 ### 1.2 — GeoSpatial File Inspector (dettaglio)
 
