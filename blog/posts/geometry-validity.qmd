@@ -117,7 +117,11 @@ topologyTable = sharedMap.tableCell(["geometry-py", "geometry-r"], null, Generat
     if (row.valid_before === "false") return "webgeods-row-fixed";
     if (row.valid === "false") return "webgeods-row-invalid";
     return "";
-  }
+  },
+  // Grid.js's default ("No matching records found") reads like a
+  // search/filter came up empty — misleading before any check has
+  // ever run.
+  language: { noRecordsFound: "No results yet" }
 })
 ```
 
