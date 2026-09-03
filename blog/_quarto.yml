@@ -1,6 +1,12 @@
 project:
-  type: website # open alternative: "blog" would give listing/categories/RSS for free
-                # — to be decided based on the acquisition strategy (plan §8)
+  type: website # NOTE (2026-09-03): "blog" is NOT a valid Quarto
+                # project type (verified — `quarto render` errors with
+                # "Unsupported project type blog"; valid types are
+                # default/website/book/manuscript). The stale comment
+                # that used to be here was wrong. RSS/categories for a
+                # website-type project's listing come from the
+                # `feed:`/`categories:` options on the listing itself
+                # (see index.qmd), not from the project type.
   resources:
     - "runtime.js"
     - "python.js"
@@ -22,6 +28,7 @@ project:
 
 website:
   title: "webgeods"
+  description: "Bilingual (Python/R) spatial data science — interactive articles and tools running entirely in your browser via WebAssembly." # required together with site-url for RSS feed generation, not just descriptive
   navbar:
     logo: webgeods-logo.svg
     background: "#eee5d2" # dark-paper — light navbar in the reference design,
@@ -48,7 +55,17 @@ format:
       - brand # from _brand.yml, copied here from shared/ via sync-shared-assets.sh
     css: [styles.css, fonts.css]
     page-layout: article # for full-width PoCs/webapps: override per-page with `page-layout: full`
-    embed-resources: true
+    # false (not true, unlike lessons/_quarto.yml): confirmed via
+    # `quarto render` that embed-resources:true silently suppresses
+    # RSS feed generation (feed: true on the index.qmd listing then
+    # produces no index.xml, no warning). It also isn't needed here —
+    # per piano-separazione-blog-lezioni.md §3, embed-resources:true
+    # is a lessons/-only requirement (single self-contained HTML for
+    # a cross-origin Teachable iframe); the blog is meant to be
+    # discoverable/shareable, the opposite goal, so separate files
+    # (shared via _site/site_libs across pages) are the correct
+    # choice here too, not just the RSS workaround.
+    embed-resources: false
     include-in-header:
       - text: |
           <meta name="google-site-verification" content="qJP5C72-4WUUqIsBrZ3qXz62Hk1hTsQI8A9nztQemfg" />
