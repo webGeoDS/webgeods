@@ -35,7 +35,10 @@ ${uploadStatus}
 //| echo: false
 //| output: false
 {
-  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  // Python-only tool: skip writing to R's filesystem entirely, so
+  // selecting a file doesn't also load webR in the background for
+  // no reason (see shared/upload.js's `languages` option doc).
+  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
   mutable uploadStatus = result.message;
 }
 ```
@@ -62,8 +65,60 @@ using GeoPandas/Shapely underneath; see the
 [full article](/posts/topology-errors.html) for the actual code,
 editable and explained one check at a time.
 
+Gap and sliver aren't absolute properties of a dataset — they depend
+on a judgment call (how close counts as "should touch"? how thin
+counts as "not a real shape"?). Adjust the two thresholds below
+before checking if the defaults don't match your data.
+
+```{ojs}
+//| echo: false
+sliverControl = {
+  const wrap = document.createElement("div");
+  const label = document.createElement("label");
+  label.textContent = "Sliver threshold (compactness, 0-1 — lower catches only thinner slivers): ";
+  const input = document.createElement("input");
+  input.type = "range";
+  input.id = "sliver-threshold-input";
+  input.min = "0.01";
+  input.max = "0.9";
+  input.step = "0.01";
+  input.value = "0.15";
+  const output = document.createElement("span");
+  output.textContent = input.value;
+  input.oninput = () => { output.textContent = input.value; };
+  wrap.append(label, input, " ", output);
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+gapControl = {
+  const wrap = document.createElement("div");
+  const label = document.createElement("label");
+  label.textContent = "Gap search distance (degrees — larger finds gaps between features further apart): ";
+  const input = document.createElement("input");
+  input.type = "range";
+  input.id = "gap-proximity-input";
+  input.min = "0.01";
+  input.max = "0.5";
+  input.step = "0.01";
+  input.value = "0.06";
+  const output = document.createElement("span");
+  output.textContent = input.value;
+  input.oninput = () => { output.textContent = input.value; };
+  wrap.append(label, input, " ", output);
+  return wrap;
+}
+```
+
+${sliverControl}
+
+${gapControl}
+
 ```{.webgeods-python #topology-diagnose-py}
 #| package: geopandas, shapely
+#| inject: [sliverThreshold, gapProximity]
 import math
 from shapely.geometry import mapping, shape
 
@@ -150,7 +205,7 @@ def check_dangle(gdf, tolerance=1e-9):
             results[i].append(("dangle", which, 0))
     return results
 
-def detect_and_check(gdf):
+def detect_and_check(gdf, sliver_threshold=0.15, gap_proximity=0.06):
     family = geom_family(gdf)
     n = len(gdf)
     per_feature = [[] for _ in range(n)]
@@ -162,11 +217,11 @@ def detect_and_check(gdf):
 
     if family == "polygon":
         ov = check_overlap(gdf)
-        sl = check_sliver(gdf)
+        sl = check_sliver(gdf, compactness_threshold=sliver_threshold)
         for i in range(n):
             per_feature[i].extend(ov[i])
             per_feature[i].extend(sl[i])
-        for gap_geom in check_gap(gdf):
+        for gap_geom in check_gap(gdf, proximity=gap_proximity):
             extra_features.append({
                 "type": "Feature",
                 "properties": {
@@ -220,7 +275,7 @@ if gdf is None:
     b = {"type": "Polygon", "coordinates": [[[12.50, 41.87], [12.57, 41.87], [12.57, 41.94], [12.50, 41.94], [12.50, 41.87]]]}
     gdf = gpd.GeoDataFrame({"name": ["A (example)", "B (example)"]}, geometry=[shape(a), shape(b)], crs="EPSG:4326")
 
-detect_and_check(gdf)
+detect_and_check(gdf, sliver_threshold=sliverThreshold, gap_proximity=gapProximity)
 ```
 
 ```{ojs}
@@ -233,6 +288,14 @@ checkButton = {
     button.classList.add("webgeods-btn-loading");
     button.textContent = "⌛ Checking...";
     try {
+      // #| inject reads window[name] fresh on every run() — see the
+      // hidden cell's pragma line. Read straight from the slider
+      // elements (not the OJS sliverControl/gapControl cell values)
+      // so this button's own cell stays independent of the sliders:
+      // referencing an OJS variable by name here would make OJS
+      // re-create this whole button on every drag tick.
+      window.sliverThreshold = +document.getElementById("sliver-threshold-input").value;
+      window.gapProximity = +document.getElementById("gap-proximity-input").value;
       await window.WebGeoDS.CodeCell.find("topology-diagnose-py").run();
     } finally {
       button.disabled = false;

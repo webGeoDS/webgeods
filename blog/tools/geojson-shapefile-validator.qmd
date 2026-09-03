@@ -35,7 +35,10 @@ ${uploadStatus}
 //| echo: false
 //| output: false
 {
-  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  // Python-only tool (see the redesign commit): skip writing to R's
+  // filesystem entirely, so selecting a file doesn't also load webR
+  // in the background for no reason.
+  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
   mutable uploadStatus = result.message;
 }
 ```

@@ -106,14 +106,26 @@
 
 
   // ============================================================
-  // load(value) — writes the selected file(s) into BOTH runtimes'
-  // virtual filesystems (window.WebGeoDS.Python/R.writeFile,
-  // already existing) and returns { ok, kind, message }, ready to
-  // assign straight to a page's `mutable uploadStatus`.
+  // load(value, { languages }) — writes the selected file(s) into
+  // the given runtimes' virtual filesystems (window.WebGeoDS.Python/
+  // R.writeFile, already existing) and returns { ok, kind, message },
+  // ready to assign straight to a page's `mutable uploadStatus`.
+  //
+  // `languages` defaults to ["python", "r"] (both, unchanged behavior
+  // for every existing caller — the bilingual articles need both).
+  // A Python-only tool should pass `{ languages: ["python"] }`:
+  // Python/R.writeFile() each lazily load their WHOLE runtime first
+  // (WebGeoDS.Runtime.python()/.r()) if not already running — verified
+  // empirically that without this, uploading a file on a Python-only
+  // tool page was silently loading webR in the background too (a
+  // Playwright test's console log showed "WebR is using `PostMessage`
+  // communication channel" on a page that never otherwise touches R),
+  // undermining the whole point of choosing Python-only for speed.
   // ============================================================
 
   async function load(
-    value
+    value,
+    { languages = ["python", "r"] } = {}
   ) {
 
     const files =
@@ -211,11 +223,16 @@
       const staleNames =
         ALL_CANDIDATE_NAMES.filter((name) => !targetNames.has(name));
 
+      const runtimesFor =
+        (fn) =>
+          languages
+            .map((lang) => lang === "r" ? window.WebGeoDS.R : window.WebGeoDS.Python)
+            .map(fn);
+
       await Promise.all(
-        staleNames.flatMap((name) => [
-          window.WebGeoDS.Python.deleteFile("/" + name),
-          window.WebGeoDS.R.deleteFile("/" + name)
-        ])
+        staleNames.flatMap((name) =>
+          runtimesFor((runtime) => runtime.deleteFile("/" + name))
+        )
       );
 
       for (const [file, targetName] of targets) {
@@ -223,10 +240,9 @@
         const bytes =
           new Uint8Array(await file.arrayBuffer());
 
-        await Promise.all([
-          window.WebGeoDS.Python.writeFile("/" + targetName, bytes.slice()),
-          window.WebGeoDS.R.writeFile("/" + targetName, bytes.slice())
-        ]);
+        await Promise.all(
+          runtimesFor((runtime) => runtime.writeFile("/" + targetName, bytes.slice()))
+        );
 
       }
 
