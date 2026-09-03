@@ -302,9 +302,17 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
   come già faceva `geometry-validity.qmd`).
 
   **Rimandato allora, fatto ora**: la pagina About era ancora un
-  placeholder ("About webgeods."). Lo stato vuoto della tabella ("No
-  matching records found") resta rimandato — testo generico di
-  libreria, poco calzante ma minore.
+  placeholder ("About webgeods.").
+
+  **✅ Testo vuoto della tabella corretto (2026-09-04)**: "No matching
+  records found" (default di Grid.js, suona come una ricerca senza
+  risultati — fuorviante prima che qualunque check sia mai stato
+  eseguito) sostituito con "No results yet" su tutte e quattro le
+  pagine con tabella. Nessuna modifica a `shared/map.js`/`table.js`
+  necessaria: `table()` inoltra già ogni opzione non riconosciuta al
+  costruttore di Grid.js (solo `rowClassName` viene estratto a parte)
+  — bastava aggiungere `language: { noRecordsFound: "..." }`
+  all'oggetto `options` già passato a `tableCell()` in ciascun file.
 
   **✅ Pagina About scritta (2026-09-04)**: struttura sulle quattro
   domande che contano per acquisizione fredda (cos'è / per chi / cosa
