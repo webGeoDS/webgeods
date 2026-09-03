@@ -239,8 +239,11 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
 
   **✅ 0.5 fatto (2026-09-03)**: vedi dettaglio nella sezione 0.5 più
   sotto — GoatCounter scelto e live, eventi instrumentati al livello
-  condiviso invece che per singolo tool. Resta 0.8 per chiudere il
-  Giorno 3.
+  condiviso invece che per singolo tool.
+
+  **✅ 0.8 fatto (2026-09-03)**: vedi dettaglio nella sezione 0.8 più
+  sotto — Kit scelto e live, form sui due articoli e sul tool
+  Validator, cheatsheet scaricabile. Giorno 3 chiuso.
 - **Giorno 4-5**: 1.2 GeoSpatial File Inspector — upload, statistiche
   (riusa la logica diagnosi del Validator), cross-link verso
   Validate/Repair/Topology, render + verifica funzionale + eventi.
@@ -428,6 +431,41 @@ pagare. Serve un passaggio che permetta più contatti nel tempo.
   visita a freddo" a "lista che cresce ogni mese e converte nel
   tempo" — è la differenza principale tra le stime precedenti e quelle
   rinnovate più sotto.
+
+**✅ fatto (2026-09-03)**: **Kit** scelto (vs Buttondown/MailerLite/
+Beehiiv — confronto su tetto iscritti gratis, automazioni incluse,
+consegna lead magnet; vedi confronto sotto). Piano gratuito
+"Newsletter": 10.000 iscritti, form/broadcast illimitati, consegna
+incentivo inclusa — nessuna automazione a pagamento necessaria finché
+non esiste un mini-corso da vendere (coerente col resto del punto).
+Nota: il flusso di signup mostra un trial di 14gg del piano a
+pagamento (Creator) — senza inserire una carta, l'account ricade da
+solo sul piano gratuito Newsletter, nessun addebito.
+
+Cheatsheet "Geometric & topological errors, at a glance" prodotto
+(2 pagine, contenuto dagli articoli esistenti, stile grafico
+allineato a `_brand.yml`) e servito direttamente da
+`webgeods.com/downloads/geometric-topological-errors-cheatsheet.pdf`
+(non solo caricato su Kit — resta scaricabile anche se si cambia
+servizio email in futuro).
+
+Form incorporato (inline, si auto-renderizza) in fondo alle due
+pagine articolo e al tool Validator — non su index/about, non è un
+punto naturale di iscrizione lì. Redirect dopo submit punta
+direttamente al PDF (gratificazione immediata); email di conferma
+(doppio opt-in mantenuto attivo, per proteggere la deliverability fin
+dall'inizio — vedi discussione) riconosce che il file è già stato
+scaricato invece di ripeterlo come se fosse la prima volta.
+
+Stile del form allineato al brand via Custom CSS di Kit (classi
+`.formkit-*`, verificate dalla documentazione ufficiale, non
+indovinate) — font, colori, bordi squadrati coerenti col resto del
+sito. Verificato visivamente via screenshot Playwright sul sito live
+dopo ogni iterazione (il primo template aveva uno slot immagine vuoto
+a sinistra, risolto passando a un layout senza immagine; il testo
+dell'header restava bianco/illeggibile su un form ricreato da zero,
+serviva ripetere il CSS perché non si porta dietro tra un form e
+l'altro con UID diverso).
 
 ### 0.9 Marketing a pagamento — escluso dal piano a 24 mesi
 
