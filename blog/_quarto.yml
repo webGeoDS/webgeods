@@ -25,6 +25,7 @@ project:
     - "codemirror-bundle.js"
     - "gridjs.umd.js"
     - "gridjs-mermaid.min.css"
+    - "downloads/*.pdf"
 
 website:
   title: "webgeods"
