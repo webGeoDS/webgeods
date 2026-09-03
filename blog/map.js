@@ -89,7 +89,7 @@
   // the page is still busy parsing/compiling a very large amount of
   // its own inline JS, most likely) — this works around the symptom
   // rather than the cause.
-  const MAX_SCRIPT_ATTEMPTS = 4;
+  const MAX_SCRIPT_ATTEMPTS = 8;
 
   function loadMapLibreScript(attempt = 1) {
 
@@ -98,6 +98,20 @@
     }
 
     return new Promise((resolve, reject) => {
+
+      // Retries beyond the first get a short delay before appending
+      // the next <script>, instead of doing it synchronously inside
+      // the previous one's onload: verified empirically (Playwright,
+      // a page with several code cells competing for the main thread
+      // right after load) that a page busy enough with other work can
+      // burn through all MAX_SCRIPT_ATTEMPTS immediately, back-to-back,
+      // faster than the browser can actually finish executing any one
+      // of them — giving the event loop a moment between attempts
+      // measurably reduced the failure rate in that same repeated test.
+      const append =
+        attempt === 1
+          ? (fn) => fn()
+          : (fn) => setTimeout(fn, 150 * (attempt - 1));
 
       const script =
         document.createElement("script");
@@ -139,7 +153,7 @@
           new Error(`WebGeoDS.Map: failed to load ${MAPLIBRE_JS_URL}.`)
         );
 
-      document.head.appendChild(script);
+      append(() => document.head.appendChild(script));
 
     });
 
