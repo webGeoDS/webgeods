@@ -253,9 +253,15 @@ propagare/indicizzare — corrono in parallelo al resto, non bloccano.
   scivola all'inizio della settimana successiva — stima onesta già
   sopra (2-3 giorni per il solo tool), non una scadenza.
 
+  **✅ 1.4 fatto in anticipo, fuori ordine (2026-09-03)**: durante una
+  revisione del Validator (vedi 1.1 sopra: ridisegnato a pulsanti,
+  Python-only), il costo marginale di estrarre anche `topology-errors`
+  in un tool standalone è risultato basso — pattern appena costruito,
+  motore già scritto. Vedi dettaglio nella tabella Fase 1 più sotto.
+  Non tocca la stima di 1.2/1.3, entrambi ancora da fare.
+
 **Fuori da questa settimana, esplicitamente**: Fase 2, Vertical Apps,
-ads (esclusi dal piano), Topology standalone (1.4, bassa priorità,
-rimandabile).
+ads (esclusi dal piano).
 
 ---
 
@@ -512,12 +518,29 @@ rivalutazione li giustificherà, non come voci programmate:
 Ordine aggiornato secondo la discussione su impatto/difficoltà/valore
 differenziante di webgeods.
 
+**Convenzione tool standalone (stabilita 2026-09-03, vale per 1.2/1.3
+e ogni tool futuro)**: un tool in `/tools/` è a **pulsanti**, non a
+celle di codice editabili — "stesso motore, meno prosa" è la sua
+stessa proposta di valore, un editor con "▶ Run" da cliccare la
+contraddice. Il codice resta nell'engine (nascosto via CSS,
+**mai `display:none`** — verificato che rompe il caricamento di
+`maplibre-gl.js`, vedi commento in `geojson-shapefile-validator.qmd` —
+usare `height:0; overflow:hidden;`), eseguito da bottoni che chiamano
+`.run()` programmaticamente. Un solo linguaggio, non entrambi: misurare
+Python vs R sul carico REALE del tool specifico prima di scegliere
+(non assumere — il margine è variato da ~45% a ~15% tra Validator e
+Topology Checker pur usando gli stessi pacchetti) — finora Python ha
+sempre vinto, ma va riverificato per ogni nuovo tool. L'articolo
+completo (celle editabili, entrambi i linguaggi, confronto Python/R)
+resta il posto per chi vuole leggere/modificare il codice — linkato
+in modo prominente dal tool, mai duplicato.
+
 | # | Tool | Stato | Priorità | Difficoltà | Note |
 |---|---|---|---|---|---|
-| 1.1 | **Geometry Validation & Repair** | ✅ Fatto | — | — | `blog/tools/geojson-shapefile-validator.qmd`, live in locale, cross-linkato con l'articolo |
+| 1.1 | **Geometry Validation & Repair** | ✅ Fatto | — | — | `blog/tools/geojson-shapefile-validator.qmd`, live in produzione, ridisegnato a pulsanti (vedi 2026-09-03 sotto), cross-linkato con l'articolo |
 | 1.2 | **GeoSpatial File Inspector** | Da fare | Alta | Bassa-media | Vedi dettaglio sotto — probabilmente il tool più economico rimasto |
 | 1.3 | **CRS Inspector & Converter** | Da fare | Alta | Media | Vedi dettaglio sotto |
-| 1.4 | **Topology Check & Report** (standalone) | Parziale | Bassa | Bassa | L'articolo `topology-errors.qmd` è già di fatto un tool incorporato; estrarlo in `/tools/` come fatto per la validazione è un'estensione naturale ma non urgente — il valore è già catturato dall'articolo |
+| 1.4 | **Topology Check & Report** (standalone) | ✅ Fatto (2026-09-03) | — | — | `blog/tools/topology-checker.qmd`, live in produzione — costruito fuori dall'ordine originale (dopo 1.1, prima di 1.2/1.3): costo marginale basso avendo appena costruito il pattern a pulsanti per 1.1, motore già scritto in `topology-errors.qmd`. Solo diagnosi, niente Fix (una topologia rotta richiede quasi sempre una decisione umana) |
 
 ### 1.2 — GeoSpatial File Inspector (dettaglio)
 
