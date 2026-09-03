@@ -1115,3 +1115,20 @@ quale leva conta, non produrre un numero da centrare.
   generiche scartate come fuori brand; le loro varianti spaziali
   (spatio-temporal, spatial epidemiology) già coperte da Fase 3 e dalla
   nuova voce di Fase 4.
+- **2026-09-03**: seconda revisione esterna, questa volta del sito
+  pubblicato (non del piano) — valutazione sintetica 8/10, punto
+  debole indicato in SEO/content breadth (5,5/10, coerente con 0.7:
+  solo 2 articoli, troppo presto per giudicare traffico). Tre
+  suggerimenti genuinamente nuovi accettati e implementati: nome del
+  file scaricato derivato dal file caricato invece di un nome generico
+  (`WebGeoDS.Upload.baseName()`, promosso a `shared/upload.js`);
+  callout "Private by design" su entrambi i tool, per rendere "il file
+  non lascia il browser" un'affermazione di brand visibile invece di
+  una frase nel testo; `tools/index.qmd` riformulata come "Spatial
+  Data Quality Toolkit" con sequenza Inspect → Validate → Check
+  Topology → CRS Inspector, onesta su quali esistono e quali sono
+  "planned". Un suggerimento respinto esplicitamente: accelerare il
+  calendario dei corsi sulla base della qualità della demo — la review
+  stessa non ha potuto eseguire i tool con un browser reale, e zero
+  iscritti/traffico reali non giustificano di derogare al gate già
+  stabilito (Fase 4/5 attendono dati, non un giudizio di qualità).
