@@ -51,6 +51,7 @@ format:
     embed-resources: true
     include-in-header:
       - text: |
+          <meta name="google-site-verification" content="qJP5C72-4WUUqIsBrZ3qXz62Hk1hTsQI8A9nztQemfg" />
           <script>window.WEBGEODS_ASSET_BASE = "/";</script>
     include-after-body:
       - text: |
