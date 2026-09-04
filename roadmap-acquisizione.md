@@ -1790,3 +1790,64 @@ Verificato: 0 sparse in nessun momento del caricamento (controllato
 ogni 100-1500ms), tutti e 5 i controlli allo stesso `top` esatto una
 volta montati, flusso upload→diagnose→Fix ancora corretto, 16/16
 map-tests, 51/51 smoke-test lessons.
+
+**`topology-checker.qmd` allineato alle modifiche di
+`geojson-shapefile-validator.qmd` (2026-09-04)**, su richiesta
+esplicita dell'utente. Allineato:
+
+- Upload spostato dentro il pannello (dentro `controlPanelRow`
+  stesso, non una `${uploadControl}` separata — evita da subito il bug
+  dei due `<p>` come item flex indipendenti).
+- Animazione pulse durante upload/check (`uploadBusy` + `uploadStatusEl`).
+- Fallback implicito ai due poligoni d'esempio RIMOSSO (girava
+  automaticamente ogni volta che `gdf` era `None`), sostituito da un
+  pulsante esplicito "📋 Load example" — stesso approccio del
+  Validator, "no results yet" ora significa davvero nessun risultato.
+- Sia Upload che Load example fanno partire il check automaticamente
+  (`runCheck()`, estratta una volta che tre punti diversi ne avevano
+  bisogno) più zoom automatico sulla mappa.
+- Didascalia spostata sopra il pannello; pannello attaccato alla mappa.
+- `output: false` aggiunto a tutte le celle bottone/riga — stesso bug
+  di "pulsanti sparsi al caricamento" già trovato e risolto sul
+  Validator, esisteva identico anche qui (verificato con gli stessi
+  screenshot a intervalli).
+- Sliders (soglia sliver/distanza gap) uniti in una cella `sliderRow`
+  — avevano esattamente lo stesso rischio di disallineamento
+  dell'upload (stessa causa: due paragrafi Markdown separati da riga
+  vuota → due `<p>` → due item flex indipendenti), semplicemente mai
+  visibile perché i due slider hanno la stessa altezza.
+- Nota di chiusura convertita nello stesso box con bordo.
+
+**Bug nuovo trovato e corretto durante l'allineamento**: il commento
+CSS del blocco `<style>` di chiusura (identico nello spirito a quello
+del Validator) menzionava `<style>` tre volte come testo semplice —
+Pandoc corrompeva l'intero blocco, la regola che nasconde l'editor
+Python smetteva di applicarsi e l'editor tornava visibile per intero
+(verificato: `getComputedStyle` mostrava `height: 3877px` invece di
+`0px`, e l'HTML renderizzato mostrava frammenti del commento avvolti
+in `<p>` spuri con `<style>` bare ripetuti al loro interno). La
+causa esatta resta poco chiara (il commento del Validator ha la
+STESSA struttura — riga vuota interna, menzioni ripetute di tag come
+`<script>`/`<style>`/`<div>` — e funziona), ma ripetere lo stesso tag
+tre volte ravvicinate sembra il fattore scatenante più probabile.
+Corretto riscrivendo il commento senza ripetere il tag alla lettera.
+**Nota per il futuro**: il commento del Validator resta STRUTTURALMENTE
+fragile allo stesso modo (non ancora toccato, perché oggi funziona) —
+se va modificato in una sessione futura, evitare di ripetere `<style>`
+più di una volta e niente riga vuota interna, per non reintrodurre lo
+stesso problema lì.
+
+**Deliberatamente NON allineato**: il pulsante Check resta manuale
+(a differenza di Validate, ha una ragione reale per essere rieseguito
+— soglie diverse sui filtri — quindi "nessuna ragione per rieseguire"
+non vale qui); la tabella resta colorata per riga (`rowClassName`),
+non a icone — `has_error` ha semantica invertita rispetto a `valid`
+(true = male, qui) e lo schema più ricco (error_type/partner/metric/
+severity) si legge meglio con la riga intera colorata che con
+un'icona su una sola colonna.
+
+Verificato: flusso completo Load example → upload → modifica slider →
+ricontrollo → download → reset, nessun errore console (dopo aver
+corretto un test troppo impaziente che aveva inizialmente suggerito un
+problema reale — stesso schema "falso allarme" già documentato sopra),
+16/16 map-tests, 51/51 smoke-test lessons.

@@ -25,28 +25,45 @@ always requires a human decision (see the
 
 ```{ojs}
 //| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+```{ojs}
+//| echo: false
+// Pulses the status text while true — set around both the actual
+// file write AND the automatic check that follows it, same pattern
+// as geojson-shapefile-validator.qmd's uploadBusy.
+mutable uploadBusy = false
+```
+
+```{ojs}
+//| echo: false
+// The current file selection — a plain `mutable`, written by
+// uploadControl's onChange below. Was a `viewof`-bound variable
+// (Observable Inputs' Inputs.file() widget) until this cell replaced
+// it — see WebGeoDS.Upload.createControl's doc comment in
+// shared/upload.js for why.
 mutable uploadedFiles = null
 ```
 
 ```{ojs}
 //| echo: false
-// A native <input type="file"> (WebGeoDS.Upload.createControl(), see
-// shared/upload.js) instead of Observable Inputs' `viewof`-bound
-// Inputs.file() widget used here previously — see its doc comment
-// there for why (a `viewof` cell's element turned out to be unsafe
-// to relocate in Quarto's OJS runtime; this plain `mutable` +
-// onChange callback doesn't have that fragility).
+//| output: false
+// The upload control itself — a native <input type="file"> wrapped
+// in a <label> styled as a .webgeods-panel-btn. output:false + only
+// ever consumed via controlPanelRow's row.append() below (same
+// reasoning as loadExampleButton/checkButton there): folding it into
+// that one JS-built row, instead of giving it its own
+// `${uploadControl}` markdown interpolation, also sidesteps a real
+// bug found on geojson-shapefile-validator.qmd — two `${...}`
+// interpolations on separate paragraphs (needed there to dodge
+// Pandoc's math-dollar parser swallowing adjacent `${x} ${y}` on one
+// line) each get wrapped in their own <p>, and each <p> becomes an
+// independent flex item, breaking vertical alignment between them.
 uploadControl = WebGeoDS.Upload.createControl({
   label: "Upload",
   onChange: (files) => { mutable uploadedFiles = files; }
 })
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
 ```
 
 ```{ojs}
@@ -56,8 +73,33 @@ mutable uploadStatus = WebGeoDS.Upload.defaultStatus
   // Python-only tool: skip writing to R's filesystem entirely, so
   // selecting a file doesn't also load webR in the background for
   // no reason (see shared/upload.js's `languages` option doc).
-  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
-  mutable uploadStatus = result.message;
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
+    if (result.ok) {
+      mutable uploadStatus = "⌛ Checking...";
+      await runCheck();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Only ever shown via ${uploadStatusEl} inside the panel — see
+// loadExampleButton's comment for why this needs output:false too.
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
 }
 ```
 
@@ -83,29 +125,31 @@ counts as "not a real shape" — lower catches only thinner slivers.
 **Gap search distance** (degrees): how close two features need to be
 before a gap between them counts — larger finds gaps further apart.
 
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
 :::: {.webgeods-panel}
 
 ::: {.webgeods-panel-row}
-${sliverControl}
-
-${gapControl}
+${sliderRow}
 :::
 
 ${controlPanelRow}
 
 ::: {.webgeods-panel-row}
-${uploadStatus}
+${uploadStatusEl}
 :::
 
 ::::
 
 ```{ojs}
 //| echo: false
+//| output: false
 // window.Inputs, lazy-loaded on demand (WebGeoDS.loadObservableInputs()
 // in shared/upload.js — awaited here directly, same reasoning as the
 // upload cell above: no bigger WebGeoDS wrapper exists to hide this
 // load step inside without recreating an indirection already removed
-// once).
+// once). output:false: only ever shown via sliderRow below.
 sliverControl = {
   await WebGeoDS.loadObservableInputs();
   const el = window.Inputs.range([0.01, 0.9], {
@@ -123,6 +167,7 @@ sliverControl = {
 
 ```{ojs}
 //| echo: false
+//| output: false
 gapControl = {
   await WebGeoDS.loadObservableInputs();
   const el = window.Inputs.range([0.01, 0.5], {
@@ -135,11 +180,31 @@ gapControl = {
 }
 ```
 
+```{ojs}
+//| echo: false
+//| output: false
+// Both sliders folded into one JS-built row (same reasoning as
+// controlPanelRow further down): `${sliverControl}` and
+// `${gapControl}` used to sit in the SAME markdown paragraph
+// separated by a blank line, which Pandoc wraps each in its own <p>
+// — and each <p> becomes an independent flex item, breaking their
+// alignment with each other exactly like uploadControl vs
+// controlPanelRow did (see uploadControl's comment above). Sliders
+// aren't `viewof` cells, just plain elements — safe to move via
+// appendChild, same as every button on this page.
+sliderRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(sliverControl, gapControl);
+  return row;
+}
+```
+
 ```{.webgeods-python #topology-diagnose-py}
 #| package: geopandas, shapely
 #| inject: [sliverThreshold, gapProximity]
 import math
-from shapely.geometry import mapping, shape
+from shapely.geometry import mapping
 
 def geom_family(gdf):
     types = set(gdf.geometry.geom_type)
@@ -286,19 +351,39 @@ for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
     except Exception:
         pass
 
-if gdf is not None and "name" not in gdf.columns:
-    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+if gdf is not None:
+    if "name" not in gdf.columns:
+        gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
-if gdf is None:
-    a = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.52, 41.85], [12.52, 41.92], [12.45, 41.92], [12.45, 41.85]]]}
-    b = {"type": "Polygon", "coordinates": [[[12.50, 41.87], [12.57, 41.87], [12.57, 41.94], [12.50, 41.94], [12.50, 41.87]]]}
-    gdf = gpd.GeoDataFrame({"name": ["A (example)", "B (example)"]}, geometry=[shape(a), shape(b)], crs="EPSG:4326")
-
-detect_and_check(gdf, sliver_threshold=sliverThreshold, gap_proximity=gapProximity)
+# No built-in fallback anymore (an earlier version diagnosed two
+# hardcoded example polygons automatically whenever nothing had been
+# uploaded) — see geojson-shapefile-validator.qmd's identical change:
+# the page now starts genuinely empty until the user either uploads a
+# file or clicks "Load example" below, so "no results yet" actually
+# means no results yet.
+detect_and_check(gdf, sliver_threshold=sliverThreshold, gap_proximity=gapProximity) if gdf is not None else {"type": "FeatureCollection", "features": []}
 ```
 
 ```{ojs}
 //| echo: false
+//| output: false
+// Shared by checkButton (below), the upload-effect cell and
+// loadExampleButton above: reads the current slider values (by id,
+// not by referencing the sliverControl/gapControl OJS variables
+// directly — see sliderControl's own comment for why) and runs the
+// check. Extracted once three separate call sites needed the exact
+// same "read thresholds, run" sequence instead of duplicating it —
+// geojson-shapefile-validator.qmd's autoValidate() is the same idea.
+runCheck = async () => {
+  window.sliverThreshold = +document.getElementById("sliver-threshold-control").value;
+  window.gapProximity = +document.getElementById("gap-proximity-control").value;
+  await window.WebGeoDS.CodeCell.find("topology-diagnose-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
 checkButton = {
   const button = document.createElement("button");
   button.className = "webgeods-panel-btn";
@@ -308,15 +393,7 @@ checkButton = {
     button.classList.add("webgeods-btn-loading");
     button.textContent = "⌛ Checking...";
     try {
-      // #| inject reads window[name] fresh on every run() — see the
-      // hidden cell's pragma line. Read straight from the slider
-      // elements (not the OJS sliverControl/gapControl cell values)
-      // so this button's own cell stays independent of the sliders:
-      // referencing an OJS variable by name here would make OJS
-      // re-create this whole button on every drag tick.
-      window.sliverThreshold = +document.getElementById("sliver-threshold-control").value;
-      window.gapProximity = +document.getElementById("gap-proximity-control").value;
-      await window.WebGeoDS.CodeCell.find("topology-diagnose-py").run();
+      await runCheck();
     } finally {
       button.disabled = false;
       button.classList.remove("webgeods-btn-loading");
@@ -327,8 +404,53 @@ checkButton = {
 }
 ```
 
-*First run loads the Python engine — expect 30-40 seconds. Instant
-after that, and again each time you come back to this page.*
+```{ojs}
+//| echo: false
+//| output: false
+// Same canonical two-polygon example as the removed Python fallback
+// above, now loaded explicitly instead of automatically — matches
+// geojson-shapefile-validator.qmd's EXAMPLE_GEOJSON.
+EXAMPLE_GEOJSON = JSON.stringify({
+  type: "FeatureCollection",
+  features: [
+    {
+      type: "Feature",
+      properties: { name: "A (example)" },
+      geometry: { type: "Polygon", coordinates: [[[12.45, 41.85], [12.52, 41.85], [12.52, 41.92], [12.45, 41.92], [12.45, 41.85]]] }
+    },
+    {
+      type: "Feature",
+      properties: { name: "B (example)" },
+      geometry: { type: "Polygon", coordinates: [[[12.50, 41.87], [12.57, 41.87], [12.57, 41.94], [12.50, 41.94], [12.50, 41.87]]] }
+    }
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
+      await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
+      mutable uploadStatus = "⌛ Checking...";
+      await runCheck();
+      mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
+}
+```
 
 ```{ojs}
 //| echo: false
@@ -361,7 +483,13 @@ errorPaint = (data) => {
 //| output: false
 pyErrors = WebGeoDS.getCellValue("topology-diagnose-py", Generators)
 {
-  if (pyErrors) await sharedMap.setGeoJSON("topology-py", pyErrors, { paint: errorPaint(pyErrors) });
+  if (pyErrors) {
+    await sharedMap.setGeoJSON("topology-py", pyErrors, { paint: errorPaint(pyErrors) });
+    // Zooms to whatever was just checked — an upload or "Load
+    // example" — same as geojson-shapefile-validator.qmd's pyDiagnose
+    // effect. A no-op on an empty FeatureCollection.
+    await sharedMap.fitToData(pyErrors);
+  }
 }
 ```
 
@@ -405,6 +533,7 @@ resetChecker = async () => {
 
 ```{ojs}
 //| echo: false
+//| output: false
 resetMapButton = {
   const button = document.createElement("button");
   button.className = "webgeods-panel-btn";
@@ -436,6 +565,7 @@ downloadGeoJSON = (sourceId, filename) => {
 
 ```{ojs}
 //| echo: false
+//| output: false
 downloadButton = {
   const button = document.createElement("button");
   button.className = "webgeods-panel-btn";
@@ -451,16 +581,24 @@ downloadButton = {
 
 ```{ojs}
 //| echo: false
-// One DOM node grouping Check/Download/Reset + the live status, built
-// in JS rather than composed with several `${...}` markdown
-// interpolations side by side — Pandoc's math-dollar parser reads
-// adjacent `${x} ${y}` in the same paragraph as inline math and
-// swallows them (see geojson-shapefile-validator.qmd, where this was
-// actually hit). A single `${controlPanelRow}` avoids the ambiguity.
+//| output: false
+// output:false: this cell's own definition sits well before the
+// panel in the document — without it, the fully-grouped row would
+// flash into view there FIRST (Quarto's own auto-display), then
+// disappear and reappear down in the panel once ${controlPanelRow}
+// mounts the same node — same reasoning as every button cell above.
+//
+// One DOM node grouping the upload control + Load example/Check/
+// Download/Reset + the live status, built in JS rather than composed
+// with several `${...}` markdown interpolations side by side —
+// Pandoc's math-dollar parser reads adjacent `${x} ${y}` in the same
+// paragraph as inline math and swallows them, and even `${x}`/`${y}`
+// on separate paragraphs has its own problem (see uploadControl's
+// comment above). A single `${controlPanelRow}` avoids both.
 controlPanelRow = {
   const row = document.createElement("div");
   row.className = "webgeods-panel-row";
-  row.append(checkButton, downloadButton, resetMapButton);
+  row.append(uploadControl, loadExampleButton, checkButton, downloadButton, resetMapButton);
   const status = document.createElement("span");
   status.className = "webgeods-panel-status";
   status.textContent = `${topologyStats.total} feature, ${topologyStats.errors} with an error`;
@@ -473,7 +611,13 @@ controlPanelRow = {
 /* topology-diagnose-py is functional (the CodeCell engine still runs
    it), just not shown — see geojson-shapefile-validator.qmd for the
    full rationale and the display:none pitfall (breaks maplibre-gl.js
-   loading) already found and avoided here from the start. */
+   loading) already found and avoided here from the start. Stays HERE,
+   after the last {ojs} cell, and the closing note below is raw HTML
+   rather than a Pandoc fenced div — same two Quarto/Pandoc bugs
+   documented at length in geojson-shapefile-validator.qmd's own
+   equivalent block, right down to the exact same reasoning: this
+   block must stay after the OJS cells, and the closing note must
+   stay raw HTML, or the page breaks in one of two different ways. */
 #topology-diagnose-py {
   height: 0;
   overflow: hidden;
@@ -483,11 +627,11 @@ controlPanelRow = {
 }
 </style>
 
----
-
+<div class="webgeods-closing-note">
 Want to understand each of the five errors, see the actual code, or
 compare against R's independent implementation? The
-[full article](/posts/topology-errors.html) covers all of it, with a
-worked example for each one.
+<a href="/posts/topology-errors.html">full article</a> covers all of
+it, with a worked example for each one.
+</div>
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
