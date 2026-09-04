@@ -22,16 +22,17 @@ always requires a human decision (see the
 [full article](/posts/topology-errors.html) for why), so there's no
 "Fix" step here, just the report and a map to inspect it on.
 
-<script src="/htl.min.js"></script>
-<script src="/observable-inputs.min.js"></script>
-
 ```{ojs}
 //| echo: false
-// The widget is window.Inputs.file() (Observable Inputs, vendored —
-// see the <script> tags above); the writing logic into the virtual
-// filesystem lives in shared/upload.js (WebGeoDS.Upload) — same
-// helper used across the blog's articles, not rewritten here.
-viewof uploadedFiles = window.Inputs.file({ multiple: true, accept: WebGeoDS.Upload.accept, label: "Upload" })
+// The widget is window.Inputs.file() (Observable Inputs, lazy-loaded
+// on demand — see WebGeoDS.loadObservableInputs() in
+// shared/upload.js); the writing logic into the virtual filesystem
+// lives in shared/upload.js (WebGeoDS.Upload) — same helper used
+// across the blog's articles, not rewritten here.
+viewof uploadedFiles = {
+  await WebGeoDS.loadObservableInputs();
+  return window.Inputs.file({ multiple: true, accept: WebGeoDS.Upload.accept, label: "Upload" });
+}
 ```
 
 ```{ojs}
@@ -85,11 +86,13 @@ data.
 
 ```{ojs}
 //| echo: false
-// window.Inputs, loaded via the page-level <script> tags near the
-// top of this page (shared/observable-inputs.min.js +
-// shared/htl.min.js, its runtime dependency), not the site-wide
-// include-after-body list — only tool pages use it so far.
+// window.Inputs, lazy-loaded on demand (WebGeoDS.loadObservableInputs()
+// in shared/upload.js — awaited here directly, same reasoning as the
+// upload cell above: no bigger WebGeoDS wrapper exists to hide this
+// load step inside without recreating an indirection already removed
+// once).
 sliverControl = {
+  await WebGeoDS.loadObservableInputs();
   const el = window.Inputs.range([0.01, 0.9], {
     value: 0.15,
     step: 0.01,
@@ -106,6 +109,7 @@ sliverControl = {
 ```{ojs}
 //| echo: false
 gapControl = {
+  await WebGeoDS.loadObservableInputs();
   const el = window.Inputs.range([0.01, 0.5], {
     value: 0.06,
     step: 0.01,

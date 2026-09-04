@@ -2,17 +2,20 @@
  * WebGeoDS.Upload
  *
  * Shared "upload a vector file into both runtimes' virtual
- * filesystems" helper. The widget itself is `window.Inputs.file(...)`
- * (Observable Inputs, vendored — see shared/observable-inputs.min.js),
- * called directly in each page (`viewof uploadedFiles =
- * window.Inputs.file({ multiple: true, accept: WebGeoDS.Upload.accept,
- * ... })`), not wrapped here: this file used to build the plain
- * <input type="file"> itself, but that was a needless indirection
- * once Inputs.file() covers the same one-line construction — the
- * `accept` list stays centralized below as a plain constant instead.
- * What's actually shared and non-trivial is load()/baseName(): they
- * accept a shapefile (several sidecar files, or a single .zip
- * bundling them) in addition to a single GeoJSON.
+ * filesystems" helper, plus loadObservableInputs() (see below —
+ * lives here because this file needed it first, but it's shared
+ * more broadly, see its own doc comment). The widget itself is
+ * `window.Inputs.file(...)` (Observable Inputs, vendored — see
+ * shared/observable-inputs.min.js), called directly in each page
+ * (`viewof uploadedFiles = { await WebGeoDS.loadObservableInputs();
+ * return window.Inputs.file({ multiple: true, accept:
+ * WebGeoDS.Upload.accept, ... }); }`), not wrapped here: this file
+ * used to build the plain <input type="file"> itself, but that was
+ * a needless indirection once Inputs.file() covers the same one-line
+ * construction — the `accept` list stays centralized below as a
+ * plain constant instead. What's actually shared and non-trivial is
+ * load()/baseName(): they accept a shapefile (several sidecar files,
+ * or a single .zip bundling them) in addition to a single GeoJSON.
  *
  * A shapefile isn't one file: .shp (geometry) + .dbf (attributes) +
  * .shx (index), often .prj (CRS) — GDAL/OGR (used by both
@@ -35,6 +38,17 @@
   const ACCEPT =
     ".geojson,.json,.shp,.shx,.dbf,.prj,.cpg,.zip";
 
+  // Same `window.WEBGEODS_ASSET_BASE` convention as map.js's
+  // MAPLIBRE_JS_URL/table.js's GRIDJS_JS_URL — see the comment in
+  // map.js for why a bare relative path breaks on a page that isn't
+  // at the project root (verified the hard way once already, for
+  // these exact two files, before this loader existed: a page under
+  // /tools/ resolved a relative script src against that subfolder
+  // instead of the site root).
+  const ASSET_BASE = window.WEBGEODS_ASSET_BASE || "";
+  const HTL_JS_URL = ASSET_BASE + "htl.min.js";
+  const OBSERVABLE_INPUTS_JS_URL = ASSET_BASE + "observable-inputs.min.js";
+
   // Generic on purpose: this message is shared by both articles
   // (where the next step is pressing "Run" on a visible code cell)
   // and standalone tools (where it's clicking a Validate/Check
@@ -56,6 +70,120 @@
     "uploaded.cpg",
     "uploaded.zip"
   ];
+
+
+  // ============================================================
+  // loadObservableInputs() — lazy-loads window.Inputs (Observable
+  // Inputs, vendored: shared/observable-inputs.min.js) plus its own
+  // runtime dependency window.htl (shared/htl.min.js — the UMD
+  // build's global-script branch reads window.htl directly; Quarto's
+  // own OJS runtime uses htl internally but never exposes it as a
+  // window global, verified empirically). Same "check window first,
+  // else create <script> tags, cache the in-flight promise" pattern
+  // as map.js's loadMapLibreScript()/table.js's loadGridJs() — kept
+  // here rather than folded into a bigger wrapper (unlike Map/Table,
+  // there's no natural bigger WebGeoDS function for Inputs.file()/
+  // Inputs.range() calls to hide inside; wrapping them just to hide
+  // this load step would recreate the createInput() indirection
+  // already removed once for being pointless). Callers `await` this
+  // directly, then call window.Inputs.* themselves.
+  // ============================================================
+
+  // Same "onload fired but the global never actually appeared, retry
+  // with a FRESH <script> element" workaround as map.js's own
+  // loadMapLibreScript() — verified empirically (this exact bug,
+  // this exact loader): the plain single-attempt version above
+  // worked in isolation (a blank page, nothing else going on) but
+  // reliably failed on the real pages, where several other things
+  // (MapLibre, CodeMirror, the Python/R runtimes) are also competing
+  // for the main thread right at load time — same root cause map.js
+  // already documented for maplibre-gl.js, not specific to
+  // display:none this time (these two scripts aren't hidden), just
+  // "page busy enough right after load". See map.js's own comment
+  // for the full reasoning (delay between retries, cache-busting
+  // query string on retries only).
+  const MAX_SCRIPT_ATTEMPTS = 8;
+
+  function loadScriptUntil(url, isReady, attempt = 1) {
+
+    if (isReady()) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+
+      const append =
+        attempt === 1
+          ? (fn) => fn()
+          : (fn) => setTimeout(fn, 150 * (attempt - 1));
+
+      const script =
+        document.createElement("script");
+
+      script.src =
+        attempt === 1 ?
+          url :
+          `${url}?retry=${attempt}`;
+
+      script.onload =
+        () => {
+
+          if (isReady()) {
+
+            resolve();
+
+          } else if (attempt < MAX_SCRIPT_ATTEMPTS) {
+
+            resolve(loadScriptUntil(url, isReady, attempt + 1));
+
+          } else {
+
+            reject(
+              new Error(`WebGeoDS.Upload: ${url} loaded ${attempt} time(s) but the expected global never appeared.`)
+            );
+
+          }
+
+        };
+
+      script.onerror =
+        () => reject(
+          new Error(`WebGeoDS.Upload: failed to load ${url}.`)
+        );
+
+      append(() => document.head.appendChild(script));
+
+    });
+
+  }
+
+  let observableInputsPromise = null;
+
+  function loadObservableInputs() {
+
+    if (
+      window.Inputs &&
+      window.htl
+    ) {
+
+      return Promise.resolve();
+
+    }
+
+    if (!observableInputsPromise) {
+
+      // htl before observable-inputs — the latter reads window.htl
+      // at its own load time, not lazily on first use.
+      observableInputsPromise =
+        loadScriptUntil(HTL_JS_URL, () => !!window.htl).then(() =>
+          loadScriptUntil(OBSERVABLE_INPUTS_JS_URL, () => !!window.Inputs)
+        );
+
+    }
+
+    return observableInputsPromise;
+
+  }
 
 
   // ============================================================
@@ -300,6 +428,13 @@
     accept: ACCEPT,
     defaultStatus: DEFAULT_STATUS
   };
+
+  // Top-level, not namespaced under .Upload: shared by the upload
+  // widget AND topology-checker.qmd's threshold sliders, not an
+  // upload-specific concern — just implemented here since this file
+  // already needed it first.
+  window.WebGeoDS.loadObservableInputs =
+    loadObservableInputs;
 
 
 })();
