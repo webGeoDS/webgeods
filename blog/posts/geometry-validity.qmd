@@ -188,6 +188,32 @@ resetMapButton = {
 
 ```{ojs}
 //| echo: false
+// WebGeoDS.downloadBlob (shared/download.js) — the same helper the
+// standalone tool uses. Merges both languages' current results (same
+// merge validationStats already does), same "download whatever's on
+// the map right now" behavior the tool has, including after Repair
+// has replaced the data (setGeoJSON above already writes the
+// repaired result back onto the same two sources).
+downloadButton = {
+  const button = document.createElement("button");
+  button.textContent = "⬇ Download";
+  button.onclick = () => {
+    const features = ["geometry-py", "geometry-r"].flatMap((id) => sharedMap.getGeoJSON(id)?.features ?? []);
+    if (features.length === 0) return;
+    const base = WebGeoDS.Upload.baseName(uploadedFiles);
+    WebGeoDS.downloadBlob(
+      JSON.stringify({ type: "FeatureCollection", features }, null, 2),
+      base ? `${base}-validated.geojson` : "validated-geojson.geojson",
+      "application/geo+json",
+      { tool: "geometry-validity-article" }
+    );
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
 // Factory for the "Load this example" buttons: replaces the code of
 // the diagnosis cell pair via WebGeoDS.CodeCell.find() + setCode() —
 // doesn't run anything on its own, leaves the "Run" click to the

@@ -1957,3 +1957,55 @@ funzionanti via la funzione condivisa.
 
 Verificato: 16/16 map-tests, 51/51 smoke-test lessons dopo ciascuna
 delle modifiche sopra.
+
+**Allineamento articoli ↔ tool + pulsante download (2026-09-04)**, su
+domanda diretta dell'utente ("gli articoli sono allineati ai tool?").
+Investigazione (agente Explore, sola lettura) ha trovato:
+
+- `geometry-validity.qmd`: già allineato (upload nativo, colonne
+  preservate). Nessun pulsante download.
+- `topology-errors.qmd`: upload nativo allineato, ma `detect_and_check()`
+  (copia separata per forza — i file `.qmd` non si importano tra loro)
+  aveva ANCORA lo stesso identico bug delle 54 feature appena corretto
+  in `topology-checker.qmd` (gap sintetici uniti alla stessa
+  `FeatureCollection`/sorgente mappa delle feature reali, sia Python
+  che R) più lo scarto delle colonne originali. Nessun pulsante
+  download.
+
+**Corretto in entrambi gli articoli**:
+- `topology-errors.qmd`: `detect_and_check()` (sia Python che R, unica
+  definizione condivisa da TUTTI gli esempi 3.2-4.5 e dalla sezione
+  upload 5) ora assegna le colonne di report su `gdf`/`data` stesso
+  (preservando le originali) e ritorna `{features, gaps}` separati
+  invece di una lista concatenata. Aggiunta una tab semplice
+  (pulsanti senza styling, coerenti con lo stile minimale già usato
+  dall'articolo — non il look pannello del tool) Original geometries/
+  Gaps sopra la tabella, e una riga statistiche nello stesso formato
+  di `geometry-validity.qmd`. La mappa mostra SEMPRE entrambi i layer
+  insieme (nessun toggle di visibilità) — a differenza del tool, qui
+  non serviva: coincide con l'aspetto visivo già esistente prima del
+  fix.
+- Aggiunto un pulsante Download (via `WebGeoDS.downloadBlob`,
+  `shared/download.js`) a entrambi gli articoli — prima assenti.
+  `topology-errors.qmd` scarica solo le feature originali (niente
+  gap), stessa decisione già presa per il tool.
+
+**Bug di test trovati e risolti durante la verifica (non bug
+dell'app)**: (1) `#topology-errors-example-py`/`-r` richiedono che la
+cella "3.1 First run (once only)" sia eseguita prima — altrimenti
+`ModuleNotFoundError: No module named 'geopandas'` (i pacchetti si
+installano lì, non nella cella riusabile) — comportamento
+intenzionale, documentato nel testo della pagina, semplicemente
+saltato dal primo tentativo di test. (2) Ogni `::: {.panel-tabset}`
+(ce ne sono 3 su questa pagina: setup, coppia riusabile, upload) ha un
+proprio stato di tab Python/R indipendente — cliccare "R" su un
+tabset non influenza gli altri, quindi ogni cella richiede il click
+sulla propria tab prima di poterla eseguire/leggere via Playwright.
+
+Verificato seguendo il flusso reale della pagina (setup una tantum →
+Load the gap example → Run Python → Run R): 2 feature reali, 1 gap
+separato correttamente su entrambe le tab, statistiche "2 feature, 0
+with an error, 1 total gaps", download con 2 feature senza gap, reset
+funzionante, nessun errore console. Download verificato anche su
+`geometry-validity.qmd` (via l'esempio bowtie). 16/16 map-tests, 51/51
+smoke-test lessons.

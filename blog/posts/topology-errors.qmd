@@ -109,6 +109,21 @@ sharedMapEl = sharedMap.element
 
 ```{ojs}
 //| echo: false
+// Which results the table shows — "features" (real per-feature rows)
+// or "gaps" (the synthetic gap polygons check_gap() finds between
+// nearby features). Two truly separate map sources per language
+// instead of one merged collection: a gap has no corresponding row in
+// the uploaded file, so merging it in made the feature COUNT lie (a
+// real 10-feature file was reported as 54) — same fix as
+// topology-checker.qmd. The map itself always shows both layers
+// together (no visibility toggle) since that already matches how it
+// looked before this fix; only the table — and the count — needed the
+// split.
+mutable topologyView = "features"
+```
+
+```{ojs}
+//| echo: false
 //| output: false
 // The color is decided by JS, not by Python/R: the Python/R cells
 // only return GeoJSON with properties like "has_error" — neither
@@ -136,15 +151,28 @@ errorPaint = (data) => {
 
 ```{ojs}
 //| echo: false
-// tableCell() is already reactive to the layer we pass it — no need
-// to build a separate listener cell here (see shared/map.js).
-// rowClassName colors every row with has_error red, whether it's an
-// original feature or the synthetic geometry of a gap.
-//
-// No explicit containerId: tableCell() creates its own `<div>` and
-// returns it - this cell is NOT `output: false`, Observable shows it
-// here automatically, with no hand-written <div> in the markdown.
-topologyErrorsTable = sharedMap.tableCell(
+//| output: false
+// Gaps are always polygons (check_gap()/gap_geom is built from a
+// convex-hull difference) — no per-geometry-type branching needed,
+// unlike errorPaint above. Amber, matching topology-checker.qmd's own
+// gapPaint and the "severity": "warning" both languages already tag
+// every gap feature with.
+gapPaint = ({
+  "fill-color": "#c48a2e",
+  "fill-opacity": 0.45
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Two independent, stable tableCell()s (never re-created — only their
+// .style.display is toggled by tabbedResultsView below) instead of
+// one table whose sourceIds swap reactively with topologyView — keeps
+// each one's own "sourcedata" subscription alive and correctly
+// reacting to its own sources the whole time. Each merges BOTH
+// languages, same as the original single table did.
+featuresTableCell = sharedMap.tableCell(
   ["topology-errors-py", "topology-errors-r"],
   null,
   Generators,
@@ -157,8 +185,81 @@ topologyErrorsTable = sharedMap.tableCell(
 
 ```{ojs}
 //| echo: false
+//| output: false
+// No rowClassName here: every row IS a gap (has_error is always true
+// for them), so coloring every row the same would add nothing.
+gapsTableCell = sharedMap.tableCell(
+  ["topology-errors-gaps-py", "topology-errors-gaps-r"],
+  null,
+  Generators,
+  { emptyMessage: "No gaps found" }
+)
+```
+
+```{ojs}
+//| echo: false
+// Tab bar + both panes in one cell, physically positioned here where
+// the table should display (plain buttons, no .webgeods-panel-btn
+// styling — this article's own established button convention, see
+// resetMapButton/loadExampleButton below, not the standalone tool's
+// dashboard look). Reactive on topologyView, but only ever recreates
+// this thin wrapper + tab buttons — featuresTableCell/gapsTableCell
+// above are NEVER re-created, only shown/hidden, so their own
+// reactivity (and any current row selection) survives a tab switch
+// untouched.
+topologyErrorsTable = {
+  const tab = (key, label) => {
+    const button = document.createElement("button");
+    button.textContent = topologyView === key ? `● ${label}` : label;
+    button.onclick = () => { mutable topologyView = key; };
+    return button;
+  };
+
+  const tabs = document.createElement("div");
+  tabs.append(tab("features", "Original geometries"), tab("gaps", "Gaps"));
+
+  featuresTableCell.style.display = topologyView === "features" ? "" : "none";
+  gapsTableCell.style.display = topologyView === "gaps" ? "" : "none";
+
+  const wrap = document.createElement("div");
+  wrap.append(tabs, featuresTableCell, gapsTableCell);
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// total/errors count ONLY the real features (topology-errors-py/-r) —
+// gaps are synthetic and get their own count instead of inflating
+// this one, same reasoning as topology-checker.qmd's topologyStats.
+topologyErrorsStats = Generators.observe((change) => {
+  const compute = () => {
+    const features = ["topology-errors-py", "topology-errors-r"].flatMap((id) => sharedMap.getGeoJSON(id)?.features ?? []);
+    const gaps = ["topology-errors-gaps-py", "topology-errors-gaps-r"].flatMap((id) => sharedMap.getGeoJSON(id)?.features ?? []);
+    const total = features.length;
+    const errors = features.filter((f) => f.properties?.has_error === true).length;
+    change({ total, errors, gaps: gaps.length });
+  };
+  compute();
+  const trackedIds = new Set(["topology-errors-py", "topology-errors-r", "topology-errors-gaps-py", "topology-errors-gaps-r"]);
+  const handler = (e) => {
+    if (e.dataType === "source" && e.sourceDataType === "content" && trackedIds.has(e.sourceId)) {
+      compute();
+    }
+  };
+  sharedMap.map.on("sourcedata", handler);
+  return () => sharedMap.map.off("sourcedata", handler);
+})
+```
+
+**Topology check** — ${topologyErrorsStats.total} feature, ${topologyErrorsStats.errors} with an error, ${topologyErrorsStats.gaps} total gaps.
+
+```{ojs}
+//| echo: false
 resetTopologyErrors = async () => {
-  for (const id of ["topology-errors-py", "topology-errors-r"]) {
+  const ids = ["topology-errors-py", "topology-errors-r", "topology-errors-gaps-py", "topology-errors-gaps-r"];
+  for (const id of ids) {
     if (sharedMap.getGeoJSON(id)) {
       await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
     }
@@ -172,6 +273,32 @@ resetMapButton = {
   const button = document.createElement("button");
   button.textContent = "🔄 Reset map and table";
   button.onclick = () => resetTopologyErrors();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+// WebGeoDS.downloadBlob (shared/download.js) — the same helper the
+// standalone tool uses. Original features only, both languages
+// merged, no gaps — same reasoning as topology-checker.qmd's own
+// downloadButton: a gap has no corresponding row in the uploaded
+// file, so a "here's your data plus its topology report" download
+// shouldn't reintroduce synthetic rows the source data never had.
+downloadButton = {
+  const button = document.createElement("button");
+  button.textContent = "⬇ Download";
+  button.onclick = () => {
+    const features = ["topology-errors-py", "topology-errors-r"].flatMap((id) => sharedMap.getGeoJSON(id)?.features ?? []);
+    if (features.length === 0) return;
+    const base = WebGeoDS.Upload.baseName(uploadedFiles);
+    WebGeoDS.downloadBlob(
+      JSON.stringify({ type: "FeatureCollection", features }, null, 2),
+      base ? `${base}-topology-report.geojson` : "topology-report.geojson",
+      "application/geo+json",
+      { tool: "topology-errors-article" }
+    );
+  };
   return button;
 }
 ```
@@ -331,27 +458,49 @@ def detect_and_check(gdf):
         for i in range(n):
             per_feature[i].extend(dg[i])
 
-    names = gdf["name"] if "name" in gdf.columns else [f"geometry {i+1}" for i in range(n)]
-    features = []
+    # Report columns assigned onto gdf itself (then gdf.__geo_interface__
+    # below), instead of building each feature's properties dict from
+    # scratch the way an earlier version did — that discarded every
+    # other column the uploaded file had, keeping only "name". Same
+    # fix as topology-checker.qmd (the standalone tool built on this
+    # same engine).
+    if "name" not in gdf.columns:
+        gdf["name"] = [f"geometry {i+1}" for i in range(n)]
+    names = gdf["name"]
+
+    error_types, has_errors, partners, metrics, severities = [], [], [], [], []
     for i in range(n):
         errs = per_feature[i]
         has_error = len(errs) > 0
-        error_type = errs[0][0] if has_error else ""
         partner_idx = errs[0][1] if has_error and isinstance(errs[0][1], int) else None
-        partner = str(names.iloc[partner_idx] if hasattr(names, "iloc") else names[partner_idx]) if partner_idx is not None else ""
-        metric = round(errs[0][2], 6) if has_error else 0
-        features.append({
-            "type": "Feature",
-            "properties": {
-                "name": names.iloc[i] if hasattr(names, "iloc") else names[i],
-                "error_type": error_type, "has_error": has_error,
-                "partner": partner, "metric": metric,
-                "severity": "error" if has_error else ""
-            },
-            "geometry": mapping(gdf.geometry.iloc[i])
-        })
-    features.extend(extra_features)
-    return {"type": "FeatureCollection", "features": features}
+        error_types.append(errs[0][0] if has_error else "")
+        has_errors.append(has_error)
+        partners.append(str(names.iloc[partner_idx]) if partner_idx is not None else "")
+        metrics.append(round(errs[0][2], 6) if has_error else 0)
+        severities.append("error" if has_error else "")
+
+    gdf["error_type"] = error_types
+    gdf["has_error"] = has_errors
+    gdf["partner"] = partners
+    gdf["metric"] = metrics
+    gdf["severity"] = severities
+
+    for col in gdf.columns:
+        if col != "geometry":
+            gdf[col] = gdf[col].fillna("")
+
+    # Kept as two separate collections instead of one concatenated
+    # list (an earlier version merged them, the same bug fixed in
+    # topology-checker.qmd): a gap is synthetic — no corresponding row
+    # in the uploaded file — and merging it in inflates the feature
+    # count (a real 10-feature file was reported as 54, from 44
+    # pairwise "gap" candidates). JS puts each collection on its own
+    # map source (topology-errors-py / topology-errors-gaps-py, same
+    # per language for R).
+    return {
+        "features": gdf.__geo_interface__,
+        "gaps": {"type": "FeatureCollection", "features": extra_features}
+    }
 
 "detect_and_check() ready — run the examples below"
 ```
@@ -545,27 +694,44 @@ detect_and_check <- function(data) {
     for (i in seq_len(n)) per_feature[[i]] <- append(per_feature[[i]], dg[[i]])
   }
 
-  names_col <- if ("name" %in% names(data)) data$name else paste("geometry", seq_len(n))
-  features <- list()
+  # Report columns assigned onto `data` itself (then a single
+  # geojsonsf::sf_geojson(data) below), instead of building each
+  # feature's properties list from scratch per row the way an earlier
+  # version did — that discarded every other column the uploaded file
+  # had, keeping only "name". Same fix as the Python side above.
+  if (!("name" %in% names(data))) {
+    data$name <- paste("geometry", seq_len(n))
+  }
+  names_col <- data$name
+
+  error_type_col <- character(n)
+  has_error_col <- logical(n)
+  partner_col <- character(n)
+  metric_col <- numeric(n)
+  severity_col <- character(n)
   for (i in seq_len(n)) {
     errs <- per_feature[[i]]
     has_error <- length(errs) > 0
     first <- if (has_error) errs[[1]] else NULL
-    error_type <- if (has_error) first$type else ""
-    partner_val <- if (has_error && is.numeric(first$partner)) as.character(names_col[first$partner]) else ""
-    metric_val <- if (has_error) round(first$metric, 6) else 0
-    geom_json <- jsonlite::fromJSON(geojsonsf::sf_geojson(data[i, ]), simplifyVector = FALSE)$features[[1]]$geometry
-    features[[length(features) + 1]] <- list(
-      type = "Feature",
-      properties = list(
-        name = names_col[i], error_type = error_type, has_error = has_error,
-        partner = partner_val, metric = metric_val, severity = if (has_error) "error" else ""
-      ),
-      geometry = geom_json
-    )
+    error_type_col[i] <- if (has_error) first$type else ""
+    partner_col[i] <- if (has_error && is.numeric(first$partner)) as.character(names_col[first$partner]) else ""
+    metric_col[i] <- if (has_error) round(first$metric, 6) else 0
+    has_error_col[i] <- has_error
+    severity_col[i] <- if (has_error) "error" else ""
   }
-  features <- c(features, extra_features)
-  list(type = "FeatureCollection", features = features)
+
+  data$error_type <- error_type_col
+  data$has_error <- has_error_col
+  data$partner <- partner_col
+  data$metric <- metric_col
+  data$severity <- severity_col
+
+  # Kept as two separate collections instead of one concatenated list
+  # — same reasoning as the Python side above.
+  list(
+    features = jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE),
+    gaps = list(type = "FeatureCollection", features = extra_features)
+  )
 }
 
 "detect_and_check() ready — run the examples below"
@@ -617,7 +783,10 @@ detect_and_check(data)
 // a different type than the current one.
 pyErrors = WebGeoDS.getCellValue("topology-errors-example-py", Generators)
 {
-  if (pyErrors) await sharedMap.setGeoJSON("topology-errors-py", pyErrors, { paint: errorPaint(pyErrors) });
+  if (pyErrors) {
+    await sharedMap.setGeoJSON("topology-errors-py", pyErrors.features, { paint: errorPaint(pyErrors.features) });
+    await sharedMap.setGeoJSON("topology-errors-gaps-py", pyErrors.gaps, { paint: gapPaint });
+  }
 }
 ```
 
@@ -626,7 +795,10 @@ pyErrors = WebGeoDS.getCellValue("topology-errors-example-py", Generators)
 //| output: false
 rErrors = WebGeoDS.getCellValue("topology-errors-example-r", Generators)
 {
-  if (rErrors) await sharedMap.setGeoJSON("topology-errors-r", rErrors, { paint: errorPaint(rErrors) });
+  if (rErrors) {
+    await sharedMap.setGeoJSON("topology-errors-r", rErrors.features, { paint: errorPaint(rErrors.features) });
+    await sharedMap.setGeoJSON("topology-errors-gaps-r", rErrors.gaps, { paint: gapPaint });
+  }
 }
 ```
 
@@ -858,7 +1030,10 @@ detect_and_check(data)
 //| output: false
 pyErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-py", Generators)
 {
-  if (pyErrorsUploaded) await sharedMap.setGeoJSON("topology-errors-py", pyErrorsUploaded, { paint: errorPaint(pyErrorsUploaded) });
+  if (pyErrorsUploaded) {
+    await sharedMap.setGeoJSON("topology-errors-py", pyErrorsUploaded.features, { paint: errorPaint(pyErrorsUploaded.features) });
+    await sharedMap.setGeoJSON("topology-errors-gaps-py", pyErrorsUploaded.gaps, { paint: gapPaint });
+  }
 }
 ```
 
@@ -867,7 +1042,10 @@ pyErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-py", Generato
 //| output: false
 rErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-r", Generators)
 {
-  if (rErrorsUploaded) await sharedMap.setGeoJSON("topology-errors-r", rErrorsUploaded, { paint: errorPaint(rErrorsUploaded) });
+  if (rErrorsUploaded) {
+    await sharedMap.setGeoJSON("topology-errors-r", rErrorsUploaded.features, { paint: errorPaint(rErrorsUploaded.features) });
+    await sharedMap.setGeoJSON("topology-errors-gaps-r", rErrorsUploaded.gaps, { paint: gapPaint });
+  }
 }
 ```
 
