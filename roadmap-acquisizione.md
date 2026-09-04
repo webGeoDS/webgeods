@@ -1740,3 +1740,53 @@ per la riga valida, "✓ fixed" solo sulla riga effettivamente corretta,
 reason/position invariati dopo Fix); 16/16 map-tests; 51/51 smoke-test
 lessons (rieseguito pulito, confermando che il fallimento precedente
 era la flakiness isolata già nota, non una regressione).
+
+**Due bug reali di layout trovati su segnalazione dell'utente dopo
+revisione dal vivo (2026-09-04)**: "i pulsanti compaiono sparsi prima
+di raggrupparsi" e "il pulsante upload risulta ancora disallineato"
+(dopo il fix di questa stessa giornata sul line-height/border). Non
+liquidati a occhio — riprodotti empiricamente via Playwright
+(screenshot a t=100/300/600/1000/1500/2500/4000ms dal caricamento) PRIMA
+di ipotizzare una causa.
+
+1. **Pulsanti sparsi**: confermato — a t=100-1500ms "Load example" e
+   "Fix" comparivano visibilmente nella loro posizione di definizione
+   nel documento (in mezzo alla prosa dell'articolo, ben prima del
+   pannello), per sparire e riapparire raggruppati solo a t=2500ms
+   circa (quanto impiega `controlPanelRow` a calcolarsi, gated
+   sull'inizializzazione della mappa). Causa: quelle celle (
+   `loadExampleButton`/`fixButton`/`downloadButton`/`resetMapButton`/
+   `controlPanelRow` stesso) non avevano `#| output: false` — Quarto
+   le auto-visualizza comunque nella loro posizione di definizione, e
+   solo QUANDO (non SE) `controlPanelRow` le sposta con `appendChild`
+   quella prima posizione si svuota. La finestra tra le due cose è
+   reale e visibile, non istantanea. **Fix**: `output: false` su tutte
+   e 5 quelle celle (più `uploadStatusEl`, stesso problema) — non
+   vengono mai auto-visualizzate al loro posto, esistono solo una
+   volta effettivamente inserite nel pannello.
+2. **Pulsante upload disallineato**: la causa NON era quella
+   ipotizzata nella sessione precedente (line-height/border-box —
+   quel fix è rimasto, non ha fatto danno, ma non era la causa vera).
+   Trovata solo confrontando l'intera catena di ancestor DOM di
+   `<label>` e `<button>` via Playwright: `${uploadControl}` e
+   `${controlPanelRow}` erano su paragrafi Markdown SEPARATI (riga
+   vuota fra i due, necessaria per evitare che il parser math-dollar
+   di Pandoc leggesse `${x} ${y}` adiacenti sulla stessa riga come
+   `$...$` — bug già noto, vedi sopra). Pandoc avvolge ogni paragrafo
+   nel proprio `<p>`, e ciascun `<p>` diventava un item flex
+   INDIPENDENTE del pannello — quindi il pulsante upload e la riga dei
+   bottoni venivano centrati ciascuno per conto proprio
+   (`align-items: center`), non sulla stessa linea condivisa. Stesso
+   identico box model misurato su entrambi gli elementi, `top`
+   diverso di 8px — la prova che non erano affatto fratelli nello
+   stesso contesto flex. **Fix**: stesso pattern già usato per gli
+   altri 4 pulsanti — `uploadControl` ora viene incluso dentro
+   `controlPanelRow` stesso (`row.append(uploadControl, ...)`) invece
+   di avere una propria interpolazione `${uploadControl}` separata;
+   un solo nodo, una sola interpolazione, nessuno split in due
+   paragrafi.
+
+Verificato: 0 sparse in nessun momento del caricamento (controllato
+ogni 100-1500ms), tutti e 5 i controlli allo stesso `top` esatto una
+volta montati, flusso upload→diagnose→Fix ancora corretto, 16/16
+map-tests, 51/51 smoke-test lessons.

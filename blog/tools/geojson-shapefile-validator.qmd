@@ -56,6 +56,36 @@ mutable uploadedFiles = null
 ```{ojs}
 //| echo: false
 //| output: false
+// The upload control itself — a native <input type="file"> wrapped in
+// a <label> styled as a .webgeods-panel-btn (see
+// WebGeoDS.Upload.createControl's doc comment in shared/upload.js).
+//
+// Appended into controlPanelRow below (output:false + consumed only
+// there, same as loadExampleButton/fixButton/downloadButton/
+// resetMapButton) rather than shown via its own `${uploadControl}`
+// markdown interpolation, which is how an earlier version of this
+// page did it: that put uploadControl and controlPanelRow in two
+// SEPARATE paragraphs in the panel markdown (a blank line between
+// `${uploadControl}` and `${controlPanelRow}`, needed to dodge
+// Pandoc's math-dollar parser swallowing adjacent `${x} ${y}` on the
+// same line — see controlPanelRow's own comment). Pandoc wraps each
+// paragraph in its own <p>, and each <p> became its own flex item of
+// the outer .webgeods-panel-row — so the upload button and the
+// button row were centered independently by align-items:center,
+// landing 8px apart instead of on one shared baseline (found via
+// Playwright: identical computed box models on the button and the
+// label, yet different rendered `top` — the two elements simply
+// weren't siblings in the same flex line). One row, one element, one
+// interpolation removes the two-paragraph split entirely.
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "📁 Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
 {
   // Python-only tool (see the redesign commit): skip writing to R's
   // filesystem entirely, so selecting a file doesn't also load webR
@@ -81,9 +111,16 @@ mutable uploadedFiles = null
 
 ```{ojs}
 //| echo: false
+//| output: false
 // The upload-status text as an actual element (not a bare `${...}`
 // interpolation) so it can carry the busy-pulse class — see
-// uploadBusy above.
+// uploadBusy above. output:false because it's only ever shown via
+// ${uploadStatusEl} inside the panel below — without it, Quarto
+// auto-displays a SECOND copy right here at this cell's own
+// definition (early in the document, well before the panel), and
+// since that first copy briefly renders before the later ${...}
+// interpolation moves the actual element down into the panel, the
+// status text visibly flashes in the wrong place on every page load.
 uploadStatusEl = {
   const span = document.createElement("span");
   span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
@@ -153,6 +190,14 @@ EXAMPLE_GEOJSON = JSON.stringify({
 
 ```{ojs}
 //| echo: false
+//| output: false
+// output:false — this button is only ever shown once controlPanelRow
+// (below) appends it into the panel row; without this, Quarto
+// auto-displays it right here too, at its own definition location
+// (well before the panel), and it's visibly scattered there for as
+// long as it takes controlPanelRow to actually compute and move it —
+// same reasoning on fixButton/downloadButton/resetMapButton/
+// controlPanelRow further down.
 loadExampleButton = {
   const button = document.createElement("button");
   button.className = "webgeods-panel-btn";
@@ -298,6 +343,7 @@ resetValidator = async () => {
 
 ```{ojs}
 //| echo: false
+//| output: false
 resetMapButton = {
   const button = document.createElement("button");
   button.className = "webgeods-panel-btn";
@@ -375,6 +421,7 @@ base64.b64encode(buf.getvalue()).decode("ascii")
 
 ```{ojs}
 //| echo: false
+//| output: false
 // Depends on (reads) validateSucceeded, so this cell — and the button
 // it returns — is recreated the moment the first automatic diagnose
 // completes, switching from disabled to enabled with no interaction
@@ -445,6 +492,7 @@ base64ToBytes = (base64Str) => {
 
 ```{ojs}
 //| echo: false
+//| output: false
 // Mirrors the ORIGINAL upload format instead of always exporting
 // GeoJSON: "zip"/"shapefile" both mean the upload WAS a shapefile
 // (just selected two different ways — see shared/upload.js's kind
@@ -503,22 +551,32 @@ validationStats = Generators.observe((change) => {
 
 ```{ojs}
 //| echo: false
-// One DOM node grouping all 4 buttons + the live status, built in JS
-// rather than composed with several `${...}` markdown interpolations
-// side by side — Pandoc's math-dollar parser reads adjacent `${x}
-// ${y}` in the same paragraph as inline math (`$...$`) and swallows
-// them (verified empirically: rendered as literal "{fixButton}" text,
-// buttons never appeared). A single `${controlPanelRow}` avoids the
-// ambiguity entirely. Reactive on validationStats (recreates the row,
-// re-parenting the same button elements — harmless, they keep their
-// click handlers/disabled state) so the status text stays live.
+//| output: false
+// output:false: this cell's own definition sits well before the
+// panel in the document — without it, the fully-grouped row would
+// flash into view there FIRST (Quarto's own auto-display), then
+// disappear and reappear down in the panel once ${controlPanelRow}
+// (below) mounts the same node — same reasoning as the individual
+// button cells above, just for the whole assembled row instead of
+// one button.
 //
-// Does NOT include the upload widget, on purpose — see the viewof
-// cell right below, in the panel markdown itself, for why.
+// One DOM node grouping the upload control + all 4 buttons + the live
+// status, built in JS rather than composed with several `${...}`
+// markdown interpolations side by side — Pandoc's math-dollar parser
+// reads adjacent `${x} ${y}` in the same paragraph as inline math
+// (`$...$`) and swallows them (verified empirically: rendered as
+// literal "{fixButton}" text, buttons never appeared), and even
+// `${x}` / `${y}` on separate lines/paragraphs has its own problem
+// (see uploadControl's comment above: two paragraphs become two
+// separate flex items, breaking vertical alignment between them). A
+// single `${controlPanelRow}` avoids both. Reactive on
+// validationStats (recreates the row, re-parenting the same button
+// elements — harmless, they keep their click handlers/disabled
+// state) so the status text stays live.
 controlPanelRow = {
   const row = document.createElement("div");
   row.className = "webgeods-panel-row";
-  row.append(loadExampleButton, fixButton, downloadButton, resetMapButton);
+  row.append(uploadControl, loadExampleButton, fixButton, downloadButton, resetMapButton);
   const status = document.createElement("span");
   status.className = "webgeods-panel-status";
   status.textContent = `${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid`;
@@ -533,28 +591,6 @@ after that, and again each time you come back to this page.*
 :::: {.webgeods-panel}
 
 ::: {.webgeods-panel-row}
-```{ojs}
-//| echo: false
-// A native <input type="file"> (WebGeoDS.Upload.createControl(), see
-// shared/upload.js) instead of Observable Inputs' `viewof`-bound
-// Inputs.file() widget used here previously — that widget had to be
-// defined physically at this exact spot in the markdown, because a
-// `viewof` cell's element turned out to be unsafe to relocate via JS
-// in Quarto's OJS runtime (two different relocation attempts both
-// desynced its reactivity after the panel's first reactive
-// re-render). This replacement doesn't use `viewof` at all — writes
-// to `mutable uploadedFiles` (defined above) from a plain onChange
-// callback instead — so that whole class of problem no longer
-// applies; it's placed here simply because this is where it should
-// visually appear, same as every other panel element.
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "📁 Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
-})
-```
-
-${uploadControl}
-
 ${controlPanelRow}
 :::
 

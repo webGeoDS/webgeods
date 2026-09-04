@@ -295,7 +295,15 @@
    [data-variant="outline"] de-emphasizes secondary actions
    (Download/Reset) relative to the primary Validate/Fix ones. */
 .webgeods-panel-btn {
-  display: inline-flex;
+  display: flex; /* NOT inline-flex: browsers "blockify" a <button>'s
+    display from inline-flex to flex automatically (a documented
+    form-control quirk — <label> isn't a form control, so it would
+    stay inline-flex, computing a different box height than <button>
+    despite identical CSS otherwise). Setting flex directly makes
+    both elements compute the same box, no mismatch left to blockify.
+    Harmless as a flex ITEM of .webgeods-panel-row: a child's own
+    inner display (flex vs inline-flex) doesn't change how its
+    parent's flex layout positions it. */
   align-items: center;
   box-sizing: border-box;
   background: var(--action);
