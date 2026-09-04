@@ -666,6 +666,25 @@ con quello di Observable Inputs, dato che entrambi espongono
    sottocartella, non contro la radice dove i file vengono
    effettivamente copiati. Bug reale, trovato e corretto prima del
    deploy, non solo teorico.
+4. **Caricamento reso pigro (2026-09-04)**: i tag `<script>` scritti a
+   mano in ogni pagina sono stati sostituiti da
+   `WebGeoDS.loadObservableInputs()` in `shared/upload.js` — nessuna
+   pagina che non usa Observable Inputs (Home, About, elenco Tools)
+   scarica più nulla, senza doverlo ricordare pagina per pagina. Nel
+   verificarlo trovato un bug reale e non banale: la versione a
+   tentativo singolo (carica lo script, risolvi su `onload`) funzionava
+   isolata su una pagina vuota ma falliva quasi sempre sulle pagine
+   vere — `onload` scattava ma `window.htl`/`window.Inputs` restavano
+   `undefined`. Stessa identica classe di bug già documentata per
+   `maplibre-gl.js` in `map.js` (una pagina occupata con abbastanza
+   altro lavoro concorrente — qui: MapLibre + CodeMirror + i runtime
+   Python/R che si inizializzano insieme — può far fallire la
+   comparsa del global anche se `onload` scatta comunque), non
+   specifica a `display:none` questa volta. Stesso rimedio: riprovare
+   con un elemento `<script>` nuovo (query di cache-busting, piccolo
+   ritardo tra i tentativi) fino a 8 volte, verificando il global
+   invece di fidarsi solo di `onload`. Verificato anche in produzione
+   (non solo in locale): 2/2 upload riusciti su `webgeods.com` reale.
 
 | # | Tool | Stato | Priorità | Difficoltà | Note |
 |---|---|---|---|---|---|
