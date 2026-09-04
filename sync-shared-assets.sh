@@ -17,6 +17,7 @@ FILES=(
   map.js
   table.js
   upload.js
+  download.js
   styles.css
   _brand.yml
   webgeods-cells.lua

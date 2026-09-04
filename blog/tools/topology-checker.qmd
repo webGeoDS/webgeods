@@ -333,25 +333,37 @@ def detect_and_check(gdf, sliver_threshold=0.15, gap_proximity=0.06):
         for i in range(n):
             per_feature[i].extend(dg[i])
 
-    names = gdf["name"] if "name" in gdf.columns else [f"geometry {i+1}" for i in range(n)]
-    features = []
+    # Report columns computed here, then assigned onto gdf itself
+    # instead of building each feature's properties dict from scratch
+    # (an earlier version did that, discarding every other original
+    # column the uploaded file had — a real difference from
+    # geojson-shapefile-validator.qmd, which has always preserved
+    # them). "name" is guaranteed present by the caller already.
+    names = gdf["name"]
+    error_types, has_errors, partners, metrics, severities = [], [], [], [], []
     for i in range(n):
         errs = per_feature[i]
         has_error = len(errs) > 0
-        error_type = errs[0][0] if has_error else ""
         partner_idx = errs[0][1] if has_error and isinstance(errs[0][1], int) else None
-        partner = str(names.iloc[partner_idx] if hasattr(names, "iloc") else names[partner_idx]) if partner_idx is not None else ""
-        metric = round(errs[0][2], 6) if has_error else 0
-        features.append({
-            "type": "Feature",
-            "properties": {
-                "name": names.iloc[i] if hasattr(names, "iloc") else names[i],
-                "error_type": error_type, "has_error": has_error,
-                "partner": partner, "metric": metric,
-                "severity": "error" if has_error else ""
-            },
-            "geometry": mapping(gdf.geometry.iloc[i])
-        })
+        error_types.append(errs[0][0] if has_error else "")
+        has_errors.append(has_error)
+        partners.append(str(names.iloc[partner_idx]) if partner_idx is not None else "")
+        metrics.append(round(errs[0][2], 6) if has_error else 0)
+        severities.append("error" if has_error else "")
+
+    gdf["error_type"] = error_types
+    gdf["has_error"] = has_errors
+    gdf["partner"] = partners
+    gdf["metric"] = metrics
+    gdf["severity"] = severities
+
+    # Same reasoning as geojson-shapefile-validator.qmd: a None in an
+    # ORIGINAL column (not under our control) would otherwise vanish
+    # silently crossing the Pyodide->JS bridge as a live cell value.
+    for col in gdf.columns:
+        if col != "geometry":
+            gdf[col] = gdf[col].fillna("")
+
     # Kept as two separate collections instead of one concatenated
     # list (an earlier version merged them): a gap is synthetic — it
     # has no corresponding row in the uploaded file — and merging it
@@ -360,9 +372,11 @@ def detect_and_check(gdf, sliver_threshold=0.15, gap_proximity=0.06):
     # for the map to show just the original data or for the count to
     # distinguish "real feature" from "synthetic gap". JS puts each
     # collection on its own map source (topology-py / topology-gaps-py)
-    # instead.
+    # instead. Gaps stay a fixed, small property set (unlike the real
+    # features above) — a gap has no original row to inherit columns
+    # from, it's purely computed.
     return {
-        "features": {"type": "FeatureCollection", "features": features},
+        "features": gdf.__geo_interface__,
         "gaps": {"type": "FeatureCollection", "features": extra_features}
     }
 
@@ -681,28 +695,12 @@ resetMapButton = {
 
 ```{ojs}
 //| echo: false
-// Not promoted to shared/ (still only one other tool using it, the
-// Validator, with a slightly different call site): a Blob + a
-// temporary <a download> is enough, no library needed. Takes the
-// GeoJSON data directly (not a sourceId, unlike the earlier version)
-// since the report now merges two separate sources — see
-// downloadButton below.
-downloadGeoJSON = (data, filename) => {
-  if (!data) return;
-  window.WebGeoDS.track?.("download_clicked", { tool: "topology-checker" });
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/geo+json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-```
-
-```{ojs}
-//| echo: false
 //| output: false
+// WebGeoDS.downloadBlob (shared/download.js) — this page used to have
+// its own near-duplicate of geojson-shapefile-validator.qmd's own
+// function; that page's comment named "a second tool duplicating
+// this" as the trigger for promoting it, which is exactly what
+// happened, so it's shared now instead of duplicated a third time.
 downloadButton = {
   const button = document.createElement("button");
   button.className = "webgeods-panel-btn";
@@ -710,16 +708,18 @@ downloadButton = {
   button.textContent = "⬇ Download";
   button.onclick = () => {
     const base = WebGeoDS.Upload.baseName(uploadedFiles);
-    // The report merges both sources back into one file — a
-    // downloaded report isn't shown on a map or counted in a stats
-    // line, so the "gaps inflate the feature count" problem this
-    // whole redesign is about doesn't apply to it; a topology report
-    // that dropped the gaps it found would just be a worse report.
-    const features = sharedMap.getGeoJSON("topology-py")?.features ?? [];
-    const gaps = sharedMap.getGeoJSON("topology-gaps-py")?.features ?? [];
-    downloadGeoJSON(
-      { type: "FeatureCollection", features: [...features, ...gaps] },
-      base ? `${base}-topology-report.geojson` : "topology-report.geojson"
+    // Original features only, same set as the Features tab/topology-py
+    // — a gap has no corresponding row in the uploaded file (that's
+    // the whole reason it got its own map source and table tab
+    // instead of being merged in), so a downloaded "here's your data
+    // plus its topology report" file shouldn't reintroduce synthetic
+    // rows the source data never had either.
+    const data = sharedMap.getGeoJSON("topology-py") ?? { type: "FeatureCollection", features: [] };
+    WebGeoDS.downloadBlob(
+      JSON.stringify(data, null, 2),
+      base ? `${base}-topology-report.geojson` : "topology-report.geojson",
+      "application/geo+json",
+      { tool: "topology-checker" }
     );
   };
   return button;

@@ -1899,3 +1899,61 @@ con errore) / 44 gap, separati correttamente su entrambe le tab e
 sulla mappa, download ancora 54 feature unite, reset e Load example
 (incluso il caso "0 gap trovati") corretti, nessun errore console,
 16/16 map-tests, 51/51 smoke-test lessons.
+
+**Preservazione colonne originali estesa a `topology-checker.qmd`
+(2026-09-04)**, su domanda diretta dell'utente ("il tasto download
+restituisce il file originale senza cambiamenti? o aggiunge colonne
+al source con i report degli errori?"): scoperto che `detect_and_check()`
+ricostruiva `properties` da zero (solo `name` + i campi calcolati),
+scartando ogni altra colonna originale del file caricato — diverso dal
+Validator, che le preserva da tempo. Corretto: le colonne di report
+(`error_type`/`has_error`/`partner`/`metric`/`severity`) ora vengono
+assegnate come colonne su `gdf` stesso (con lo stesso `fillna("")` di
+sicurezza del Validator) invece di essere l'unico contenuto di
+`properties` — poi `gdf.__geo_interface__` invece di costruire i
+dict a mano. Verificato anche in catena: caricando l'output del
+Validator (che ha già aggiunto `valid`/`reason`/`position`) nel
+Topology Checker, tutte le colonne sopravvivono insieme.
+
+**`shared/download.js` nuovo (2026-09-04)**, su domanda diretta
+dell'utente ("la logica di upload e download dovrebbe essere
+shared?"): l'upload lo era già (`shared/upload.js`); il download no —
+`geojson-shapefile-validator.qmd` e `topology-checker.qmd` avevano
+ciascuno la propria versione quasi identica di Blob+`<a download>`,
+ed entrambi i commenti dicevano letteralmente "se un secondo tool
+duplica questa funzione, è il momento di spostarla in shared" —
+condizione ormai soddisfatta dopo il redesign di oggi. Estratta
+`WebGeoDS.downloadBlob(bytesOrString, filename, mimeType, {tool})`,
+firma più generale del Validator (bytes o stringa, mimetype
+arbitrario — serve anche per lo zip shapefile in export). Aggiunto a
+`sync-shared-assets.sh` e a `blog/_quarto.yml` (resources +
+include-after-body, stesso pattern degli altri file condivisi).
+Verificato: percorso GeoJSON su entrambi i tool, percorso zip
+shapefile binario del Validator (bytes + mimetype diverso) — tutti
+funzionanti via la funzione condivisa.
+
+**Due correzioni su segnalazione diretta dell'utente (2026-09-04)**:
+
+1. Il download del Topology Checker univa ancora feature originali +
+   gap in un solo file (scelta fatta nel redesign precedente,
+   motivata come "un report scaricato beneficia di includere i gap
+   trovati") — l'utente ha chiesto esplicitamente SOLO le feature
+   originali, coerente con la separazione già fatta per tabella/mappa.
+   Corretto: il download ora legge solo `topology-py`, non più unito
+   con `topology-gaps-py`. Verificato: 10 feature scaricate (non 54),
+   nessuna con `error_type: "gap"`.
+2. Le tabelle non mostravano scrollbar orizzontale quando le colonne
+   eccedevano la larghezza del contenitore, nonostante
+   `.webgeods-table-scroll` avesse già `overflow: auto` e le celle
+   `white-space: nowrap`. Causa: `.webgeods-table { width: 100% }` —
+   forza la tabella a NON superare mai la larghezza del contenitore,
+   quindi lo scroll orizzontale non scattava mai indipendentemente da
+   quante colonne ci fossero. Corretto in `min-width: 100%` (riempie
+   comunque una tabella stretta, ma permette a una tabella larga di
+   crescere oltre il contenitore). Verificato: `scrollWidth >
+   clientWidth` confermato via Playwright su una tabella a 10 colonne,
+   screenshot mostra la colonna "severity" tagliata al bordo come
+   atteso.
+
+Verificato: 16/16 map-tests, 51/51 smoke-test lessons dopo ciascuna
+delle modifiche sopra.

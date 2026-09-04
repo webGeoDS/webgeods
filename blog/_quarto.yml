@@ -15,6 +15,7 @@ project:
     - "map.js"
     - "table.js"
     - "upload.js"
+    - "download.js"
     - "styles.css"
     - "alidade_smooth.json"
     - "webgeods-logo.svg"
@@ -100,6 +101,7 @@ format:
           <script src="/map.js"></script>
           <script src="/table.js"></script>
           <script src="/upload.js"></script>
+          <script src="/download.js"></script>
     toc: true
 filters:
   - webgeods-cells.lua

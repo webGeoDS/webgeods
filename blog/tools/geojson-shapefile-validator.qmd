@@ -461,24 +461,6 @@ pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
 
 ```{ojs}
 //| echo: false
-// Not promoted to shared/ (still only one tool using it): a Blob +
-// a temporary <a download> is enough, no library needed. If a second
-// tool ends up duplicating this same function, that's the point to
-// move it into a shared file, not before.
-downloadBlob = (bytesOrString, filename, mimeType) => {
-  window.WebGeoDS.track?.("download_clicked", { tool: "geojson-shapefile-validator", filename });
-  const blob = new Blob([bytesOrString], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-```
-
-```{ojs}
-//| echo: false
 // base64 -> raw bytes, for the shapefile export cell's return value
 // (binary data can only cross the Pyodide->JS bridge as a cell value
 // via a text encoding — see geometry-export-shp-py).
@@ -498,7 +480,10 @@ base64ToBytes = (base64Str) => {
 // (just selected two different ways — see shared/upload.js's kind
 // classification), so both download as a re-zipped shapefile;
 // "geojson" (or the "Load example" data, or nothing loaded at all)
-// stays GeoJSON.
+// stays GeoJSON. WebGeoDS.downloadBlob (shared/download.js) — was
+// this page's own function until topology-checker.qmd ended up
+// duplicating it, the trigger this page's own old comment named for
+// promoting it.
 downloadButton = {
   const button = document.createElement("button");
   button.className = "webgeods-panel-btn";
@@ -510,13 +495,14 @@ downloadButton = {
     button.textContent = "⌛ Preparing...";
     try {
       const base = WebGeoDS.Upload.baseName(uploadedFiles);
+      const options = { tool: "geojson-shapefile-validator" };
       if (uploadKind === "zip" || uploadKind === "shapefile") {
         await window.WebGeoDS.CodeCell.find("geometry-export-shp-py").run();
         const base64 = document.getElementById("geometry-export-shp-py").value;
-        downloadBlob(base64ToBytes(base64), base ? `${base}-validated.zip` : "validated-shapefile.zip", "application/zip");
+        WebGeoDS.downloadBlob(base64ToBytes(base64), base ? `${base}-validated.zip` : "validated-shapefile.zip", "application/zip", options);
       } else {
         const data = sharedMap.getGeoJSON("geometry-py");
-        if (data) downloadBlob(JSON.stringify(data, null, 2), base ? `${base}-validated.geojson` : "validated-geojson.geojson", "application/geo+json");
+        if (data) WebGeoDS.downloadBlob(JSON.stringify(data, null, 2), base ? `${base}-validated.geojson` : "validated-geojson.geojson", "application/geo+json", options);
       }
     } finally {
       button.disabled = false;

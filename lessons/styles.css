@@ -152,7 +152,12 @@
    library. Same "Field Atlas" palette/sharp-corner language as the
    rest of the page (.webgeods-editor-container above). */
 .webgeods-table {
-  width: 100%;
+  min-width: 100%; /* NOT width: 100% — that caps the table at the
+    scroll container's width, so a table with enough columns (nowrap
+    cells, see below) to need it never actually triggers
+    .webgeods-table-scroll's horizontal scrollbar. min-width still
+    fills a narrow table out to the container, but lets a wide one
+    grow past it instead of being squeezed back in. */
   border-collapse: collapse;
   font-size: 13px;
 }
