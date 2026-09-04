@@ -2,20 +2,15 @@
  * WebGeoDS.Upload
  *
  * Shared "upload a vector file into both runtimes' virtual
- * filesystems" helper, plus loadObservableInputs() (see below —
- * lives here because this file needed it first, but it's shared
- * more broadly, see its own doc comment). The widget itself is
- * `window.Inputs.file(...)` (Observable Inputs, vendored — see
- * shared/observable-inputs.min.js), called directly in each page
- * (`viewof uploadedFiles = { await WebGeoDS.loadObservableInputs();
- * return window.Inputs.file({ multiple: true, accept:
- * WebGeoDS.Upload.accept, ... }); }`), not wrapped here: this file
- * used to build the plain <input type="file"> itself, but that was
- * a needless indirection once Inputs.file() covers the same one-line
- * construction — the `accept` list stays centralized below as a
- * plain constant instead. What's actually shared and non-trivial is
- * load()/baseName(): they accept a shapefile (several sidecar files,
- * or a single .zip bundling them) in addition to a single GeoJSON.
+ * filesystems" helper, plus createControl() (the upload button
+ * itself — a native <input type="file"> wrapped in a <label>, see
+ * below) and loadObservableInputs() (see further below — lives here
+ * because this file needed it first for the OLD Inputs.file()-based
+ * control, but it's shared more broadly: topology-checker.qmd's
+ * threshold sliders still use window.Inputs.range()). What's shared
+ * and non-trivial is load()/baseName(): they accept a shapefile
+ * (several sidecar files, or a single .zip bundling them) in
+ * addition to a single GeoJSON.
  *
  * A shapefile isn't one file: .shp (geometry) + .dbf (attributes) +
  * .shx (index), often .prj (CRS) — GDAL/OGR (used by both
@@ -187,10 +182,62 @@
 
 
   // ============================================================
-  // Normalize whatever a `viewof` file input yields — a single
-  // File (non-multiple inputs, or some Observable runtimes even
-  // with `multiple` set), a FileList, or null/undefined — into a
-  // plain array.
+  // createControl({ label, variant, onChange }) — the upload button
+  // itself: a native <input type="file"> wrapped in a <label>
+  // styled as a .webgeods-panel-btn (shared/styles.css). A <label>
+  // wrapping its own <input> associates with it natively (no
+  // `for`/`id` needed) and opens the file picker on click with no
+  // JS, so the <label> becomes the visible "button" and the actual
+  // <input> is hidden by CSS. onChange(files) fires with the
+  // input's FileList on every "change" (an empty FileList if the
+  // picker is cancelled — load() above already treats that as "no
+  // selection", unchanged).
+  //
+  // Previously each page built this itself as `viewof uploadedFiles
+  // = { await WebGeoDS.loadObservableInputs(); return
+  // window.Inputs.file(...); }` — Observable Inputs' widget, styled
+  // to LOOK native via CSS overrides on its own build-hashed
+  // markup. Switched away from that: a `viewof` cell turned out to
+  // be unsafe to so much as move in Quarto's OJS runtime (see
+  // geojson-shapefile-validator.qmd's long comment on this, from
+  // when the widget still needed relocating into its panel) — a
+  // plain `mutable` + native control, the same pattern already used
+  // for every other page-level control here, doesn't have that
+  // fragility to begin with, so callers now do
+  // `mutable uploadedFiles = null` + `WebGeoDS.Upload.createControl({
+  // onChange: (files) => { mutable uploadedFiles = files; } })`
+  // instead.
+  // ============================================================
+
+  function createControl({ label = "Upload", variant = null, onChange } = {}) {
+
+    const wrapper =
+      document.createElement("label");
+
+    wrapper.className = "webgeods-panel-btn";
+    if (variant) wrapper.dataset.variant = variant;
+    wrapper.textContent = label;
+
+    const input =
+      document.createElement("input");
+
+    input.type = "file";
+    input.multiple = true;
+    input.accept = ACCEPT;
+
+    input.addEventListener("change", () => onChange(input.files));
+
+    wrapper.appendChild(input);
+
+    return wrapper;
+
+  }
+
+
+  // ============================================================
+  // Normalize whatever the upload control yields — a FileList, or
+  // (kept for safety, e.g. a single File passed directly) a lone
+  // File or null/undefined — into a plain array.
   // ============================================================
 
   function toFileArray(value) {
@@ -425,6 +472,7 @@
   window.WebGeoDS.Upload = {
     load,
     baseName,
+    createControl,
     accept: ACCEPT,
     defaultStatus: DEFAULT_STATUS
   };

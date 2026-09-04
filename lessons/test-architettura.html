@@ -26308,33 +26308,63 @@ a { color: #2a2117; } a:hover { color: #b0522c; }
 
 <style type="text/css">
 
+:root {
+--carta: #f3ede1;
+--carta-scura: #eee5d2;
+--inchiostro: #2a2117;
+--inchiostro-tenue: #5a4f3e;
+--terracotta: #b0522c;
+--muschio: #42583c;
+--muschio-hover: #526b4a; 
+--hairline: #ddd1b8;
+--etichetta: #8a7a5f;
+--info: #3d5a73;
+--attenzione: #c48a2e;
+--errore: #8b2f24;
+--surface: var(--carta);
+--surface-muted: var(--carta-scura);
+--border: var(--inchiostro-tenue);
+--border-hairline: var(--hairline);
+--text: var(--inchiostro);
+--text-muted: var(--etichetta);
+--action: var(--muschio);
+--action-hover: var(--muschio-hover);
+--action-disabled-bg: #b9ae95; 
+--success: var(--muschio);
+--warning: var(--attenzione);
+--danger: var(--errore);
+
+--dataviz-invalid: #e05252;
+--dataviz-valid: #2ea44f;
+}
+
 .webgeods-editor-container {
 margin-bottom: 20px;
-border: 1px solid #5a4f3e;
-background-color: #eee5d2;
+border: 1px solid var(--border);
+background-color: var(--surface-muted);
 }
 
 .webgeods-toolbar {
 display: flex;
 justify-content: space-between;
 align-items: center;
-background: #ddd1b8;
+background: var(--border-hairline);
 padding: 6px 12px;
-border-bottom: 1px solid #5a4f3e;
+border-bottom: 1px solid var(--border);
 }
 
 .webgeods-label {
 font-family: 'IBM Plex Mono', monospace;
 font-size: 12px;
 font-weight: 600;
-color: #8a7a5f;
+color: var(--text-muted);
 letter-spacing: 0.02em;
 text-transform: uppercase;
 }
 
 .webgeods-run-btn {
-background: #42583c;
-color: #f3ede1;
+background: var(--action);
+color: var(--surface);
 border: none;
 border-radius: 0;
 padding: 4px 12px;
@@ -26346,42 +26376,42 @@ text-transform: uppercase;
 cursor: pointer;
 }
 .webgeods-run-btn:hover {
-background: #526b4a;
+background: var(--action-hover);
 }
 .webgeods-run-btn:disabled {
-background: #ddd1b8;
-color: #8a7a5f;
+background: var(--border-hairline);
+color: var(--text-muted);
 cursor: not-allowed;
 }
 
-.webgeods-log-waiting { color: #8a7a5f; font-style: italic; }
-.webgeods-log-running { color: #3d5a73; font-weight: bold; }
-.webgeods-log-error { color: #8b2f24; }
-.webgeods-log-success { color: #42583c; }
+.webgeods-log-waiting { color: var(--text-muted); font-style: italic; }
+.webgeods-log-running { color: var(--info); font-weight: bold; }
+.webgeods-log-error { color: var(--danger); }
+.webgeods-log-success { color: var(--success); }
 
 .webgeods-log-detail {
-color: #8a7a5f;
+color: var(--text-muted);
 font-size: 12px;
 margin-top: 4px;
 }
 
 .webgeods-output {
-background: #eee5d2;
-border-top: 1px solid #5a4f3e;
+background: var(--surface-muted);
+border-top: 1px solid var(--border);
 padding: 12px;
 font-family: 'IBM Plex Mono', monospace;
 font-size: 13px;
 min-height: 45px;
 white-space: pre-wrap;
-color: #2a2117;
+color: var(--text);
 }
 .webgeods-map-container {
 width: 100%;
 height: 500px; 
-border: 1px solid #5a4f3e;
+border: 1px solid var(--border);
 border-radius: 0;
 margin-top: 20px;
-background-color: #f3ede1;
+background-color: var(--surface);
 }
 
 .webgeods-table {
@@ -26391,14 +26421,15 @@ font-size: 13px;
 }
 .webgeods-table th,
 .webgeods-table td {
-border: 1px solid #5a4f3e;
+border: 1px solid var(--border);
 padding: 6px 10px;
 text-align: left;
 white-space: nowrap;
 }
-.webgeods-table th {
-background-color: #eee5d2;
-color: #2a2117;
+
+.webgeods-table-scroll .webgeods-table th {
+background-color: var(--surface-muted);
+color: var(--text);
 font-family: 'IBM Plex Mono', monospace;
 font-weight: bold;
 
@@ -26406,34 +26437,34 @@ position: sticky;
 top: 0;
 }
 .webgeods-table tbody tr:hover {
-background-color: rgba(90, 79, 62, 0.08);
+background-color: rgba(90, 79, 62, 0.08); 
 }
 
 .webgeods-table tbody tr:nth-child(even):not(.webgeods-row-invalid):not(.webgeods-row-fixed) {
-background-color: rgba(90, 79, 62, 0.04);
+background-color: rgba(90, 79, 62, 0.04); 
 }
 .webgeods-table-scroll {
 max-height: 340px;
 overflow: auto;
 margin-top: 12px;
-border: 1px solid #5a4f3e;
+border: 1px solid var(--border);
 }
 .webgeods-table-empty {
 margin-top: 12px;
 padding: 10px;
-border: 1px solid #5a4f3e;
-color: #8a7a5f;
+border: 1px solid var(--border);
+color: var(--text-muted);
 font-style: italic;
 }
 
-.webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); }
-.webgeods-row-fixed { background-color: rgba(46, 164, 79, 0.15); }
+.webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); } 
+.webgeods-row-fixed { background-color: rgba(46, 164, 79, 0.15); } 
 
 .webgeods-row-clickable {
 cursor: pointer;
 }
 .webgeods-row-selected {
-box-shadow: inset 4px 0 0 #3d5a73;
+box-shadow: inset 4px 0 0 var(--info);
 }
 
 @keyframes webgeods-btn-pulse {
@@ -26445,8 +26476,8 @@ animation: webgeods-btn-pulse 1.4s ease-in-out infinite;
 }
 
 .webgeods-panel {
-border: 1px solid #5a4f3e;
-background-color: #eee5d2;
+border: 1px solid var(--border);
+background-color: var(--surface-muted);
 padding: 16px 20px;
 margin: 20px 0;
 }
@@ -26459,16 +26490,20 @@ gap: 10px;
 .webgeods-panel-row + .webgeods-panel-row {
 margin-top: 12px;
 }
+
 .webgeods-panel-status {
 font-family: 'IBM Plex Mono', monospace;
-font-size: 13px;
-color: #2a2117;
+font-size: 11px;
+font-weight: 600;
+letter-spacing: 0.02em;
+text-transform: uppercase;
+color: var(--text-muted);
 margin-left: auto;
 }
 
 .webgeods-panel-btn {
-background: #42583c;
-color: #f3ede1;
+background: var(--action);
+color: var(--surface);
 border: none;
 border-radius: 0;
 padding: 7px 16px;
@@ -26480,19 +26515,35 @@ text-transform: uppercase;
 cursor: pointer;
 }
 .webgeods-panel-btn:hover:not(:disabled) {
-background: #526b4a;
+background: var(--action-hover);
 }
 .webgeods-panel-btn:disabled {
-background: #b9ae95;
+background: var(--action-disabled-bg);
 cursor: not-allowed;
 }
 .webgeods-panel-btn[data-variant="outline"] {
 background: transparent;
-color: #5a4f3e;
-border: 1px solid #5a4f3e;
+color: var(--border);
+border: 1px solid var(--border);
 }
 .webgeods-panel-btn[data-variant="outline"]:hover:not(:disabled) {
-background: rgba(90, 79, 62, 0.1);
+background: rgba(90, 79, 62, 0.1); 
+}
+
+.webgeods-panel-btn input[type="file"] {
+position: absolute;
+width: 1px;
+height: 1px;
+overflow: hidden;
+opacity: 0;
+pointer-events: none;
+}
+
+.webgeods-closing-note {
+margin-top: 40px;
+padding-top: 24px;
+border-top: 1px solid var(--border-hairline);
+font-size: 15px;
 }
 </style>
 <style type="text/css">

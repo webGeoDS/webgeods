@@ -20,20 +20,17 @@ never gets the chance to see your data.
 
 ```{ojs}
 //| echo: false
-// The widget is window.Inputs.file() (Observable Inputs, lazy-loaded
-// on demand — see WebGeoDS.loadObservableInputs() in
-// shared/upload.js); the writing logic into the virtual filesystem
-// lives in shared/upload.js (WebGeoDS.Upload) — same helper used
-// across the blog's articles, not rewritten here.
-viewof uploadedFiles = {
-  await WebGeoDS.loadObservableInputs();
-  return window.Inputs.file({ multiple: true, accept: WebGeoDS.Upload.accept, label: "Upload" });
-}
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
 ```
 
 ```{ojs}
 //| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+// Pulses the status text (webgeods-btn-loading, same keyframe as the
+// buttons) while true — set around both the actual file write AND the
+// automatic diagnose that follows it, so "something is happening" is
+// visible the whole time, not just during the (usually sub-second)
+// upload itself.
+mutable uploadBusy = false
 ```
 
 ```{ojs}
@@ -47,15 +44,51 @@ mutable uploadKind = null
 
 ```{ojs}
 //| echo: false
+// The current file selection — a plain `mutable`, written by
+// uploadControl's onChange below, same pattern as uploadStatus/
+// uploadBusy/uploadKind. Was a `viewof`-bound variable (Observable
+// Inputs' Inputs.file() widget) until this cell replaced it — see
+// WebGeoDS.Upload.createControl's doc comment in shared/upload.js
+// for why.
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
 //| output: false
 {
   // Python-only tool (see the redesign commit): skip writing to R's
   // filesystem entirely, so selecting a file doesn't also load webR
   // in the background for no reason.
-  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
-  mutable uploadStatus = result.message;
-  mutable uploadKind = result.ok ? result.kind : null;
-  if (result.ok) await autoValidate();
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
+    if (result.ok) {
+      mutable uploadKind = result.kind;
+      mutable uploadStatus = "⌛ Checking...";
+      await autoValidate();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadKind = null;
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+// The upload-status text as an actual element (not a bare `${...}`
+// interpolation) so it can carry the busy-pulse class — see
+// uploadBusy above.
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
 }
 ```
 
@@ -83,10 +116,10 @@ mutable validateSucceeded = false
 
 ```{ojs}
 //| echo: false
-// No Validate button: diagnosis runs automatically instead, both on
-// upload (see the upload cell above) and once at page load (below,
-// on the built-in bowtie example) — nothing to click, and no reason
-// to ever re-run the same fixed check on the same data twice.
+// No Validate button: diagnosis runs automatically instead, on upload
+// (see the upload cell above) and on "Load example" (below) — nothing
+// to click once data exists, and no reason to ever re-run the same
+// fixed check on the same data twice.
 autoValidate = async () => {
   await window.WebGeoDS.CodeCell.find("geometry-diagnose-py").run();
   mutable validateSucceeded = true;
@@ -95,15 +128,51 @@ autoValidate = async () => {
 
 ```{ojs}
 //| echo: false
-//| output: false
-// Runs once, when the map first becomes ready — `sharedMap` is a
-// dependency here purely to delay until then, its value isn't used.
-// Diagnoses the fallback bowtie example (nothing uploaded yet), so
-// the page shows something immediately instead of sitting empty
-// until a file is selected.
-{
-  sharedMap;
-  await autoValidate();
+// No built-in fallback anymore (an earlier version diagnosed a
+// hardcoded bowtie automatically at page load if nothing was
+// uploaded) — the page now starts genuinely empty until the user
+// either uploads a file or clicks this, so "no data yet" actually
+// means no data yet. Writes the same canonical bowtie used elsewhere
+// on the site (geometry-validity.qmd's own "Try an example") straight
+// to the virtual filesystem — same underlying primitive
+// shared/upload.js's load() itself calls, skipped here since we
+// already know the exact bytes/filename and don't need File-object
+// classification for a single fixed example.
+EXAMPLE_GEOJSON = JSON.stringify({
+  type: "FeatureCollection",
+  features: [{
+    type: "Feature",
+    properties: { name: "bowtie" },
+    geometry: {
+      type: "Polygon",
+      coordinates: [[[12.45, 41.85], [12.55, 41.95], [12.45, 41.95], [12.55, 41.85], [12.45, 41.85]]]
+    }
+  }]
+})
+```
+
+```{ojs}
+//| echo: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
+      await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
+      mutable uploadKind = "geojson";
+      mutable uploadStatus = "⌛ Checking...";
+      await autoValidate();
+      mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
 }
 ```
 
@@ -116,29 +185,16 @@ editable and explained line by line.
 #| package: geopandas, shapely
 import re
 import geopandas as gpd
-from shapely.geometry import shape
 from shapely.validation import explain_validity
-
-gdf = None
-for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
-    try:
-        gdf = gpd.read_file(path)
-        break
-    except Exception:
-        pass
-
-if gdf is None:
-    bowtie = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.55, 41.95], [12.45, 41.95], [12.55, 41.85], [12.45, 41.85]]]}
-    gdf = gpd.GeoDataFrame({"name": ["bowtie"]}, geometry=[shape(bowtie)], crs="EPSG:4326")
-
-if "name" not in gdf.columns:
-    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
 # explain_validity() sometimes appends the failure coordinates in
 # brackets (e.g. "Self-intersection[12.5 41.9]") — split that into its
 # own "position" column instead of leaving it inside "reason". R's
 # st_is_valid(reason = TRUE) never includes coordinates, so R rows
-# simply have no position (see geometry-validity.qmd for why).
+# simply have no position (see geometry-validity.qmd for why). Defined
+# at the top level (not inside the `if gdf is not None` block below)
+# so it's always available in the session for geometry-repair-py to
+# reuse, even on a run where nothing was actually loaded.
 POSITION_RE = re.compile(r"^(.*?)\[([-\d.]+)\s+([-\d.]+)\]$")
 
 def diagnose(geom):
@@ -150,35 +206,53 @@ def diagnose(geom):
         return False, m.group(1).strip(), f"{m.group(2)} {m.group(3)}"
     return False, message, ""
 
-diagnosis = gdf.geometry.apply(diagnose)
-gdf["valid"] = diagnosis.apply(lambda t: t[0])
-gdf["reason"] = diagnosis.apply(lambda t: t[1])
-gdf["position"] = diagnosis.apply(lambda t: t[2])
+# No built-in fallback: if nothing is readable, gdf stays None and the
+# result is an empty FeatureCollection — this cell only ever runs
+# after a successful upload or "Load example" (see autoValidate() in
+# the page's JS), so in practice this branch means the uploaded file
+# itself failed to parse, not "nothing uploaded yet".
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
 
-# Every other original column from the uploaded file is kept as-is
-# (only "name" was ever guaranteed above) instead of being discarded.
-# A None in one of THOSE columns — not under our control — would
-# otherwise vanish silently crossing the Pyodide->JS bridge as a live
-# cell value (None becomes undefined, and JSON.stringify drops
-# undefined-valued keys — see roadmap-acquisizione.md).
-for col in gdf.columns:
-    if col != "geometry":
-        gdf[col] = gdf[col].fillna("")
+if gdf is not None:
+    if "name" not in gdf.columns:
+        gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
-gdf.__geo_interface__
+    diagnosis = gdf.geometry.apply(diagnose)
+    gdf["valid"] = diagnosis.apply(lambda t: t[0])
+    gdf["reason"] = diagnosis.apply(lambda t: t[1])
+    gdf["position"] = diagnosis.apply(lambda t: t[2])
+
+    # Every other original column from the uploaded file is kept as-is
+    # (only "name" was ever guaranteed above) instead of being
+    # discarded. A None in one of THOSE columns — not under our
+    # control — would otherwise vanish silently crossing the
+    # Pyodide->JS bridge as a live cell value (None becomes undefined,
+    # and JSON.stringify drops undefined-valued keys — see
+    # roadmap-acquisizione.md).
+    for col in gdf.columns:
+        if col != "geometry":
+            gdf[col] = gdf[col].fillna("")
+
+gdf.__geo_interface__ if gdf is not None else {"type": "FeatureCollection", "features": []}
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
 // The color is decided by JS, not Python — see geometry-validity.qmd
-// for the full explanation of this pattern. Checks BOTH possible keys
-// (valid / valid_after) because the paint chosen at diagnosis time
-// stays fixed even after Repair replaces the properties.
+// for the full explanation of this pattern. Repair updates "valid" in
+// place (same column, not a separate valid_after) so this only ever
+// needs to check the one key, before or after Fix.
 VALIDITY_PAINT = ({
   "fill-color": [
     "case",
-    ["any", ["==", ["get", "valid"], true], ["==", ["get", "valid_after"], true]],
+    ["==", ["get", "valid"], true],
     "#2ea44f",
     "#e05252"
   ],
@@ -193,10 +267,11 @@ pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
 {
   if (pyDiagnose) {
     await sharedMap.setGeoJSON("geometry-py", pyDiagnose, { paint: VALIDITY_PAINT });
-    // Zooms to whatever was just diagnosed — an upload or the
-    // bowtie fallback — instead of leaving the map at its initial
-    // wide view (see autoValidate() above: there's no button click
-    // left to hang a "now zoom" moment off of).
+    // Zooms to whatever was just diagnosed — an upload or "Load
+    // example" — instead of leaving the map at its initial wide view
+    // (see autoValidate() above: there's no button click left to hang
+    // a "now zoom" moment off of). A no-op on an empty FeatureCollection
+    // (fitToData()/getBounds() already handle that safely).
     await sharedMap.fitToData(pyDiagnose);
   }
 }
@@ -230,9 +305,20 @@ file.
 ```{.webgeods-python #geometry-repair-py}
 from shapely.validation import make_valid
 
-gdf["valid_before"] = gdf["valid"]
+# Same "valid"/"reason"/"position" columns as diagnose, refreshed in
+# place instead of a separate valid_before/valid_after pair — after
+# Fix the table reads exactly like a fresh diagnose of the (now
+# repaired) data. "fixed" answers the one thing that alone can't:
+# was this specific row actually touched, or was it already valid?
+was_valid = gdf["valid"].copy()
+
 gdf["geometry"] = gdf.geometry.apply(lambda g: make_valid(g) if not g.is_valid else g)
-gdf["valid_after"] = gdf.geometry.is_valid
+
+diagnosis = gdf.geometry.apply(diagnose)  # reuses geometry-diagnose-py's function, same session
+gdf["valid"] = diagnosis.apply(lambda t: t[0])
+gdf["reason"] = diagnosis.apply(lambda t: t[1])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
+gdf["fixed"] = (~was_valid) & gdf["valid"]
 
 # Same reasoning as geometry-diagnose-py: keep every original column,
 # fillna("") so a None in one doesn't silently drop that property
@@ -344,8 +430,8 @@ base64ToBytes = (base64Str) => {
 // GeoJSON: "zip"/"shapefile" both mean the upload WAS a shapefile
 // (just selected two different ways — see shared/upload.js's kind
 // classification), so both download as a re-zipped shapefile;
-// "geojson" (or no upload at all, still on the bowtie fallback) stays
-// GeoJSON.
+// "geojson" (or the "Load example" data, or nothing loaded at all)
+// stays GeoJSON.
 downloadButton = {
   const button = document.createElement("button");
   button.className = "webgeods-panel-btn";
@@ -378,10 +464,7 @@ downloadButton = {
 //| echo: false
 //| output: false
 validationStats = Generators.observe((change) => {
-  const isInvalid = (feature) => {
-    const p = feature.properties ?? {};
-    return "valid_after" in p ? p.valid_after === false : p.valid === false;
-  };
+  const isInvalid = (feature) => (feature.properties ?? {}).valid === false;
   const compute = () => {
     const features = sharedMap.getGeoJSON("geometry-py")?.features ?? [];
     const total = features.length;
@@ -401,7 +484,7 @@ validationStats = Generators.observe((change) => {
 
 ```{ojs}
 //| echo: false
-// One DOM node grouping all 3 buttons + the live status, built in JS
+// One DOM node grouping all 4 buttons + the live status, built in JS
 // rather than composed with several `${...}` markdown interpolations
 // side by side — Pandoc's math-dollar parser reads adjacent `${x}
 // ${y}` in the same paragraph as inline math (`$...$`) and swallows
@@ -410,10 +493,13 @@ validationStats = Generators.observe((change) => {
 // ambiguity entirely. Reactive on validationStats (recreates the row,
 // re-parenting the same button elements — harmless, they keep their
 // click handlers/disabled state) so the status text stays live.
+//
+// Does NOT include the upload widget, on purpose — see the viewof
+// cell right below, in the panel markdown itself, for why.
 controlPanelRow = {
   const row = document.createElement("div");
   row.className = "webgeods-panel-row";
-  row.append(fixButton, downloadButton, resetMapButton);
+  row.append(loadExampleButton, fixButton, downloadButton, resetMapButton);
   const status = document.createElement("span");
   status.className = "webgeods-panel-status";
   status.textContent = `${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid`;
@@ -422,18 +508,42 @@ controlPanelRow = {
 }
 ```
 
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
 :::: {.webgeods-panel}
 
+::: {.webgeods-panel-row}
+```{ojs}
+//| echo: false
+// A native <input type="file"> (WebGeoDS.Upload.createControl(), see
+// shared/upload.js) instead of Observable Inputs' `viewof`-bound
+// Inputs.file() widget used here previously — that widget had to be
+// defined physically at this exact spot in the markdown, because a
+// `viewof` cell's element turned out to be unsafe to relocate via JS
+// in Quarto's OJS runtime (two different relocation attempts both
+// desynced its reactivity after the panel's first reactive
+// re-render). This replacement doesn't use `viewof` at all — writes
+// to `mutable uploadedFiles` (defined above) from a plain onChange
+// callback instead — so that whole class of problem no longer
+// applies; it's placed here simply because this is where it should
+// visually appear, same as every other panel element.
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "📁 Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
 ${controlPanelRow}
+:::
 
 ::: {.webgeods-panel-row}
-${uploadStatus}
+${uploadStatusEl}
 :::
 
 ::::
-
-*First run loads the Python engine — expect 30-40 seconds. Instant
-after that, and again each time you come back to this page.*
 
 ```{ojs}
 //| echo: false
@@ -443,7 +553,7 @@ sharedMapEl = sharedMap.element
 ```{ojs}
 //| echo: false
 validatorTable = sharedMap.tableCell(["geometry-py"], null, Generators, {
-  iconColumns: ["valid", "valid_before", "valid_after"],
+  iconColumns: ["valid"],
   emptyMessage: "No results yet"
 })
 ```
@@ -451,9 +561,9 @@ validatorTable = sharedMap.tableCell(["geometry-py"], null, Generators, {
 <style>
 /* geometry-diagnose-py/geometry-repair-py are functional (the CodeCell
    engine still runs them), just not shown: this tool's whole point is
-   "same engine, less prose" (see the article link above) — a code
-   editor to click "Run" in would contradict that, and the buttons
-   above already trigger .run() on these cells programmatically.
+   "same engine, less prose" (see the article link below) — a code
+   editor to click "Run" in would contradict that, and the buttons in
+   the panel already trigger .run() on these cells programmatically.
    NOT display:none — verified empirically (Playwright, 100%
    reproducible over repeated clean runs) that display:none causes
    window.maplibregl to never become available after all 4 of
@@ -465,7 +575,21 @@ validatorTable = sharedMap.tableCell(["geometry-py"], null, Generators, {
    maplibre-gl.js <script> race described in shared/map.js's own
    loadMapLibreScript() comment. height:0 + overflow:hidden hides the
    same content without giving CodeMirror a zero-width box to choke
-   on, and doesn't reproduce the failure (3/3 clean runs). */
+   on, and doesn't reproduce the failure (3/3 clean runs).
+
+   Stays HERE, after the last {ojs} cell, not moved before the first
+   one: found empirically (bisecting against the last commit) that a
+   raw <style> block placed before ANY {ojs} cell in the document
+   breaks Quarto's OJS runtime outright (25 "Cannot read properties of
+   null" errors from quarto-ojs-runtime.js itself, even its own error
+   handler crashed trying to report the original one). Originally this
+   sat right before the closing note below as a Pandoc `:::` fenced
+   div, which turned out to have the OPPOSITE problem — a fenced div
+   immediately after a raw HTML block doesn't get parsed as a div at
+   all, rendering as literal "::: {.class}" text. Fixed by writing the
+   closing note as a raw HTML <div> instead of a fenced div (below) —
+   that sidesteps Pandoc's div-fencing entirely, so this <style> block
+   can stay right where it always was. */
 #geometry-diagnose-py, #geometry-repair-py, #geometry-export-shp-py {
   height: 0;
   overflow: hidden;
@@ -475,11 +599,11 @@ validatorTable = sharedMap.tableCell(["geometry-py"], null, Generators, {
 }
 </style>
 
----
-
+<div class="webgeods-closing-note">
 Want to understand what makes a geometry invalid, see the actual
 code, or compare against R's independent implementation? The
-[full article](/posts/geometry-validity.html) uses this same engine
-with a gallery of common errors explained one by one.
+<a href="/posts/geometry-validity.html">full article</a> uses this
+same engine with a gallery of common errors explained one by one.
+</div>
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

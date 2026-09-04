@@ -20,16 +20,24 @@ engine, less prose.
 
 ```{ojs}
 //| echo: false
-// The widget is window.Inputs.file() (Observable Inputs, lazy-loaded
-// on demand — see WebGeoDS.loadObservableInputs() in
-// shared/upload.js); the writing logic into the virtual filesystem
-// lives in shared/upload.js (WebGeoDS.Upload) — same helper used in
-// topology-errors.qmd, not rewritten here.
-viewof uploadedFiles = {
-  await WebGeoDS.loadObservableInputs();
-  return window.Inputs.file({ multiple: true, accept: WebGeoDS.Upload.accept, label: "Upload" });
-}
+mutable uploadedFiles = null
 ```
+
+```{ojs}
+//| echo: false
+// A native <input type="file"> (WebGeoDS.Upload.createControl(), see
+// shared/upload.js) instead of Observable Inputs' `viewof`-bound
+// Inputs.file() widget used here previously — see its doc comment
+// there for why (a `viewof` cell's element turned out to be unsafe
+// to relocate in Quarto's OJS runtime; this plain `mutable` +
+// onChange callback doesn't have that fragility).
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
 
 ```{ojs}
 //| echo: false

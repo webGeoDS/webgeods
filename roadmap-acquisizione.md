@@ -1518,3 +1518,171 @@ quale leva conta, non produrre un numero da centrare.
   separata (oggi è già una mini-landing con `listing:`, potrebbe
   bastare così), l'intero sistema di visual identity (rimandato per
   scelta esplicita, vedi sopra).
+
+  **Quarta revisione esterna, dopo il fix dell'homepage**: ripeteva la
+  descrizione della homepage VECCHIA ("webgeods — Blog", categorie
+  nude) — verificato dal vivo (`curl https://webgeods.com/`) che il
+  deploy era già uscito e la homepage nuova era già live, quindi quel
+  punto era già superato. Confermava però, con più dettaglio, che il
+  sistema Field Atlas (`shared/_brand.yml`, palette carta/inchiostro/
+  terracotta/muschio + Source Serif 4/Source Sans 3/IBM Plex Mono +
+  logo triangolo/punto terracotta) è già deliberato e non va rifatto —
+  il problema è la coerenza con cui viene applicato, non l'identità in
+  sé. Proposta accettata e implementata: centralizzare i colori in CSS
+  custom properties. Proposte NON adottate (per ora): "Learn/Explore/
+  Use" a 3 pilastri (l'architettura reale del sito ha 2 destinazioni,
+  articoli e tool — "Explore" non è una terza sezione separata, è il
+  laboratorio interattivo dentro l'articolo; tenuto "Read/Use", già
+  usato in `about.qmd`); formalizzare una "component library" con solo
+  2 tool a schema dashboard (prematuro, aspettare l'Inspector come
+  terzo data point prima di estrarre l'astrazione); tre palette
+  separate brand/UI-semantica/dataviz come sistema da COSTRUIRE ora
+  (giusto in principio, ma non c'è ancora nessun componente dataviz —
+  Vega-Lite non è cablato da nessuna parte — quindi tenuto solo come
+  principio per quando arriverà); rinominare gli articoli "Field
+  Notes" (idea valida, ma è una decisione di naming/IA che tocca nav e
+  tassonomia, lasciata all'utente).
+
+  **`shared/styles.css` — design token pass (2026-09-04)**: ogni
+  valore esadecimale ricorreva come letterale sparso nel file
+  (`#5a4f3e`, `#eee5d2`, ecc., più di 20 occorrenze). Aggiunto un
+  blocco `:root` con due livelli — i colori letterali con gli STESSI
+  nomi italiani di `_brand.yml` (`--carta`, `--inchiostro`,
+  `--terracotta`, `--muschio`, ecc., così i due file descrivono un
+  sistema solo, non due), poi alias semantici in inglese sopra
+  (`--surface`, `--border`, `--text`, `--action`, `--success`,
+  `--warning`, `--danger`) che sono quello che i componenti
+  effettivamente usano — un cambio di palette futuro tocca solo il
+  primo blocco. Le tinte per i grafici/la mappa (`--dataviz-invalid`
+  `#e05252`, `--dataviz-valid` `#2ea44f`) tenute esplicitamente
+  SEPARATE dai colori UI-semantici (`--danger`/`--success`, diversi:
+  `#8b2f24`/`#42583c`) — sono scelte per leggibilità sopra una basemap
+  MapLibre, non per coerenza col brand; terracotta non deve diventare
+  automaticamente "il colore delle feature non valide" solo perché è
+  l'accento del brand. Valori senza corrispondenza in `_brand.yml`
+  (`#526b4a` hover, `#b9ae95` disabled) documentati come tali invece
+  di far finta che siano brand color ufficiali.
+
+  **Bug reale trovato verificando il pass (non introdotto da esso)**:
+  `.webgeods-table th` non riceveva mai il colore giusto — un
+  `getComputedStyle()` mostrava `carta` (`#f3ede1`) invece di
+  `carta-scura` (`#eee5d2`), la differenza troppo sottile per notarla
+  a occhio in uno screenshot, per questo mai scoperta prima. Causa:
+  Quarto/Bootstrap spedisce `div.observablehq table thead tr th {
+  background-color: var(--bs-body-bg) }` (una regola pensata per le
+  tabelle native di Observable) che matcha ANCHE le nostre (qualunque
+  tabella dentro l'output di una cella OJS) e batte `.webgeods-table
+  th` in specificità (1 classe + 5 elementi contro 1 classe + 1
+  elemento) indipendentemente dall'ordine di caricamento. Corretto
+  alzando la specificità del selettore a `.webgeods-table-scroll
+  .webgeods-table th` (2 classi). Verificato: valori calcolati ora
+  combaciano esattamente con i token attesi su pannello/pulsanti/
+  tabella; 16/16 map-tests; 51/51 smoke-test lessons; screenshot
+  prima/dopo visivamente identici (come atteso da un puro refactor).
+
+**`geojson-shapefile-validator.qmd` — revisione UI (2026-09-04)**,
+richiesta dall'utente dopo aver visto la pagina dal vivo: pulsante
+Upload uniformato e spostato nel pannello, fallback bowtie rimosso a
+favore di un pulsante "Load example" esplicito, animazione durante
+l'upload, didascalia "First run..." spostata sopra il pannello (che
+ora sta subito sopra la mappa), stato del pannello reso più piccolo e
+distintivo, colonne tabella semplificate (`valid`/`reason`/`position`
+aggiornate in place da Fix invece di `valid_before`/`valid_after`
+separate, più una nuova colonna `fixed`), più spazio e visibilità per
+il rimando all'articolo finale.
+
+**Tre bug reali di Quarto/OJS trovati verificando dal vivo** (nessuno
+già documentato altrove nel progetto):
+
+1. Un blocco `<style>` raw HTML posizionato PRIMA di qualunque cella
+   `{ojs}` nel documento rompe il runtime OJS di Quarto — 25 errori
+   `Cannot read properties of null (reading 'querySelector')` da
+   `quarto-ojs-runtime.js` stesso (persino il suo gestore d'errori si
+   rompe cercando di segnalare l'errore originale). Isolato bisecando
+   contro l'ultimo commit funzionante: spostare SOLO il blocco
+   `<style>` all'inizio del documento (nient'altro) riproduce l'errore
+   da solo. Il blocco deve restare dopo almeno una cella `{ojs}` reale.
+2. Un fenced div Pandoc (`:::`) posizionato subito dopo un blocco raw
+   `<style>` non viene interpretato come div — appare come testo
+   letterale `::: {.class}` sulla pagina. Bisogna scegliere UNO dei
+   due: `<style>` prima del contenuto (ma dopo la prima cella OJS, per
+   il punto 1) oppure scrivere quella sezione come `<div>` HTML grezzo
+   invece che come fenced div — quest'ultima è la soluzione adottata
+   qui per la nota di chiusura, dato che il blocco `<style>` doveva
+   comunque restare vicino al fondo del documento.
+3. **Il più insidioso**: riparentare l'elemento DOM di una cella
+   `viewof` (spostarlo altrove nella pagina dopo la sua creazione) non
+   è sicuro nel runtime OJS di Quarto — provato in due modi (un
+   riferimento cross-cella `viewof x`, poi un semplice
+   `querySelector`+`appendChild`), ENTRAMBI hanno rotto la reattività
+   dopo il primo re-render reattivo del contenitore: il file veniva
+   ancora accettato dall'`<input>` nativo (`.files` si aggiornava) ma
+   l'evento "input" smetteva di raggiungere il binding `viewof` di
+   OJS, quindi `uploadedFiles` non si aggiornava più. Nessun problema
+   per gli elementi NON-viewof (bottoni, slider) spostati allo stesso
+   modo per tutta la sessione — sono sempre stati sicuri. Soluzione:
+   non spostare mai il widget — la sua cella `{ojs}` è definita
+   fisicamente dentro il markdown del pannello, così si autodisplaya
+   esattamente dov'è già, senza mai muoversi.
+
+Una falsa pista scartata durante il debug: un upload reale sembrava
+"bloccarsi" dopo aver usato Load example + Fix — in realtà completava
+correttamente, solo più lentamente del tempo di attesa (troppo breve)
+nel primo test di verifica. Nessun bug reale lì, solo un test
+impaziente.
+
+Verificato: 16/16 map-tests, 51/51 smoke-test lessons, flusso completo
+(Load example → Fix → upload reale con proprietà originali preservate
+→ colonne correttamente azzerate a un nuovo diagnose) confermato via
+Playwright con attese adeguate.
+
+**Input di upload: da Observable Inputs a `<input type="file">` nativo,
+ovunque (2026-09-04)**. Su suggerimento esplicito dell'utente ("ci
+eviterebbe tante noie?"), dopo che questa stessa sessione aveva appena
+trovato che una cella `viewof` (l'unico modo di legare
+`Inputs.file()`) è fragile appena la si tocca (vedi voce sopra, punto
+3): il problema non era la label del pulsante ma `viewof` stesso —
+ogni ALTRO controllo di queste pagine (stato upload, busy, kind) usa
+già `mutable` + event handler senza mai questo tipo di problema.
+
+Sostituito su tutte e 4 le pagine che avevano un upload
+(`geojson-shapefile-validator.qmd`, `topology-checker.qmd`,
+`geometry-validity.qmd`, `topology-errors.qmd`): `viewof uploadedFiles
+= { ...; return window.Inputs.file(...); }` → `mutable uploadedFiles =
+null` + `WebGeoDS.Upload.createControl({ onChange: (files) => {
+mutable uploadedFiles = files; } })`, nuova funzione condivisa in
+`shared/upload.js` che costruisce un `<label class="webgeods-panel-btn">`
+avvolgendo un `<input type="file">` nativo nascosto via CSS — un
+`<label>` che avvolge il proprio `<input>` apre il selettore file al
+click senza JS, nessun `for`/`id` necessario. Elimina anche l'hack CSS
+precedente (`[data-webgeods-upload]`, che doveva puntare le classi
+build-hashate instabili del markup interno di Observable Inputs) —
+sostituito da una singola regola `.webgeods-panel-btn input[type="file"]`.
+
+Osservazione empirica confermata durante l'implementazione (spiega
+perché la vecchia label-hack per il pulsante funzionava comunque, e
+perché il nuovo controllo può stare tranquillamente in
+`controlPanelRow` in futuro se utile): una cella OJS non-`viewof` che
+ritorna un nodo DOM e viene poi spostata altrove (`appendChild`) lascia
+il proprio div di output originale vuoto e invisibile — non genera
+mai un elemento duplicato visibile. Solo `viewof` è a rischio.
+
+Observable Inputs stessa **resta vendorizzata e in uso**: gli slider
+soglia di `topology-checker.qmd` (`sliverControl`/`gapControl`) usano
+ancora `window.Inputs.range()`, non toccati — fuori scope, l'utente ha
+chiesto solo i pulsanti di upload.
+
+Verificato via Playwright su tutte e 4 le pagine: struttura
+label+input nativa presente e corretta, nessun errore console/pagina,
+upload di un file di test reale confermato riuscito su tutte e 4 (per
+`geojson-shapefile-validator.qmd`, che fa anche autoValidate, il primo
+tentativo di attesa automatica è scaduto a 90s per la lentezza del
+primo caricamento Pyodide in questo ambiente — stessa causa già
+documentata sopra, non un bug: lo stato finale letto subito dopo
+mostrava comunque "1 feature, 1 valid, 0 invalid", conferma indiretta
+che la pipeline aveva completato). 16/16 map-tests (un run parallelo
+al smoke-test lessons aveva causato crash del browser per
+contesa di risorse — non una regressione, risolto rieseguendo da
+solo). 50/51 smoke-test lessons (unico fallimento, `§16 R — sf`, in
+una sezione che non tocca affatto l'upload — timeout isolato,
+preesistente).
