@@ -881,6 +881,80 @@ caricato dall'utente.
   `sync-shared-assets.sh`/`blog/_quarto.yml`. Nessuna libreria nuova
   aggiunta al loro posto.
 
+**Dashboard su `topology-checker.qmd` + revisione a 4 punti di
+`geojson-shapefile-validator.qmd` (2026-09-04)**. `topology-checker.qmd`
+ha ricevuto lo stesso trattamento "dashboard" del validator
+(`page-layout: full`, pannello con slider + Check/Download/Reset +
+stato live raggruppati — nessun'altra modifica, tabella `has_error`
+lasciata come prima). Il validator ha avuto una revisione più ampia,
+decisa con l'utente via AskUserQuestion:
+
+- **Tabella, funzionalità condivise** (`shared/table.js`/`map.js`,
+  quindi automatiche su tutte e 4 le pagine): numerazione riga sempre
+  attiva; contenitore sempre scrollabile (`webgeods-table-scroll`,
+  entrambi gli assi, intestazione `position: sticky`) — pensata sia
+  per molte righe sia per molte colonne, ora che le proprietà
+  originali del file caricato non vengono più scartate; nuova opzione
+  `iconColumns` (🟢/🔴 al posto del testo "true"/"false", puramente
+  visiva — non interferisce con `rowClassName`, che continua a
+  ricevere i valori grezzi); riga zebra leggera per le pagine che non
+  usano più la colorazione a riga intera.
+- **Upload → validazione e zoom automatici, pulsante Validate
+  rimosso** (solo sul validator — `topology-checker.qmd` tiene il suo
+  Check manuale, non era parte di questa richiesta): la cella di
+  upload cattura anche `result.kind` (già restituito da
+  `shared/upload.js`, prima scartato) e lancia `autoValidate()` dopo
+  un upload riuscito; una cella separata lancia lo stesso
+  `autoValidate()` una volta al caricamento pagina (sul fallback
+  bowtie), così la pagina non è mai vuota. La cella reattiva che fa
+  `setGeoJSON` ora chiama anche `fitToData()`.
+- **Proprietà originali preservate + colonna `position` separata da
+  `reason`** — applicato sia al validator sia a `geometry-validity.qmd`
+  (stesso motore, celle diagnose/repair quasi identiche, comprese le
+  DUE copie in quest'ultimo file — la cella vera e la stringa
+  `pyBowtieCode` usata dal pulsante "Try an example", tenute
+  sincronizzate a mano). Le celle Python non sottraggono più a
+  `["name","valid","reason","geometry"]`: aggiungono `valid`/
+  `reason`/`position` alle colonne del file caricato invece di
+  scartarle. `explain_validity()` a volte include la posizione tra
+  parentesi quadre (`"Self-intersection[12.5 41.9]"`) — una regex la
+  separa in `reason` (solo testo) e `position` (le coordinate, vuota
+  se assenti — il formato R non le ha mai). `gdf.fillna("")` su tutte
+  le colonne tranne `geometry` — non sottraendo più le colonne, un
+  `None` in una proprietà ORIGINALE del file (fuori dal nostro
+  controllo) sarebbe altrimenti sparito silenziosamente attraversando
+  il ponte Pyodide→JS come valore vivo (stesso bug già trovato per
+  `reason`, qui generalizzato). **Verificato empiricamente che i tipi
+  numpy (int64 con valori nulli) attraversano il ponte senza problemi
+  una volta passati per `fillna`** — nessuna sorpresa lì, a differenza
+  di `None`. R non toccato: il suo codice non sottraeva già le colonne
+  (nessuna correzione necessaria), e non ha mai avuto coordinate da
+  separare.
+- **Download rispecchia il formato originale** (solo validator):
+  nuova cella nascosta `#geometry-export-shp-py` — `gdf.to_file(...,
+  driver="ESRI Shapefile")` (**verificato empiricamente PRIMA di
+  pianificare che funziona in questo ambiente Pyodide** — non scontato,
+  era il rischio tecnico principale), zippa `.shp/.shx/.dbf/.prj/.cpg`
+  in memoria, restituisce il risultato base64 (unico modo per far
+  attraversare bytes binari al bridge come valore di cella). Se
+  `uploadKind` è `"zip"` o `"shapefile"` (in entrambi i casi l'upload
+  originale ERA uno shapefile) il download è quella cella decodificata
+  in un `.zip`; se `"geojson"` (o nessun upload), resta `.geojson`
+  come prima. **Verificato un round-trip completo**: caricato
+  `test-shapefile-10-features-7-invalid.zip` (10 feature, proprietà
+  extra comprese), scaricato, il file scaricato RI-caricato nello
+  stesso tool legge correttamente tutte le proprietà originali e
+  ridiagnostica gli stessi risultati.
+- **Selezione riga ↔ zoom/evidenziazione mappa**: l'utente ha chiesto
+  conferma che esistesse già (sì, dalla sessione precedente) —
+  riverificata dopo tutte queste modifiche (icone, numerazione,
+  scroll, proprietà extra): click riga → mappa e click mappa → riga
+  funzionano ancora identicamente, il meccanismo è legato al `<tr>`,
+  indipendente dal contenuto delle celle.
+- Verificato: 16/16 map-tests, 51/51 smoke-test lessons,
+  `topology-errors.qmd` (non toccato) confermato invariato salvo la
+  numerazione riga generica.
+
 ### 1.2 — GeoSpatial File Inspector (dettaglio)
 
 Il "front door" della suite: upload → statistiche immediate.

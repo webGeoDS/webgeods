@@ -3,6 +3,7 @@ title: "Topology Checker"
 date: 2026-09-03
 categories: [tool, geometry]
 description: "Upload a GeoJSON or a Shapefile and check it for the five recurring topology errors — overlap, gap, sliver, duplicates, dangle. Free, runs entirely in your browser: the file never leaves your computer."
+page-layout: full
 ---
 
 Upload a file — `.geojson`, or a shapefile as a single `.zip` or as
@@ -40,8 +41,6 @@ viewof uploadedFiles = {
 mutable uploadStatus = WebGeoDS.Upload.defaultStatus
 ```
 
-${uploadStatus}
-
 ```{ojs}
 //| echo: false
 //| output: false
@@ -65,12 +64,6 @@ sharedMap = {
 }
 ```
 
-## Check
-
-Click Check to run the five checks on the current data — your file
-uploaded above, or (if nothing's uploaded) a built-in two-polygon
-overlap example.
-
 The code itself isn't shown here — it's a fixed, non-editable check
 using GeoPandas/Shapely underneath; see the
 [full article](/posts/topology-errors.html) for the actual code,
@@ -81,8 +74,22 @@ on a judgment call. **Sliver threshold** (compactness, 0-1): how thin
 counts as "not a real shape" — lower catches only thinner slivers.
 **Gap search distance** (degrees): how close two features need to be
 before a gap between them counts — larger finds gaps further apart.
-Adjust either below before checking if the defaults don't match your
-data.
+
+:::: {.webgeods-panel}
+
+::: {.webgeods-panel-row}
+${sliverControl}
+
+${gapControl}
+:::
+
+${controlPanelRow}
+
+::: {.webgeods-panel-row}
+${uploadStatus}
+:::
+
+::::
 
 ```{ojs}
 //| echo: false
@@ -119,10 +126,6 @@ gapControl = {
   return el;
 }
 ```
-
-${sliverControl}
-
-${gapControl}
 
 ```{.webgeods-python #topology-diagnose-py}
 #| package: geopandas, shapely
@@ -290,6 +293,7 @@ detect_and_check(gdf, sliver_threshold=sliverThreshold, gap_proximity=gapProximi
 //| echo: false
 checkButton = {
   const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
   button.textContent = "▶ Check";
   button.onclick = async () => {
     button.disabled = true;
@@ -314,8 +318,6 @@ checkButton = {
   return button;
 }
 ```
-
-${checkButton}
 
 *First run loads the Python engine — expect 30-40 seconds. Instant
 after that, and again each time you come back to this page.*
@@ -384,8 +386,6 @@ topologyStats = Generators.observe((change) => {
 })
 ```
 
-**Result** — ${topologyStats.total} feature, ${topologyStats.errors} with an error.
-
 ```{ojs}
 //| echo: false
 resetChecker = async () => {
@@ -399,15 +399,13 @@ resetChecker = async () => {
 //| echo: false
 resetMapButton = {
   const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and table";
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
   button.onclick = () => resetChecker();
   return button;
 }
 ```
-
-${resetMapButton}
-
-## Download the result
 
 ```{ojs}
 //| echo: false
@@ -432,7 +430,9 @@ downloadGeoJSON = (sourceId, filename) => {
 //| echo: false
 downloadButton = {
   const button = document.createElement("button");
-  button.textContent = "⬇ Download result";
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "⬇ Download";
   button.onclick = () => {
     const base = WebGeoDS.Upload.baseName(uploadedFiles);
     downloadGeoJSON("topology-py", base ? `${base}-topology-report.geojson` : "topology-report.geojson");
@@ -441,7 +441,25 @@ downloadButton = {
 }
 ```
 
-${downloadButton}
+```{ojs}
+//| echo: false
+// One DOM node grouping Check/Download/Reset + the live status, built
+// in JS rather than composed with several `${...}` markdown
+// interpolations side by side — Pandoc's math-dollar parser reads
+// adjacent `${x} ${y}` in the same paragraph as inline math and
+// swallows them (see geojson-shapefile-validator.qmd, where this was
+// actually hit). A single `${controlPanelRow}` avoids the ambiguity.
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(checkButton, downloadButton, resetMapButton);
+  const status = document.createElement("span");
+  status.className = "webgeods-panel-status";
+  status.textContent = `${topologyStats.total} feature, ${topologyStats.errors} with an error`;
+  row.appendChild(status);
+  return row;
+}
+```
 
 <style>
 /* topology-diagnose-py is functional (the CodeCell engine still runs

@@ -3,6 +3,7 @@ title: "GeoJSON & Shapefile Validator"
 date: 2026-09-01
 categories: [tool, geometry]
 description: "Upload a GeoJSON or a Shapefile and check whether every geometry is valid under the Simple Features model — with the reason for each error and an optional automatic repair you can download. Free, runs entirely in your browser: the file never leaves your computer."
+page-layout: full
 ---
 
 Upload a file — `.geojson`, or a shapefile as a single `.zip` or as
@@ -16,10 +17,6 @@ browser (Python via WebAssembly) — it's never uploaded to any server,
 including ours. Nothing to configure, nothing to trust: the code
 never gets the chance to see your data.
 :::
-
-Want to see the actual code, understand **why** a geometry can be
-invalid, or compare against R's independent implementation? Read the
-[full article](/posts/geometry-validity.html).
 
 ```{ojs}
 //| echo: false
@@ -39,7 +36,14 @@ viewof uploadedFiles = {
 mutable uploadStatus = WebGeoDS.Upload.defaultStatus
 ```
 
-${uploadStatus}
+```{ojs}
+//| echo: false
+// Which kind of file is currently loaded ("geojson" | "zip" |
+// "shapefile" | null) — WebGeoDS.Upload.load() already returns this,
+// previously discarded. Drives the download button below: a
+// shapefile in, a shapefile (zipped) out, instead of always GeoJSON.
+mutable uploadKind = null
+```
 
 ```{ojs}
 //| echo: false
@@ -50,6 +54,8 @@ ${uploadStatus}
   // in the background for no reason.
   const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
   mutable uploadStatus = result.message;
+  mutable uploadKind = result.ok ? result.kind : null;
+  if (result.ok) await autoValidate();
 }
 ```
 
@@ -67,20 +73,39 @@ sharedMap = {
 ```{ojs}
 //| echo: false
 //| output: false
-// Whether Validate has ever completed successfully — gates the Fix
+// Whether a diagnose has ever completed successfully — gates the Fix
 // button below (see fixButton): clicking Fix first would hit a
 // Python NameError (`gdf` doesn't exist yet) instead of a clear
-// message, since Fix reuses Validate's session state rather than
+// message, since Fix reuses the diagnose session state rather than
 // reading the file itself.
 mutable validateSucceeded = false
 ```
 
-## Validate
+```{ojs}
+//| echo: false
+// No Validate button: diagnosis runs automatically instead, both on
+// upload (see the upload cell above) and once at page load (below,
+// on the built-in bowtie example) — nothing to click, and no reason
+// to ever re-run the same fixed check on the same data twice.
+autoValidate = async () => {
+  await window.WebGeoDS.CodeCell.find("geometry-diagnose-py").run();
+  mutable validateSucceeded = true;
+}
+```
 
-Click Validate to run the check on the current data — your file
-uploaded above, or (if nothing's uploaded) a built-in bowtie-polygon
-example. No repair yet, just diagnosis: is the geometry valid? If
-not, why?
+```{ojs}
+//| echo: false
+//| output: false
+// Runs once, when the map first becomes ready — `sharedMap` is a
+// dependency here purely to delay until then, its value isn't used.
+// Diagnoses the fallback bowtie example (nothing uploaded yet), so
+// the page shows something immediately instead of sitting empty
+// until a file is selected.
+{
+  sharedMap;
+  await autoValidate();
+}
+```
 
 The code itself isn't shown here — it's a fixed, non-editable check
 using Shapely/GEOS underneath; see the
@@ -89,6 +114,7 @@ editable and explained line by line.
 
 ```{.webgeods-python #geometry-diagnose-py}
 #| package: geopandas, shapely
+import re
 import geopandas as gpd
 from shapely.geometry import shape
 from shapely.validation import explain_validity
@@ -108,42 +134,38 @@ if gdf is None:
 if "name" not in gdf.columns:
     gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
-gdf["valid"] = gdf.geometry.is_valid
-gdf["reason"] = gdf.geometry.apply(lambda g: "" if g.is_valid else explain_validity(g))
+# explain_validity() sometimes appends the failure coordinates in
+# brackets (e.g. "Self-intersection[12.5 41.9]") — split that into its
+# own "position" column instead of leaving it inside "reason". R's
+# st_is_valid(reason = TRUE) never includes coordinates, so R rows
+# simply have no position (see geometry-validity.qmd for why).
+POSITION_RE = re.compile(r"^(.*?)\[([-\d.]+)\s+([-\d.]+)\]$")
 
-gdf[["name", "valid", "reason", "geometry"]].__geo_interface__
-```
+def diagnose(geom):
+    if geom.is_valid:
+        return True, "", ""
+    message = explain_validity(geom)
+    m = POSITION_RE.match(message)
+    if m:
+        return False, m.group(1).strip(), f"{m.group(2)} {m.group(3)}"
+    return False, message, ""
 
-```{ojs}
-//| echo: false
-validateButton = {
-  const button = document.createElement("button");
-  button.textContent = "▶ Validate";
-  button.onclick = async () => {
-    button.disabled = true;
-    button.classList.add("webgeods-btn-loading");
-    button.textContent = "⌛ Validating...";
-    try {
-      await window.WebGeoDS.CodeCell.find("geometry-diagnose-py").run();
-      mutable validateSucceeded = true;
-    } finally {
-      button.disabled = false;
-      button.classList.remove("webgeods-btn-loading");
-      button.textContent = "▶ Validate";
-    }
-  };
-  return button;
-}
-```
+diagnosis = gdf.geometry.apply(diagnose)
+gdf["valid"] = diagnosis.apply(lambda t: t[0])
+gdf["reason"] = diagnosis.apply(lambda t: t[1])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
 
-${validateButton}
+# Every other original column from the uploaded file is kept as-is
+# (only "name" was ever guaranteed above) instead of being discarded.
+# A None in one of THOSE columns — not under our control — would
+# otherwise vanish silently crossing the Pyodide->JS bridge as a live
+# cell value (None becomes undefined, and JSON.stringify drops
+# undefined-valued keys — see roadmap-acquisizione.md).
+for col in gdf.columns:
+    if col != "geometry":
+        gdf[col] = gdf[col].fillna("")
 
-*First run loads the Python engine — expect 30-40 seconds. Instant
-after that, and again each time you come back to this page.*
-
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
+gdf.__geo_interface__
 ```
 
 ```{ojs}
@@ -171,21 +193,185 @@ pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
 {
   if (pyDiagnose) {
     await sharedMap.setGeoJSON("geometry-py", pyDiagnose, { paint: VALIDITY_PAINT });
+    // Zooms to whatever was just diagnosed — an upload or the
+    // bowtie fallback — instead of leaving the map at its initial
+    // wide view (see autoValidate() above: there's no button click
+    // left to hang a "now zoom" moment off of).
+    await sharedMap.fitToData(pyDiagnose);
   }
 }
 ```
 
 ```{ojs}
 //| echo: false
-validatorTable = sharedMap.tableCell(["geometry-py"], null, Generators, {
-  rowClassName: (row) => {
-    if (row.valid_after === "false") return "webgeods-row-invalid";
-    if (row.valid_before === "false") return "webgeods-row-fixed";
-    if (row.valid === "false") return "webgeods-row-invalid";
-    return "";
-  },
-  emptyMessage: "No results yet"
-})
+resetValidator = async () => {
+  if (sharedMap.getGeoJSON("geometry-py")) {
+    await sharedMap.setGeoJSON("geometry-py", { type: "FeatureCollection", features: [] });
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
+  button.onclick = () => resetValidator();
+  return button;
+}
+```
+
+`make_valid()` rebuilds the geometry into an equivalent, valid form —
+reuses exactly the data just diagnosed above, no new reading of the
+file.
+
+```{.webgeods-python #geometry-repair-py}
+from shapely.validation import make_valid
+
+gdf["valid_before"] = gdf["valid"]
+gdf["geometry"] = gdf.geometry.apply(lambda g: make_valid(g) if not g.is_valid else g)
+gdf["valid_after"] = gdf.geometry.is_valid
+
+# Same reasoning as geometry-diagnose-py: keep every original column,
+# fillna("") so a None in one doesn't silently drop that property
+# crossing the Pyodide->JS bridge.
+for col in gdf.columns:
+    if col != "geometry":
+        gdf[col] = gdf[col].fillna("")
+
+gdf.__geo_interface__
+```
+
+```{.webgeods-python #geometry-export-shp-py}
+# Only run on demand (see downloadButton below), not on every
+# diagnose/repair: writes the CURRENT gdf as an actual shapefile
+# (geopandas.to_file(), confirmed to work in this Pyodide build),
+# zips the resulting .shp/.shx/.dbf/.prj/.cpg in memory, and returns
+# it base64-encoded — the only way to get binary bytes out of a cell
+# value and into a downloadable Blob on the JS side.
+import base64
+import io
+import os
+import zipfile
+
+gdf.to_file("/tmp/webgeods_export.shp", driver="ESRI Shapefile")
+
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+    for fname in sorted(os.listdir("/tmp")):
+        if fname.startswith("webgeods_export."):
+            with open(f"/tmp/{fname}", "rb") as f:
+                z.writestr(fname.replace("webgeods_export", "result"), f.read())
+
+base64.b64encode(buf.getvalue()).decode("ascii")
+```
+
+```{ojs}
+//| echo: false
+// Depends on (reads) validateSucceeded, so this cell — and the button
+// it returns — is recreated the moment the first automatic diagnose
+// completes, switching from disabled to enabled with no interaction
+// needed (see autoValidate() above).
+fixButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.textContent = "🔧 Fix";
+  button.disabled = !validateSucceeded;
+  button.title = validateSucceeded ? "" : "Waiting for the automatic check to finish";
+  button.onclick = async () => {
+    button.disabled = true;
+    button.classList.add("webgeods-btn-loading");
+    button.textContent = "⌛ Fixing...";
+    try {
+      await window.WebGeoDS.CodeCell.find("geometry-repair-py").run();
+    } finally {
+      button.disabled = false;
+      button.classList.remove("webgeods-btn-loading");
+      button.textContent = "🔧 Fix";
+    }
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
+{
+  if (pyRepair) {
+    await sharedMap.setGeoJSON("geometry-py", pyRepair);
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+// Not promoted to shared/ (still only one tool using it): a Blob +
+// a temporary <a download> is enough, no library needed. If a second
+// tool ends up duplicating this same function, that's the point to
+// move it into a shared file, not before.
+downloadBlob = (bytesOrString, filename, mimeType) => {
+  window.WebGeoDS.track?.("download_clicked", { tool: "geojson-shapefile-validator", filename });
+  const blob = new Blob([bytesOrString], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+```
+
+```{ojs}
+//| echo: false
+// base64 -> raw bytes, for the shapefile export cell's return value
+// (binary data can only cross the Pyodide->JS bridge as a cell value
+// via a text encoding — see geometry-export-shp-py).
+base64ToBytes = (base64Str) => {
+  const binary = atob(base64Str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+```
+
+```{ojs}
+//| echo: false
+// Mirrors the ORIGINAL upload format instead of always exporting
+// GeoJSON: "zip"/"shapefile" both mean the upload WAS a shapefile
+// (just selected two different ways — see shared/upload.js's kind
+// classification), so both download as a re-zipped shapefile;
+// "geojson" (or no upload at all, still on the bowtie fallback) stays
+// GeoJSON.
+downloadButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "⬇ Download";
+  button.onclick = async () => {
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "⌛ Preparing...";
+    try {
+      const base = WebGeoDS.Upload.baseName(uploadedFiles);
+      if (uploadKind === "zip" || uploadKind === "shapefile") {
+        await window.WebGeoDS.CodeCell.find("geometry-export-shp-py").run();
+        const base64 = document.getElementById("geometry-export-shp-py").value;
+        downloadBlob(base64ToBytes(base64), base ? `${base}-validated.zip` : "validated-shapefile.zip", "application/zip");
+      } else {
+        const data = sharedMap.getGeoJSON("geometry-py");
+        if (data) downloadBlob(JSON.stringify(data, null, 2), base ? `${base}-validated.geojson` : "validated-geojson.geojson", "application/geo+json");
+      }
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  };
+  return button;
+}
 ```
 
 ```{ojs}
@@ -213,123 +399,54 @@ validationStats = Generators.observe((change) => {
 })
 ```
 
-**Result** — ${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid.
-
 ```{ojs}
 //| echo: false
-resetValidator = async () => {
-  if (sharedMap.getGeoJSON("geometry-py")) {
-    await sharedMap.setGeoJSON("geometry-py", { type: "FeatureCollection", features: [] });
-  }
+// One DOM node grouping all 3 buttons + the live status, built in JS
+// rather than composed with several `${...}` markdown interpolations
+// side by side — Pandoc's math-dollar parser reads adjacent `${x}
+// ${y}` in the same paragraph as inline math (`$...$`) and swallows
+// them (verified empirically: rendered as literal "{fixButton}" text,
+// buttons never appeared). A single `${controlPanelRow}` avoids the
+// ambiguity entirely. Reactive on validationStats (recreates the row,
+// re-parenting the same button elements — harmless, they keep their
+// click handlers/disabled state) so the status text stays live.
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(fixButton, downloadButton, resetMapButton);
+  const status = document.createElement("span");
+  status.className = "webgeods-panel-status";
+  status.textContent = `${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid`;
+  row.appendChild(status);
+  return row;
 }
 ```
 
-```{ojs}
-//| echo: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and table";
-  button.onclick = () => resetValidator();
-  return button;
-}
-```
+:::: {.webgeods-panel}
 
-${resetMapButton}
+${controlPanelRow}
 
-## Fix (optional)
+::: {.webgeods-panel-row}
+${uploadStatus}
+:::
 
-`make_valid()` rebuilds the geometry into an equivalent, valid form.
-**Requires having run Validate above at least once**: it reuses
-exactly the same data just diagnosed, no new reading of the file.
+::::
 
-```{.webgeods-python #geometry-repair-py}
-from shapely.validation import make_valid
-
-gdf["valid_before"] = gdf["valid"]
-gdf["geometry"] = gdf.geometry.apply(lambda g: make_valid(g) if not g.is_valid else g)
-gdf["valid_after"] = gdf.geometry.is_valid
-
-gdf[["name", "valid_before", "valid_after", "geometry"]].__geo_interface__
-```
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
 
 ```{ojs}
 //| echo: false
-// Depends on (reads) validateSucceeded, so this cell — and the button
-// it returns — is recreated the moment Validate first succeeds,
-// switching from disabled to enabled without a page reload.
-fixButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔧 Fix";
-  button.disabled = !validateSucceeded;
-  button.title = validateSucceeded ? "" : "Run Validate above first";
-  button.onclick = async () => {
-    button.disabled = true;
-    button.classList.add("webgeods-btn-loading");
-    button.textContent = "⌛ Fixing...";
-    try {
-      await window.WebGeoDS.CodeCell.find("geometry-repair-py").run();
-    } finally {
-      button.disabled = false;
-      button.classList.remove("webgeods-btn-loading");
-      button.textContent = "🔧 Fix";
-    }
-  };
-  return button;
-}
-```
-
-${fixButton}
-
-```{ojs}
-//| echo: false
-//| output: false
-pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
-{
-  if (pyRepair) {
-    await sharedMap.setGeoJSON("geometry-py", pyRepair);
-  }
-}
-```
-
-## Download the result
-
-Download the current state — fixed if you ran the section above,
-otherwise diagnosed as-is.
-
-```{ojs}
-//| echo: false
-// Not promoted to shared/ (still only one tool using it): a Blob +
-// a temporary <a download> is enough, no library needed. If a second
-// tool ends up duplicating this same function, that's the point to
-// move it into a shared file, not before.
-downloadGeoJSON = (sourceId, filename) => {
-  const data = sharedMap.getGeoJSON(sourceId);
-  if (!data) return;
-  window.WebGeoDS.track?.("download_clicked", { tool: "geojson-shapefile-validator", sourceId });
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/geo+json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+sharedMapEl = sharedMap.element
 ```
 
 ```{ojs}
 //| echo: false
-downloadButton = {
-  const button = document.createElement("button");
-  button.textContent = "⬇ Download result";
-  button.onclick = () => {
-    const base = WebGeoDS.Upload.baseName(uploadedFiles);
-    downloadGeoJSON("geometry-py", base ? `${base}-validated.geojson` : "validated-geojson.geojson");
-  };
-  return button;
-}
+validatorTable = sharedMap.tableCell(["geometry-py"], null, Generators, {
+  iconColumns: ["valid", "valid_before", "valid_after"],
+  emptyMessage: "No results yet"
+})
 ```
-
-${downloadButton}
 
 <style>
 /* geometry-diagnose-py/geometry-repair-py are functional (the CodeCell
@@ -349,7 +466,7 @@ ${downloadButton}
    loadMapLibreScript() comment. height:0 + overflow:hidden hides the
    same content without giving CodeMirror a zero-width box to choke
    on, and doesn't reproduce the failure (3/3 clean runs). */
-#geometry-diagnose-py, #geometry-repair-py {
+#geometry-diagnose-py, #geometry-repair-py, #geometry-export-shp-py {
   height: 0;
   overflow: hidden;
   margin: 0;

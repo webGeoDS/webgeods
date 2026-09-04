@@ -200,7 +200,8 @@ loadExampleButton = (label, pyCode, rCode) => {
 
 ```{ojs}
 //| echo: false
-pyBowtieCode = `import geopandas as gpd
+pyBowtieCode = `import re
+import geopandas as gpd
 from shapely.geometry import shape
 from shapely.validation import explain_validity
 
@@ -219,10 +220,27 @@ if gdf is None:
 if "name" not in gdf.columns:
     gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
-gdf["valid"] = gdf.geometry.is_valid
-gdf["reason"] = gdf.geometry.apply(lambda g: "" if g.is_valid else explain_validity(g))
+POSITION_RE = re.compile(r"^(.*?)\\[([-\\d.]+)\\s+([-\\d.]+)\\]$")
 
-gdf[["name", "valid", "reason", "geometry"]].__geo_interface__`
+def diagnose(geom):
+    if geom.is_valid:
+        return True, "", ""
+    message = explain_validity(geom)
+    m = POSITION_RE.match(message)
+    if m:
+        return False, m.group(1).strip(), f"{m.group(2)} {m.group(3)}"
+    return False, message, ""
+
+diagnosis = gdf.geometry.apply(diagnose)
+gdf["valid"] = diagnosis.apply(lambda t: t[0])
+gdf["reason"] = diagnosis.apply(lambda t: t[1])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
+
+for col in gdf.columns:
+    if col != "geometry":
+        gdf[col] = gdf[col].fillna("")
+
+gdf.__geo_interface__`
 rBowtieCode = `data <- NULL
 for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
   data <- tryCatch(sf::st_read(path, quiet = TRUE), error = function(e) NULL)
@@ -260,6 +278,7 @@ just diagnosis: is the geometry valid? If not, why?
 
 ```{.webgeods-python #geometry-diagnose-py}
 #| package: geopandas, shapely
+import re
 import geopandas as gpd
 from shapely.geometry import shape
 from shapely.validation import explain_validity
@@ -279,10 +298,34 @@ if gdf is None:
 if "name" not in gdf.columns:
     gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
-gdf["valid"] = gdf.geometry.is_valid
-gdf["reason"] = gdf.geometry.apply(lambda g: "" if g.is_valid else explain_validity(g))
+# explain_validity() sometimes appends the failure coordinates in
+# brackets (e.g. "Self-intersection[12.5 41.9]") — split that into its
+# own "position" column instead of leaving it inside "reason".
+POSITION_RE = re.compile(r"^(.*?)\[([-\d.]+)\s+([-\d.]+)\]$")
 
-gdf[["name", "valid", "reason", "geometry"]].__geo_interface__
+def diagnose(geom):
+    if geom.is_valid:
+        return True, "", ""
+    message = explain_validity(geom)
+    m = POSITION_RE.match(message)
+    if m:
+        return False, m.group(1).strip(), f"{m.group(2)} {m.group(3)}"
+    return False, message, ""
+
+diagnosis = gdf.geometry.apply(diagnose)
+gdf["valid"] = diagnosis.apply(lambda t: t[0])
+gdf["reason"] = diagnosis.apply(lambda t: t[1])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
+
+# Keep every original column from the uploaded file, not just "name"
+# — a None in one of them would otherwise silently vanish crossing
+# the Pyodide->JS bridge as a live cell value (verified empirically
+# earlier for "reason" itself — see roadmap-acquisizione.md).
+for col in gdf.columns:
+    if col != "geometry":
+        gdf[col] = gdf[col].fillna("")
+
+gdf.__geo_interface__
 ```
 
 ## R
@@ -609,7 +652,13 @@ gdf["valid_before"] = gdf["valid"]
 gdf["geometry"] = gdf.geometry.apply(lambda g: make_valid(g) if not g.is_valid else g)
 gdf["valid_after"] = gdf.geometry.is_valid
 
-gdf[["name", "valid_before", "valid_after", "geometry"]].__geo_interface__
+# Same reasoning as the diagnose cell above: keep every original
+# column, fillna("") so a None doesn't silently drop that property.
+for col in gdf.columns:
+    if col != "geometry":
+        gdf[col] = gdf[col].fillna("")
+
+gdf.__geo_interface__
 ```
 
 ## R

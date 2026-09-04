@@ -26387,7 +26387,6 @@ background-color: #f3ede1;
 .webgeods-table {
 width: 100%;
 border-collapse: collapse;
-margin-top: 12px;
 font-size: 13px;
 }
 .webgeods-table th,
@@ -26395,15 +26394,29 @@ font-size: 13px;
 border: 1px solid #5a4f3e;
 padding: 6px 10px;
 text-align: left;
+white-space: nowrap;
 }
 .webgeods-table th {
 background-color: #eee5d2;
 color: #2a2117;
 font-family: 'IBM Plex Mono', monospace;
 font-weight: bold;
+
+position: sticky;
+top: 0;
 }
 .webgeods-table tbody tr:hover {
 background-color: rgba(90, 79, 62, 0.08);
+}
+
+.webgeods-table tbody tr:nth-child(even):not(.webgeods-row-invalid):not(.webgeods-row-fixed) {
+background-color: rgba(90, 79, 62, 0.04);
+}
+.webgeods-table-scroll {
+max-height: 340px;
+overflow: auto;
+margin-top: 12px;
+border: 1px solid #5a4f3e;
 }
 .webgeods-table-empty {
 margin-top: 12px;
@@ -26429,6 +26442,57 @@ box-shadow: inset 4px 0 0 #3d5a73;
 }
 .webgeods-btn-loading {
 animation: webgeods-btn-pulse 1.4s ease-in-out infinite;
+}
+
+.webgeods-panel {
+border: 1px solid #5a4f3e;
+background-color: #eee5d2;
+padding: 16px 20px;
+margin: 20px 0;
+}
+.webgeods-panel-row {
+display: flex;
+flex-wrap: wrap;
+align-items: center;
+gap: 10px;
+}
+.webgeods-panel-row + .webgeods-panel-row {
+margin-top: 12px;
+}
+.webgeods-panel-status {
+font-family: 'IBM Plex Mono', monospace;
+font-size: 13px;
+color: #2a2117;
+margin-left: auto;
+}
+
+.webgeods-panel-btn {
+background: #42583c;
+color: #f3ede1;
+border: none;
+border-radius: 0;
+padding: 7px 16px;
+font-family: 'IBM Plex Mono', monospace;
+font-weight: 600;
+font-size: 12px;
+letter-spacing: 0.02em;
+text-transform: uppercase;
+cursor: pointer;
+}
+.webgeods-panel-btn:hover:not(:disabled) {
+background: #526b4a;
+}
+.webgeods-panel-btn:disabled {
+background: #b9ae95;
+cursor: not-allowed;
+}
+.webgeods-panel-btn[data-variant="outline"] {
+background: transparent;
+color: #5a4f3e;
+border: 1px solid #5a4f3e;
+}
+.webgeods-panel-btn[data-variant="outline"]:hover:not(:disabled) {
+background: rgba(90, 79, 62, 0.1);
 }
 </style>
 <style type="text/css">
@@ -32149,6 +32213,12 @@ window._ojs.runtime.interpretFromScriptTags();
     // to color that row, or a falsy value for none. The class itself
     // isn't defined here; the caller's stylesheet must provide it
     // (e.g. shared/styles.css's .webgeods-row-invalid/-fixed).
+    //
+    // options.iconColumns — optional, forwarded straight through to
+    // WebGeoDS.Table.render() (see shared/table.js): a "true"/"false"
+    // value in one of these columns renders as 🟢/🔴 instead of text.
+    // Independent of rowClassName — a page can use either, both, or
+    // neither.
     //
     // Requires shared/table.js on the page — always true for blog/
     // (loaded on every page via _quarto.yml's include-after-body) but

@@ -14,10 +14,21 @@
  *     columns,       // string[]
  *     data,          // object[] — one plain {column: value} object per row
  *     rowClassName,  // (row) => string — optional, applied to <tr>.className
+ *     iconColumns,   // string[] — optional, these columns render 🟢/🔴
+ *                    // instead of the raw "true"/"false" text — purely
+ *                    // a display transform, rowClassName above still
+ *                    // sees the untransformed row values
  *     selectedKey,   // string|null — optional, marks the matching row selected
  *     onRowClick,    // (row) => void — optional
  *     emptyMessage   // string — shown instead of a table when data is empty
  *   })
+ *
+ * A leading "#" row-number column is always added (not part of the
+ * `columns`/`data` contract — purely a display convenience) and the
+ * container always becomes a scrollable box (both axes — a table
+ * carrying every original property of an uploaded file can get wide,
+ * not just tall) with a sticky header, via the `webgeods-table-scroll`
+ * class (see shared/styles.css).
  *
  * `containerOrId` accepts either an existing element's id (string —
  * looked up via getElementById, throws if missing) or an actual
@@ -61,6 +72,7 @@
       columns = [],
       data = [],
       rowClassName,
+      iconColumns = [],
       selectedKey = null,
       onRowClick,
       emptyMessage = "No results"
@@ -79,6 +91,10 @@
       );
 
     }
+
+    container.classList.add(
+      "webgeods-table-scroll"
+    );
 
     container.replaceChildren();
 
@@ -112,6 +128,14 @@
     const headRow =
       document.createElement("tr");
 
+    const numberTh =
+      document.createElement("th");
+
+    numberTh.textContent =
+      "#";
+
+    headRow.appendChild(numberTh);
+
     for (const col of columns) {
 
       const th =
@@ -132,7 +156,7 @@
     const tbody =
       document.createElement("tbody");
 
-    for (const row of data) {
+    data.forEach((row, index) => {
 
       const tr =
         document.createElement("tr");
@@ -165,6 +189,14 @@
 
       }
 
+      const numberTd =
+        document.createElement("td");
+
+      numberTd.textContent =
+        String(index + 1);
+
+      tr.appendChild(numberTd);
+
       for (const col of columns) {
 
         const td =
@@ -173,10 +205,15 @@
         const value =
           row[col];
 
-        td.textContent =
+        const displayValue =
           value === undefined || value === null ?
             "" :
             String(value);
+
+        td.textContent =
+          iconColumns.includes(col) && (displayValue === "true" || displayValue === "false") ?
+            (displayValue === "true" ? "🟢" : "🔴") :
+            displayValue;
 
         tr.appendChild(td);
 
@@ -184,7 +221,7 @@
 
       tbody.appendChild(tr);
 
-    }
+    });
 
     table.appendChild(tbody);
 

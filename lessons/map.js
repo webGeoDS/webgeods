@@ -1046,6 +1046,12 @@
     // isn't defined here; the caller's stylesheet must provide it
     // (e.g. shared/styles.css's .webgeods-row-invalid/-fixed).
     //
+    // options.iconColumns — optional, forwarded straight through to
+    // WebGeoDS.Table.render() (see shared/table.js): a "true"/"false"
+    // value in one of these columns renders as 🟢/🔴 instead of text.
+    // Independent of rowClassName — a page can use either, both, or
+    // neither.
+    //
     // Requires shared/table.js on the page — always true for blog/
     // (loaded on every page via _quarto.yml's include-after-body) but
     // NOT for lessons/ (no table.js entry there) even though both sync
