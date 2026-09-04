@@ -199,7 +199,13 @@ POSITION_RE = re.compile(r"^(.*?)\[([-\d.]+)\s+([-\d.]+)\]$")
 
 def diagnose(geom):
     if geom.is_valid:
-        return True, "", ""
+        # A valid geometry has no error position, but a locator is
+        # still useful — representative_point() (unlike centroid,
+        # guaranteed to fall ON the geometry, not just near it) gives
+        # every row a place to be found on the map, not just the
+        # invalid ones.
+        p = geom.representative_point()
+        return True, "", f"{round(p.x, 6)} {round(p.y, 6)}"
     message = explain_validity(geom)
     m = POSITION_RE.match(message)
     if m:
@@ -248,13 +254,17 @@ gdf.__geo_interface__ if gdf is not None else {"type": "FeatureCollection", "fea
 // The color is decided by JS, not Python — see geometry-validity.qmd
 // for the full explanation of this pattern. Repair updates "valid" in
 // place (same column, not a separate valid_after) so this only ever
-// needs to check the one key, before or after Fix.
+// needs to check the one key, before or after Fix — but "valid" is
+// now three-valued (true / false / the string "fixed", see
+// geometry-repair-py), so the case checks for the one color that
+// ISN'T green instead of the one that is: true and "fixed" both mean
+// "green" here, only false means "red".
 VALIDITY_PAINT = ({
   "fill-color": [
     "case",
-    ["==", ["get", "valid"], true],
-    "#2ea44f",
-    "#e05252"
+    ["==", ["get", "valid"], false],
+    "#e05252",
+    "#2ea44f"
   ],
   "fill-opacity": 0.55
 })
@@ -305,20 +315,29 @@ file.
 ```{.webgeods-python #geometry-repair-py}
 from shapely.validation import make_valid
 
-# Same "valid"/"reason"/"position" columns as diagnose, refreshed in
-# place instead of a separate valid_before/valid_after pair — after
-# Fix the table reads exactly like a fresh diagnose of the (now
-# repaired) data. "fixed" answers the one thing that alone can't:
-# was this specific row actually touched, or was it already valid?
+# "reason"/"position" are deliberately left as they were at diagnose
+# time, not recomputed here: they explain what WAS wrong (and where),
+# which stays true and useful even after the geometry is fixed — a
+# fresh diagnose() on the repaired geometry would just blank them out
+# for every row that got fixed, erasing the one thing this table is
+# for. Only "valid" reflects the CURRENT state, and it's three-valued
+# instead of a separate "fixed" column: True (was already valid,
+# untouched), False (still invalid — make_valid() failing to produce
+# a valid result would be a bug in Shapely itself, not expected, but
+# handled rather than assumed away), or the string "fixed" (was
+# invalid, make_valid() repaired it) — WebGeoDS.Table's iconColumns
+# (shared/table.js) renders that third state as a green "✓ fixed",
+# visibly distinct from an always-valid row's plain "✓". VALIDITY_PAINT
+# above treats "fixed" the same as true (green) on the map.
 was_valid = gdf["valid"].copy()
 
 gdf["geometry"] = gdf.geometry.apply(lambda g: make_valid(g) if not g.is_valid else g)
 
-diagnosis = gdf.geometry.apply(diagnose)  # reuses geometry-diagnose-py's function, same session
-gdf["valid"] = diagnosis.apply(lambda t: t[0])
-gdf["reason"] = diagnosis.apply(lambda t: t[1])
-gdf["position"] = diagnosis.apply(lambda t: t[2])
-gdf["fixed"] = (~was_valid) & gdf["valid"]
+now_valid = gdf.geometry.apply(lambda g: g.is_valid)
+gdf["valid"] = [
+    "fixed" if (not wv) and nv else nv
+    for wv, nv in zip(was_valid, now_valid)
+]
 
 # Same reasoning as geometry-diagnose-py: keep every original column,
 # fillna("") so a None in one doesn't silently drop that property

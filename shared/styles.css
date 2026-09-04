@@ -140,6 +140,13 @@
   margin-top: 20px;
   background-color: var(--surface);
 }
+/* A map directly under a .webgeods-panel (every tool page: panel of
+   controls, then the map they act on) sits flush against it instead
+   of floating a second 20px gap below the panel's own margin — the
+   two read as one connected instrument, panel on top, map below. */
+.webgeods-panel + .webgeods-map-container {
+  margin-top: 0;
+}
 
 /* WebGeoDS.Table (shared/table.js) — plain hand-built table, no
    library. Same "Field Atlas" palette/sharp-corner language as the
@@ -210,6 +217,13 @@
 .webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); } /* --dataviz-invalid at 15% */
 .webgeods-row-fixed   { background-color: rgba(46, 164, 79, 0.15); } /* --dataviz-valid at 15% */
 
+/* WebGeoDS.Table's iconColumns (shared/table.js) — ✓/✗/✓ fixed text,
+   colored with the same dataviz tones as the row classes above (and
+   the map's own VALIDITY_PAINT fill), so a green ✓ in the table and a
+   green polygon on the map read as the same "valid" signal. */
+.webgeods-icon-valid   { color: var(--dataviz-valid); font-weight: bold; }
+.webgeods-icon-invalid { color: var(--dataviz-invalid); font-weight: bold; }
+
 /* Selected row (WebGeoDS.Map.tableCell()'s row-select ↔ map zoomTo/
    highlight linking) — a left accent, not a background tint, so it
    stays visible whether or not webgeods-row-invalid/-fixed already
@@ -248,8 +262,8 @@
 .webgeods-panel {
   border: 1px solid var(--border);
   background-color: var(--surface-muted);
-  padding: 16px 20px;
-  margin: 20px 0;
+  padding: 10px 20px;
+  margin: 20px 0 0 0;
 }
 .webgeods-panel-row {
   display: flex;
@@ -258,7 +272,7 @@
   gap: 10px;
 }
 .webgeods-panel-row + .webgeods-panel-row {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 /* A readout, not body text — smaller and more clearly "instrument
    panel" than the buttons next to it (eyebrow-label treatment, same
@@ -281,14 +295,22 @@
    [data-variant="outline"] de-emphasizes secondary actions
    (Download/Reset) relative to the primary Validate/Fix ones. */
 .webgeods-panel-btn {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
   background: var(--action);
   color: var(--surface);
-  border: none;
+  border: 1px solid transparent; /* reserves the same 2px the outline
+    variant's real border takes, so solid and outline buttons (and the
+    upload <label>, which shares this class) come out the same height */
   border-radius: 0;
   padding: 7px 16px;
   font-family: 'IBM Plex Mono', monospace;
   font-weight: 600;
   font-size: 12px;
+  line-height: normal; /* a <label> (the upload control) inherits the
+    page's prose line-height by default, taller than a <button>'s own
+    UA default — pinned explicitly so both compute the same box height */
   letter-spacing: 0.02em;
   text-transform: uppercase;
   cursor: pointer;
@@ -331,9 +353,15 @@
    up against the table/style block above it with only a bare <hr>;
    more breathing room and a touch more visual weight so it reads as
    an intentional next step, not an afterthought. */
+/* A full bordered box (not just a top rule) — reads as a distinct
+   disclaimer/next-step callout, same "bordered surface" language as
+   .webgeods-panel above, instead of a paragraph that happens to sit
+   near the table and the newsletter form on either side of it.
+   Margin on both sides keeps it clear of both neighbors. */
 .webgeods-closing-note {
-  margin-top: 40px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border-hairline);
+  margin: 40px 0 32px 0;
+  padding: 16px 20px;
+  border: 1px solid var(--border-hairline);
+  background-color: var(--surface-muted);
   font-size: 15px;
 }

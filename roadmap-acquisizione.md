@@ -1686,3 +1686,57 @@ contesa di risorse — non una regressione, risolto rieseguendo da
 solo). 50/51 smoke-test lessons (unico fallimento, `§16 R — sf`, in
 una sezione che non tocca affatto l'upload — timeout isolato,
 preesistente).
+
+**Rifinitura UI di `geojson-shapefile-validator.qmd`, su feedback
+diretto dopo revisione dal vivo (2026-09-04)**:
+
+- **Allineamento pulsante Upload**: la `<label>` (upload) e i
+  `<button>` veri calcolavano un'altezza leggermente diversa — una
+  `<label>` eredita il `line-height` della prosa della pagina, un
+  `<button>` ha un default UA più stretto, e la variante outline
+  (bordo 1px) era più alta della variante piena (Fix, senza bordo).
+  Corretto fissando `line-height: normal` e dando a ogni
+  `.webgeods-panel-btn` un bordo `1px solid transparent` di base (la
+  variante piena riserva così lo stesso spazio della outline, cambia
+  solo il colore) — verificato via screenshot, i 5 controlli ora
+  hanno tutti la stessa altezza.
+- **Pannello meno alto, attaccato alla mappa**: padding/gap ridotti;
+  nuova regola condivisa `.webgeods-panel + .webgeods-map-container {
+  margin-top: 0; }` — beneficia anche `topology-checker.qmd`, stessa
+  adiacenza pannello→mappa.
+- **Icone tabella**: 🟢/🔴 sostituiti con ✓/✗ colorati (nuove classi
+  `.webgeods-icon-valid`/`-invalid` in `shared/styles.css`, stessi
+  toni dataviz della colorazione mappa). `shared/table.js`'s
+  `iconColumns` generalizzato a mappa testo+classe invece del solo
+  emoji binario.
+- **Posizione su tutte le geometrie**: `diagnose()` ora calcola
+  `representative_point()` anche per le geometrie valide invece di
+  lasciare `position` vuota — ogni riga è localizzabile sulla mappa,
+  non solo quelle invalide.
+- **Tabella dopo Fix ridisegnata su proposta dell'utente**: `reason`/
+  `position` NON vengono più ricalcolati dopo il repair (restano la
+  spiegazione originale di cosa non andava — ricalcolarli li
+  azzererebbe proprio per le righe corrette, l'informazione più
+  utile). Solo `valid` cambia, e diventa a tre stati: `True` (era già
+  valida), `False` (ancora invalida — non atteso con `make_valid()`,
+  gestito comunque), o la stringa `"fixed"` (era invalida, ora
+  corretta) — `iconColumns` la rende "✓ fixed" in verde, distinta da
+  un "✓" normale. Nessuna colonna `fixed` separata. Bug collaterale
+  trovato e corretto nello stesso passaggio: `VALIDITY_PAINT` (mappa)
+  controllava `valid === true`, quindi una riga "fixed" (stringa, non
+  booleano) sarebbe stata dipinta di rosso sulla mappa nonostante
+  fosse ormai valida — invertita la logica del `case` a "solo `false`
+  è rosso, tutto il resto è verde".
+- **Nota di chiusura**: da paragrafo con solo bordo superiore a un box
+  bordato completo (stesso linguaggio visivo di `.webgeods-panel`),
+  con margine sopra E sotto — risponde a un dubbio esplicito
+  dell'utente ("disclaimer a parte?"): sì, si legge più intenzionale
+  di un paragrafo incastrato tra tabella e form newsletter, riusando
+  un pattern già presente nel sito invece di inventarne uno nuovo.
+
+Verificato: flusso upload→diagnose→Fix completo su un file a singola
+feature invalida e su uno misto valida+invalida (posizione riempita
+per la riga valida, "✓ fixed" solo sulla riga effettivamente corretta,
+reason/position invariati dopo Fix); 16/16 map-tests; 51/51 smoke-test
+lessons (rieseguito pulito, confermando che il fallimento precedente
+era la flakiness isolata già nota, non una regressione).

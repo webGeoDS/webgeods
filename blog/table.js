@@ -14,10 +14,15 @@
  *     columns,       // string[]
  *     data,          // object[] — one plain {column: value} object per row
  *     rowClassName,  // (row) => string — optional, applied to <tr>.className
- *     iconColumns,   // string[] — optional, these columns render 🟢/🔴
- *                    // instead of the raw "true"/"false" text — purely
- *                    // a display transform, rowClassName above still
- *                    // sees the untransformed row values
+ *     iconColumns,   // string[] — optional, these columns render as an icon
+ *                    // instead of the raw text, for three recognized values:
+ *                    // "true" -> ✓, "false" -> ✗, "fixed" -> ✓ fixed (a
+ *                    // repaired row, still reads as "valid" but visibly
+ *                    // distinct from a row that was always valid) — any
+ *                    // other value passes through unchanged. Purely a
+ *                    // display transform (colored via CSS classes, see
+ *                    // shared/styles.css), rowClassName above still sees
+ *                    // the untransformed row values
  *     selectedKey,   // string|null — optional, marks the matching row selected
  *     onRowClick,    // (row) => void — optional
  *     emptyMessage   // string — shown instead of a table when data is empty
@@ -60,6 +65,23 @@
 
   window.WebGeoDS =
     window.WebGeoDS || {};
+
+
+  // ============================================================
+  // iconColumns display mapping — see the doc comment above.
+  // ============================================================
+
+  const ICON_TEXT = {
+    true: "✓",
+    false: "✗",
+    fixed: "✓ fixed"
+  };
+
+  const ICON_CLASS = {
+    true: "webgeods-icon-valid",
+    false: "webgeods-icon-invalid",
+    fixed: "webgeods-icon-valid"
+  };
 
 
   // ============================================================
@@ -210,10 +232,22 @@
             "" :
             String(value);
 
+        const isIcon =
+          iconColumns.includes(col) &&
+          Object.prototype.hasOwnProperty.call(ICON_TEXT, displayValue);
+
         td.textContent =
-          iconColumns.includes(col) && (displayValue === "true" || displayValue === "false") ?
-            (displayValue === "true" ? "🟢" : "🔴") :
+          isIcon ?
+            ICON_TEXT[displayValue] :
             displayValue;
+
+        if (isIcon) {
+
+          td.classList.add(
+            ICON_CLASS[displayValue]
+          );
+
+        }
 
         tr.appendChild(td);
 

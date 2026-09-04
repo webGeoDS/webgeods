@@ -26414,6 +26414,10 @@ margin-top: 20px;
 background-color: var(--surface);
 }
 
+.webgeods-panel + .webgeods-map-container {
+margin-top: 0;
+}
+
 .webgeods-table {
 width: 100%;
 border-collapse: collapse;
@@ -26460,6 +26464,9 @@ font-style: italic;
 .webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); } 
 .webgeods-row-fixed { background-color: rgba(46, 164, 79, 0.15); } 
 
+.webgeods-icon-valid { color: var(--dataviz-valid); font-weight: bold; }
+.webgeods-icon-invalid { color: var(--dataviz-invalid); font-weight: bold; }
+
 .webgeods-row-clickable {
 cursor: pointer;
 }
@@ -26478,8 +26485,8 @@ animation: webgeods-btn-pulse 1.4s ease-in-out infinite;
 .webgeods-panel {
 border: 1px solid var(--border);
 background-color: var(--surface-muted);
-padding: 16px 20px;
-margin: 20px 0;
+padding: 10px 20px;
+margin: 20px 0 0 0;
 }
 .webgeods-panel-row {
 display: flex;
@@ -26488,7 +26495,7 @@ align-items: center;
 gap: 10px;
 }
 .webgeods-panel-row + .webgeods-panel-row {
-margin-top: 12px;
+margin-top: 8px;
 }
 
 .webgeods-panel-status {
@@ -26502,14 +26509,18 @@ margin-left: auto;
 }
 
 .webgeods-panel-btn {
+display: inline-flex;
+align-items: center;
+box-sizing: border-box;
 background: var(--action);
 color: var(--surface);
-border: none;
+border: 1px solid transparent; 
 border-radius: 0;
 padding: 7px 16px;
 font-family: 'IBM Plex Mono', monospace;
 font-weight: 600;
 font-size: 12px;
+line-height: normal; 
 letter-spacing: 0.02em;
 text-transform: uppercase;
 cursor: pointer;
@@ -26539,10 +26550,12 @@ opacity: 0;
 pointer-events: none;
 }
 
+
 .webgeods-closing-note {
-margin-top: 40px;
-padding-top: 24px;
-border-top: 1px solid var(--border-hairline);
+margin: 40px 0 32px 0;
+padding: 16px 20px;
+border: 1px solid var(--border-hairline);
+background-color: var(--surface-muted);
 font-size: 15px;
 }
 </style>
