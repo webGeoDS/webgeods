@@ -1474,3 +1474,47 @@ quale leva conta, non produrre un numero da centrare.
   stessa non ha potuto eseguire i tool con un browser reale, e zero
   iscritti/traffico reali non giustificano di derogare al gate già
   stabilito (Fase 4/5 attendono dati, non un giudizio di qualità).
+- **2026-09-04**: terza revisione esterna del sito pubblicato (dopo il
+  lavoro di questa sessione su validator/topology-checker/tabelle),
+  in due parti — valutazione prodotto/contenuto (8.7/10 complessivo,
+  stessa lettura di sempre: SEO 5.5, conversione 5/10, il resto della
+  tecnologia già solido) e una proposta separata di visual identity
+  (palette, tipografia, logo, "spatial grid" motif). Concordato con
+  l'utente di trattarle come DUE lavori distinti — l'homepage/IA
+  prima, l'identità visiva dopo, non nello stesso passaggio (la
+  proposta la raggruppava tutta sotto "P0", ma cambiare nav/copy è un
+  ordine di grandezza più economico di un sistema di colori/font/logo).
+  Confermato che il concetto "signature visual per articolo" non è da
+  costruire da zero: `geometry-validity.qmd` ha già un piccolo SVG per
+  ogni esempio della gallery degli errori (bowtie, hole-outside,
+  hourglass, overlapping-holes) — l'opportunità reale è riusarli a un
+  livello più alto (card/homepage), non inventarli.
+
+  **Homepage riformattata** (`blog/index.qmd`): prima era solo
+  `title: "webgeods — Blog"` + una `listing:` nuda — confermato
+  esattamente il problema descritto nella review (nessun framing,
+  legge come un blog qualunque). Riscritta riusando il linguaggio già
+  stabilito e validato altrove nel sito (`about.qmd` ha già la
+  distinzione "Read"/"Use"; `tools/index.qmd` ha già "Inspect →
+  Validate → Check Topology → CRS") invece di inventare una terza
+  tassonomia come proponeva la review ("Learn/Explore/Explore/Use") —
+  coerenza tra le pagine vale più di seguire la review alla lettera.
+  Struttura: titolo + `description:` (che Quarto mostra già come
+  sottotitolo sotto l'H1 sulle pagine `listing:` — **trovato un vero
+  bug mentre si verificava dal vivo**: un primo tentativo duplicava la
+  stessa frase come paragrafo scritto a mano SOTTO la description
+  auto-renderizzata, corretto rimuovendo il paragrafo doppione) → CTA
+  "Explore the tools" / "Read the articles" (con anchor `#latest-
+  articles`) → paragrafo Read/Use → sezione "Spatial Data Quality"
+  (stesso testo di `tools/index.qmd`, link a `/tools/`) → "Latest
+  articles" con la listing esistente sotto. Nessuna modifica a CSS/
+  navbar/colori — deliberatamente solo IA e copy, per lo stesso motivo
+  della decisione sopra. Verificato: RSS (`index.xml`) e meta tag
+  riflettono correttamente la nuova `description:`, nessun titolo
+  duplicato nel tab del browser, link e anchor funzionanti.
+
+  **Non ancora fatto, prossimi passi naturali ma non decisi**: voce
+  "Blog"/nav rinominata, pagina `/tools/` come vera landing page
+  separata (oggi è già una mini-landing con `listing:`, potrebbe
+  bastare così), l'intero sistema di visual identity (rimandato per
+  scelta esplicita, vedi sopra).

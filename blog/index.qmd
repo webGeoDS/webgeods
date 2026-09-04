@@ -1,5 +1,6 @@
 ---
-title: "webgeods — Blog"
+title: "webgeods"
+description: "Spatial Data Science, directly in your browser — interactive articles and free tools for Python and R, with no local setup and nothing ever uploaded."
 listing:
   contents: posts
   sort: "date desc"
@@ -7,3 +8,24 @@ listing:
   categories: true
   feed: true
 ---
+
+[Explore the tools →](/tools/index.html)
+
+[Read the articles →](#latest-articles)
+
+**Read** — interactive articles that explain a spatial problem
+properly, with runnable Python and R examples built in, not just
+diagrams.
+
+**Use** — free standalone tools for the same checks, when you just
+need an answer, not the full explanation.
+
+## Spatial Data Quality
+
+**Inspect → Validate → Check Topology → CRS** — a small, focused
+toolkit for checking geospatial data before you trust it. Free, no
+account, nothing leaves your browser.
+
+[See all tools →](/tools/index.html)
+
+## Latest articles {#latest-articles}
