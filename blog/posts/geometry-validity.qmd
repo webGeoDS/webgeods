@@ -162,7 +162,7 @@ validationStats = Generators.observe((change) => {
 
 ```{ojs}
 //| echo: false
-resetTopology = async () => {
+resetValidity = async () => {
   for (const id of ["geometry-py", "geometry-r"]) {
     if (sharedMap.getGeoJSON(id)) {
       await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
@@ -176,7 +176,7 @@ resetTopology = async () => {
 resetMapButton = {
   const button = document.createElement("button");
   button.textContent = "🔄 Reset map and table";
-  button.onclick = () => resetTopology();
+  button.onclick = () => resetValidity();
   return button;
 }
 ```
