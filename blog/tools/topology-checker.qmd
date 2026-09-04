@@ -48,6 +48,20 @@ mutable uploadedFiles = null
 
 ```{ojs}
 //| echo: false
+// Which results the table (and the gaps map layer) currently shows —
+// "features" (the uploaded data, one row per original feature) or
+// "gaps" (the synthetic gap polygons check_gap() finds between
+// nearby features, one row each). Two truly separate map sources
+// (topology-py / topology-gaps-py, see pyErrors below) instead of one
+// merged collection: a gap has no corresponding row in the uploaded
+// file, so merging it in made the feature COUNT lie (54 "features"
+// for a 10-feature file) and made it impossible for the map to show
+// just the real data.
+mutable topologyView = "features"
+```
+
+```{ojs}
+//| echo: false
 //| output: false
 // The upload control itself — a native <input type="file"> wrapped
 // in a <label> styled as a .webgeods-panel-btn. output:false + only
@@ -338,8 +352,19 @@ def detect_and_check(gdf, sliver_threshold=0.15, gap_proximity=0.06):
             },
             "geometry": mapping(gdf.geometry.iloc[i])
         })
-    features.extend(extra_features)
-    return {"type": "FeatureCollection", "features": features}
+    # Kept as two separate collections instead of one concatenated
+    # list (an earlier version merged them): a gap is synthetic — it
+    # has no corresponding row in the uploaded file — and merging it
+    # in inflated the feature count on a dense test file to 54 rows
+    # for 10 real features (44 pairwise "gap" candidates), with no way
+    # for the map to show just the original data or for the count to
+    # distinguish "real feature" from "synthetic gap". JS puts each
+    # collection on its own map source (topology-py / topology-gaps-py)
+    # instead.
+    return {
+        "features": {"type": "FeatureCollection", "features": features},
+        "gaps": {"type": "FeatureCollection", "features": extra_features}
+    }
 
 import geopandas as gpd
 
@@ -361,7 +386,8 @@ if gdf is not None:
 # the page now starts genuinely empty until the user either uploads a
 # file or clicks "Load example" below, so "no results yet" actually
 # means no results yet.
-detect_and_check(gdf, sliver_threshold=sliverThreshold, gap_proximity=gapProximity) if gdf is not None else {"type": "FeatureCollection", "features": []}
+EMPTY_FC = {"type": "FeatureCollection", "features": []}
+detect_and_check(gdf, sliver_threshold=sliverThreshold, gap_proximity=gapProximity) if gdf is not None else {"features": EMPTY_FC, "gaps": EMPTY_FC}
 ```
 
 ```{ojs}
@@ -481,21 +507,74 @@ errorPaint = (data) => {
 ```{ojs}
 //| echo: false
 //| output: false
+// Gaps are always polygons (check_gap() builds them from a
+// convex-hull difference) — no per-geometry-type branching needed,
+// unlike errorPaint above. --attenzione/warning amber, matching the
+// "severity": "warning" Python already tags every gap feature with
+// (as opposed to "error" for a real per-feature problem) — same
+// color language, not an arbitrary second color.
+gapPaint = ({
+  "fill-color": "#c48a2e",
+  "fill-opacity": 0.45
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
 pyErrors = WebGeoDS.getCellValue("topology-diagnose-py", Generators)
 {
   if (pyErrors) {
-    await sharedMap.setGeoJSON("topology-py", pyErrors, { paint: errorPaint(pyErrors) });
-    // Zooms to whatever was just checked — an upload or "Load
-    // example" — same as geojson-shapefile-validator.qmd's pyDiagnose
-    // effect. A no-op on an empty FeatureCollection.
-    await sharedMap.fitToData(pyErrors);
+    await sharedMap.setGeoJSON("topology-py", pyErrors.features, { paint: errorPaint(pyErrors.features) });
+    // Gaps live on their own source so the map can show just the
+    // real data (features) or both at once (features + gaps in
+    // amber) — visibility follows topologyView, the same tab state
+    // the table below uses, so switching tabs and re-running Check
+    // both keep the map and the table in sync with each other.
+    await sharedMap.setGeoJSON("topology-gaps-py", pyErrors.gaps, {
+      paint: gapPaint,
+      layout: { visibility: topologyView === "gaps" ? "visible" : "none" }
+    });
+    // Zooms to the real data's bounds regardless of which tab is
+    // active — same as geojson-shapefile-validator.qmd's pyDiagnose
+    // effect — so switching tabs never itself moves the map. A no-op
+    // on an empty FeatureCollection.
+    await sharedMap.fitToData(pyErrors.features);
   }
 }
 ```
 
 ```{ojs}
 //| echo: false
-topologyTable = sharedMap.tableCell(["topology-py"], null, Generators, {
+//| output: false
+// Keeps the gaps LAYER's visibility in sync with topologyView after
+// the layer already exists — the assignment inside pyErrors above
+// only sets it once, at creation/re-check time; this is what actually
+// reacts when the user merely clicks a tab without re-running Check.
+// Guarded on getLayer() existing: harmless no-op before the first
+// check has ever run.
+{
+  if (sharedMap.map.getLayer("topology-gaps-py")) {
+    sharedMap.map.setLayoutProperty(
+      "topology-gaps-py",
+      "visibility",
+      topologyView === "gaps" ? "visible" : "none"
+    );
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Two independent, stable tableCell()s (never re-created — only
+// their .style.display is toggled by tabbedResultsView below) instead
+// of one table whose sourceIds swaps reactively with topologyView:
+// each keeps its own tableCell()-internal "sourcedata" subscription
+// alive and correctly reacting to ITS OWN source's data changes the
+// entire time, with no risk of losing or double-registering a
+// listener across a tab switch.
+featuresTableCell = sharedMap.tableCell(["topology-py"], null, Generators, {
   rowClassName: (row) => row.has_error === "true" ? "webgeods-row-invalid" : "",
   emptyMessage: "No results yet"
 })
@@ -504,16 +583,68 @@ topologyTable = sharedMap.tableCell(["topology-py"], null, Generators, {
 ```{ojs}
 //| echo: false
 //| output: false
+// No rowClassName here: every row IS a gap (has_error is always true
+// for them), so coloring every row the same would add nothing.
+gapsTableCell = sharedMap.tableCell(["topology-gaps-py"], null, Generators, {
+  emptyMessage: "No gaps found"
+})
+```
+
+```{ojs}
+//| echo: false
+// Tab bar + both panes in one cell (output:false-free, physically
+// positioned here where the table should display — same "avoid the
+// scatter-on-load bug" reasoning as every button on this page, just
+// for a single auto-displayed cell instead of one moved via
+// controlPanelRow). Reactive on topologyView, but only ever
+// recreates this thin wrapper + tab buttons — featuresTableCell/
+// gapsTableCell above are NEVER re-created, only shown/hidden, so
+// their own reactivity (and any current row selection) survives a
+// tab switch untouched.
+tabbedResultsView = {
+  const tab = (key, label) => {
+    const button = document.createElement("button");
+    button.className = "webgeods-panel-btn";
+    if (topologyView !== key) button.dataset.variant = "outline";
+    button.textContent = label;
+    button.onclick = () => { mutable topologyView = key; };
+    return button;
+  };
+
+  const tabs = document.createElement("div");
+  tabs.className = "webgeods-panel-row";
+  tabs.append(tab("features", "Original geometries"), tab("gaps", "Gaps"));
+
+  featuresTableCell.style.display = topologyView === "features" ? "" : "none";
+  gapsTableCell.style.display = topologyView === "gaps" ? "" : "none";
+
+  const wrap = document.createElement("div");
+  wrap.append(tabs, featuresTableCell, gapsTableCell);
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// total/errors count ONLY the real uploaded features (topology-py) —
+// gaps are synthetic and get their own count instead of inflating
+// this one, see pyErrors's comment.
 topologyStats = Generators.observe((change) => {
   const compute = () => {
     const features = sharedMap.getGeoJSON("topology-py")?.features ?? [];
+    const gaps = sharedMap.getGeoJSON("topology-gaps-py")?.features ?? [];
     const total = features.length;
     const errors = features.filter((f) => f.properties?.has_error === true).length;
-    change({ total, errors });
+    change({ total, errors, gaps: gaps.length });
   };
   compute();
   const handler = (e) => {
-    if (e.dataType === "source" && e.sourceDataType === "content" && e.sourceId === "topology-py") {
+    if (
+      e.dataType === "source" &&
+      e.sourceDataType === "content" &&
+      (e.sourceId === "topology-py" || e.sourceId === "topology-gaps-py")
+    ) {
       compute();
     }
   };
@@ -525,8 +656,12 @@ topologyStats = Generators.observe((change) => {
 ```{ojs}
 //| echo: false
 resetChecker = async () => {
+  const empty = { type: "FeatureCollection", features: [] };
   if (sharedMap.getGeoJSON("topology-py")) {
-    await sharedMap.setGeoJSON("topology-py", { type: "FeatureCollection", features: [] });
+    await sharedMap.setGeoJSON("topology-py", empty);
+  }
+  if (sharedMap.getGeoJSON("topology-gaps-py")) {
+    await sharedMap.setGeoJSON("topology-gaps-py", empty);
   }
 }
 ```
@@ -548,11 +683,13 @@ resetMapButton = {
 //| echo: false
 // Not promoted to shared/ (still only one other tool using it, the
 // Validator, with a slightly different call site): a Blob + a
-// temporary <a download> is enough, no library needed.
-downloadGeoJSON = (sourceId, filename) => {
-  const data = sharedMap.getGeoJSON(sourceId);
+// temporary <a download> is enough, no library needed. Takes the
+// GeoJSON data directly (not a sourceId, unlike the earlier version)
+// since the report now merges two separate sources — see
+// downloadButton below.
+downloadGeoJSON = (data, filename) => {
   if (!data) return;
-  window.WebGeoDS.track?.("download_clicked", { tool: "topology-checker", sourceId });
+  window.WebGeoDS.track?.("download_clicked", { tool: "topology-checker" });
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/geo+json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -573,7 +710,17 @@ downloadButton = {
   button.textContent = "⬇ Download";
   button.onclick = () => {
     const base = WebGeoDS.Upload.baseName(uploadedFiles);
-    downloadGeoJSON("topology-py", base ? `${base}-topology-report.geojson` : "topology-report.geojson");
+    // The report merges both sources back into one file — a
+    // downloaded report isn't shown on a map or counted in a stats
+    // line, so the "gaps inflate the feature count" problem this
+    // whole redesign is about doesn't apply to it; a topology report
+    // that dropped the gaps it found would just be a worse report.
+    const features = sharedMap.getGeoJSON("topology-py")?.features ?? [];
+    const gaps = sharedMap.getGeoJSON("topology-gaps-py")?.features ?? [];
+    downloadGeoJSON(
+      { type: "FeatureCollection", features: [...features, ...gaps] },
+      base ? `${base}-topology-report.geojson` : "topology-report.geojson"
+    );
   };
   return button;
 }
@@ -601,7 +748,12 @@ controlPanelRow = {
   row.append(uploadControl, loadExampleButton, checkButton, downloadButton, resetMapButton);
   const status = document.createElement("span");
   status.className = "webgeods-panel-status";
-  status.textContent = `${topologyStats.total} feature, ${topologyStats.errors} with an error`;
+  // "with an error" counts real features only (never gaps — see
+  // topologyStats' own comment); "total gaps" is the separate count
+  // of synthetic gap features found between them, so the two numbers
+  // together can't be misread as "N of these M things are broken"
+  // when M actually mixes two different kinds of thing.
+  status.textContent = `${topologyStats.total} feature, ${topologyStats.errors} with an error, ${topologyStats.gaps} total gaps`;
   row.appendChild(status);
   return row;
 }

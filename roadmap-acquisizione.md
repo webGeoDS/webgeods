@@ -1851,3 +1851,51 @@ ricontrollo → download → reset, nessun errore console (dopo aver
 corretto un test troppo impaziente che aveva inizialmente suggerito un
 problema reale — stesso schema "falso allarme" già documentato sopra),
 16/16 map-tests, 51/51 smoke-test lessons.
+
+**Bug reale trovato dall'utente: `topology-checker.qmd` contava 54
+feature invece di 10 (2026-09-04)**. Causa: `check_gap()` controlla
+OGNI coppia di feature (45 coppie possibili su 10 feature) e aggiunge
+una feature sintetica "gap" per ogni coppia entro la soglia di
+prossimità che non si sovrappone/tocca — nessun concetto di "queste
+due forme dovrebbero essere adiacenti" vs. "sono solo due forme vicine
+per caso". Il file usato dall'utente (l'output del Validator sulla
+galleria di esempi — bowtie, hourglass, pentagram, ecc., impacchettati
+vicini per illustrazione) faceva scattare 44 delle 45 coppie possibili.
+Non un regresso di questa sessione — `check_gap()`/`detect_and_check()`
+non erano mai stati toccati, solo mai esposti a un file reale con
+così tante forme piccole vicine.
+
+**Prima risposta (poi corretta dall'utente stesso)**: proposto di
+lasciare com'è (limite noto dell'algoritmo, non bug). L'utente ha
+rialzato il problema reale: il conteggio delle feature del file non
+può MAI essere diverso da 10, e la mappa non può mostrare tutto come
+un unico layer. Ridisegnato su sua specifica:
+
+- **`topology-diagnose-py`** ora ritorna `{"features": {...},
+  "gaps": {...}}` — due `FeatureCollection` separate invece di una
+  sola concatenata.
+- **Due source mappa separati** (`topology-py` / `topology-gaps-py`),
+  colore diverso per i gap (ambra, `#c48a2e`, coerente con
+  `severity: "warning"` già presente in Python) — layer gap nascosto
+  di default (`layout.visibility: "none"`), mostrato solo quando la
+  tabella è sulla tab Gaps.
+- **Tab nella tabella**: "Original geometries" / "Gaps" — due
+  `tableCell()` STABILI (mai ricreate, solo `.style.display`
+  alternato) invece di una tabella con `sourceIds` cambiati
+  reattivamente — evita ogni dubbio su dispose/re-subscribe del
+  generator `sourcedata` interno di `tableCell()` a ogni cambio tab.
+  Zoom mappa (`fitToData`) resta ancorato ai dati reali a prescindere
+  dalla tab attiva, per non far saltare la vista cambiando tab.
+- **Statistiche**: `N feature, M with an error, K total gaps` —
+  feature/errori contano SOLO la sorgente reale, i gap hanno un
+  conteggio separato.
+- Reset svuota entrambe le source; Download unisce ancora entrambe in
+  un solo report (un report scaricato non ha il problema "il conteggio
+  mente" dell'interfaccia live — omettere i gap lo renderebbe solo un
+  report peggiore).
+
+Verificato sul file esatto che ha esposto il bug: 10 feature reali (4
+con errore) / 44 gap, separati correttamente su entrambe le tab e
+sulla mappa, download ancora 54 feature unite, reset e Load example
+(incluso il caso "0 gap trovati") corretti, nessun errore console,
+16/16 map-tests, 51/51 smoke-test lessons.
