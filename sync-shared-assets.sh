@@ -26,8 +26,6 @@ FILES=(
   maplibre-gl.css
   fonts.css
   codemirror-bundle.js
-  gridjs.umd.js
-  gridjs-mermaid.min.css
   htl.min.js
   observable-inputs.min.js
 )

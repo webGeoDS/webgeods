@@ -90,7 +90,7 @@ editable and explained line by line.
 ```{.webgeods-python #geometry-diagnose-py}
 #| package: geopandas, shapely
 import geopandas as gpd
-from shapely.geometry import shape, mapping
+from shapely.geometry import shape
 from shapely.validation import explain_validity
 
 gdf = None
@@ -109,15 +109,9 @@ if "name" not in gdf.columns:
     gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
 gdf["valid"] = gdf.geometry.is_valid
-gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+gdf["reason"] = gdf.geometry.apply(lambda g: "" if g.is_valid else explain_validity(g))
 
-{
-    "type": "FeatureCollection",
-    "features": [
-        {"type": "Feature", "properties": {"name": row["name"], "valid": bool(row["valid"]), "reason": row["reason"]}, "geometry": mapping(row.geometry)}
-        for _, row in gdf.iterrows()
-    ]
-}
+gdf[["name", "valid", "reason", "geometry"]].__geo_interface__
 ```
 
 ```{ojs}
@@ -190,10 +184,7 @@ validatorTable = sharedMap.tableCell(["geometry-py"], null, Generators, {
     if (row.valid === "false") return "webgeods-row-invalid";
     return "";
   },
-  // Grid.js's default ("No matching records found") reads like a
-  // search/filter came up empty — misleading before any check has
-  // ever run.
-  language: { noRecordsFound: "No results yet" }
+  emptyMessage: "No results yet"
 })
 ```
 
@@ -252,20 +243,13 @@ ${resetMapButton}
 exactly the same data just diagnosed, no new reading of the file.
 
 ```{.webgeods-python #geometry-repair-py}
-from shapely.geometry import mapping
 from shapely.validation import make_valid
 
 gdf["valid_before"] = gdf["valid"]
 gdf["geometry"] = gdf.geometry.apply(lambda g: make_valid(g) if not g.is_valid else g)
 gdf["valid_after"] = gdf.geometry.is_valid
 
-{
-    "type": "FeatureCollection",
-    "features": [
-        {"type": "Feature", "properties": {"name": row["name"], "valid_before": bool(row["valid_before"]), "valid_after": bool(row["valid_after"])}, "geometry": mapping(row.geometry)}
-        for _, row in gdf.iterrows()
-    ]
-}
+gdf[["name", "valid_before", "valid_after", "geometry"]].__geo_interface__
 ```
 
 ```{ojs}

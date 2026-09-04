@@ -23,8 +23,6 @@ project:
     - "fonts.css"
     - "fonts/*.woff2"
     - "codemirror-bundle.js"
-    - "gridjs.umd.js"
-    - "gridjs-mermaid.min.css"
     - "downloads/*.pdf"
     - "htl.min.js"
     - "observable-inputs.min.js"

@@ -1,31 +1,41 @@
 /**
  * WebGeoDS.Table
  *
- * Thin wrapper over Grid.js (vendored locally, gridjs.umd.js/
- * gridjs-mermaid.min.css — zero runtime dependencies, single UMD
- * build, same vendoring approach as maplibre-gl.js in map.js) for
- * rendering a reactive table from an OJS cell without every page
- * having to repeat the lazy-load/instance-tracking boilerplate.
+ * Plain vanilla-DOM table renderer — no library. Rebuilds the whole
+ * <table> on every render() call (same "rebuild, don't diff"
+ * granularity Grid.js's updateConfig().forceRender() already had, and
+ * Inputs.table() has too): render() only ever runs on discrete events
+ * (a Validate/Check/Repair click, a map source's content changing),
+ * never per frame/keystroke, so there's nothing to gain from diffing.
  *
  * Exposes:
  *
- *   window.WebGeoDS.Table.render(containerOrId, { columns, data })
+ *   window.WebGeoDS.Table.render(containerOrId, {
+ *     columns,       // string[]
+ *     data,          // object[] — one plain {column: value} object per row
+ *     rowClassName,  // (row) => string — optional, applied to <tr>.className
+ *     selectedKey,   // string|null — optional, marks the matching row selected
+ *     onRowClick,    // (row) => void — optional
+ *     emptyMessage   // string — shown instead of a table when data is empty
+ *   })
  *
  * `containerOrId` accepts either an existing element's id (string —
- * looked up via getElementById, throws if missing, the original
- * behavior) or an actual Element (used directly, no lookup) — the
- * latter is what WebGeoDS.Map.tableCell() passes when it auto-creates
- * its own container instead of requiring a hand-written `<div>` in
- * the page, mirroring WebGeoDS.Map's own auto-container constructor.
+ * looked up via getElementById, throws if missing) or an actual
+ * Element (used directly, no lookup) — same convention as
+ * WebGeoDS.Map's own auto-container constructor (see shared/map.js).
  *
- * Creates a new Grid.js table on first call for a given container;
- * subsequent calls (e.g. a reactive OJS cell re-running after new
- * data arrives) update the existing instance in place instead of
- * tearing it down and rebuilding it — same "create if missing, else
- * update" shape as WebGeoDS.Map.setGeoJSON().
+ * Row values are inserted via `textContent`, never interpolated into
+ * an HTML string: cell values come from uploaded file content (a
+ * feature's "name" property, a validity error message), so they're
+ * untrusted — textContent is safe by construction, no manual escaping
+ * needed.
  *
- * No ES module syntax is used so the file can be included directly
- * by Quarto in the generated HTML.
+ * A row's selection identity (`row.__key`, compared against
+ * `selectedKey`) is set by the caller (shared/map.js's table()) — this
+ * module doesn't know or care what it means, only whether it matches.
+ *
+ * No ES module syntax is used so the file can be included directly by
+ * Quarto in the generated HTML.
  */
 
 (() => {
@@ -42,128 +52,20 @@
 
 
   // ============================================================
-  // Configuration
+  // render(containerOrId, options)
   // ============================================================
 
-  // Same `window.WEBGEODS_ASSET_BASE` convention as map.js's
-  // MAPLIBRE_JS_URL/MAPLIBRE_CSS_URL — see the comment there for why
-  // a bare relative path breaks on a page that isn't at the project
-  // root (e.g. a nested blog post).
-  const ASSET_BASE = window.WEBGEODS_ASSET_BASE || "";
-  const GRIDJS_JS_URL = ASSET_BASE + "gridjs.umd.js";
-  const GRIDJS_CSS_URL = ASSET_BASE + "gridjs-mermaid.min.css";
-
-
-  // ============================================================
-  // Instance registry — keyed by whatever render() was called with
-  // (a container id string, or the Element itself), mirrors map.js's
-  // _instances so repeated render() calls on the same container
-  // update in place instead of creating a duplicate table. A real Map
-  // (not a plain object) so an Element key works fine alongside
-  // string keys.
-  // ============================================================
-
-  const _instances = new Map();
-
-
-  // ============================================================
-  // Lazy loader — loaded once per page, only when a table is
-  // actually rendered, not on every page that merely includes this
-  // script (same reasoning as loadMapLibreScript()/
-  // loadCodeMirrorBundle()).
-  // ============================================================
-
-  let gridJsPromise = null;
-
-  function loadGridJs() {
-
-    if (window.gridjs) {
-      return Promise.resolve(window.gridjs);
-    }
-
-    if (!gridJsPromise) {
-
-      if (
-        !document.querySelector(
-          'link[data-webgeods-gridjs="true"]'
-        )
-      ) {
-
-        const link =
-          document.createElement("link");
-
-        link.rel =
-          "stylesheet";
-
-        link.href =
-          GRIDJS_CSS_URL;
-
-        link.dataset.webgeodsGridjs =
-          "true";
-
-        document.head.appendChild(link);
-
-      }
-
-      gridJsPromise =
-        new Promise((resolve, reject) => {
-
-          const script =
-            document.createElement("script");
-
-          script.src =
-            GRIDJS_JS_URL;
-
-          script.onload =
-            () => resolve(window.gridjs);
-
-          script.onerror =
-            () => reject(
-              new Error(`WebGeoDS.Table: failed to load ${GRIDJS_JS_URL}.`)
-            );
-
-          document.head.appendChild(script);
-
-        });
-
-    }
-
-    return gridJsPromise;
-
-  }
-
-
-  // ============================================================
-  // render(containerOrId, { columns, data })
-  // ============================================================
-
-  async function render(
+  function render(
     containerOrId,
-    { columns, data, ...options } = {}
+    {
+      columns = [],
+      data = [],
+      rowClassName,
+      selectedKey = null,
+      onRowClick,
+      emptyMessage = "No results"
+    } = {}
   ) {
-
-    const gridjs =
-      await loadGridJs();
-
-    const existing =
-      _instances.get(containerOrId);
-
-    if (existing) {
-
-      // `columns` included here too, not just `data`: WebGeoDS.Map.table()
-      // can call render() the first time with ZERO features (no source
-      // data yet) — an empty `columns` array, since columns are the
-      // union of properties keys seen — then again later once real
-      // data (and real columns) exist. Only updating `data` here would
-      // leave the FIRST call's empty columns frozen forever (verified
-      // empirically: Grid.js's updateConfig({columns, data}) correctly
-      // replaces the column set on an existing instance, not just a
-      // constructor-time option).
-      existing.updateConfig({ columns, data }).forceRender();
-
-      return existing;
-
-    }
 
     const container =
       containerOrId instanceof Element ?
@@ -178,21 +80,117 @@
 
     }
 
-    // Quarto's own markdown rendering leaves whitespace text nodes
-    // inside an otherwise-empty `<div>` — Grid.js refuses to render
-    // into a container it doesn't consider genuinely empty. Harmless
-    // (a no-op) for a freshly created, genuinely empty Element too.
-    container.innerHTML =
-      "";
+    container.replaceChildren();
 
-    const grid =
-      new gridjs.Grid({ columns, data, ...options });
+    if (data.length === 0) {
 
-    grid.render(container);
+      const empty =
+        document.createElement("div");
 
-    _instances.set(containerOrId, grid);
+      empty.className =
+        "webgeods-table-empty";
 
-    return grid;
+      empty.textContent =
+        emptyMessage;
+
+      container.appendChild(empty);
+
+      return container;
+
+    }
+
+    const table =
+      document.createElement("table");
+
+    table.className =
+      "webgeods-table";
+
+
+    const thead =
+      document.createElement("thead");
+
+    const headRow =
+      document.createElement("tr");
+
+    for (const col of columns) {
+
+      const th =
+        document.createElement("th");
+
+      th.textContent =
+        col;
+
+      headRow.appendChild(th);
+
+    }
+
+    thead.appendChild(headRow);
+
+    table.appendChild(thead);
+
+
+    const tbody =
+      document.createElement("tbody");
+
+    for (const row of data) {
+
+      const tr =
+        document.createElement("tr");
+
+      const classNames =
+        [
+          rowClassName?.(row) || "",
+          row.__key !== undefined && row.__key === selectedKey ?
+            "webgeods-row-selected" :
+            ""
+        ].filter(Boolean);
+
+      if (classNames.length > 0) {
+
+        tr.className =
+          classNames.join(" ");
+
+      }
+
+      if (onRowClick) {
+
+        tr.classList.add(
+          "webgeods-row-clickable"
+        );
+
+        tr.addEventListener(
+          "click",
+          () => onRowClick(row)
+        );
+
+      }
+
+      for (const col of columns) {
+
+        const td =
+          document.createElement("td");
+
+        const value =
+          row[col];
+
+        td.textContent =
+          value === undefined || value === null ?
+            "" :
+            String(value);
+
+        tr.appendChild(td);
+
+      }
+
+      tbody.appendChild(tr);
+
+    }
+
+    table.appendChild(tbody);
+
+    container.appendChild(table);
+
+    return container;
 
   }
 
@@ -202,14 +200,7 @@
   // ============================================================
 
   window.WebGeoDS.Table = {
-    render,
-    // Re-exported for anything that needs Grid.js's own helpers
-    // directly (e.g. gridjs.html() for a formatted cell) without a
-    // separate load step — resolves once loadGridJs() has already
-    // run (i.e. after at least one render() call on the page).
-    get gridjs() {
-      return window.gridjs;
-    }
+    render
   };
 
 

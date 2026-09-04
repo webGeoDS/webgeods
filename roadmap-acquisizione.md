@@ -724,6 +724,163 @@ mappa↔tabella (candidato naturale: l'Inspector, non ancora
 pianificato nel dettaglio) — a quel punto va risolto anche il
 problema della colorazione riga persa, non prima.
 
+**Celle Python diagnose/repair semplificate con `__geo_interface__`
+(2026-09-04)**: `geometry-validity.qmd` e
+`geojson-shapefile-validator.qmd` (celle `geometry-diagnose-py` e
+`geometry-repair-py`, identiche nei due file) costruivano il
+`FeatureCollection` a mano con una list comprehension su
+`gdf.iterrows()`. Sostituito con
+`gdf[["name", "valid", "reason", "geometry"]].__geo_interface__`
+(repair: `["name", "valid_before", "valid_after", "geometry"]`) — il
+subset di colonne evita che colonne non volute finiscano nelle
+`properties` (`__geo_interface__` include per default TUTTE le
+colonne del DataFrame). Verificato empiricamente (Pyodide reale, non
+solo lettura del sorgente) prima di applicarlo:
+
+- il subset (con `geometry` incluso nella lista) resta un vero
+  `GeoDataFrame`, non un `DataFrame` — `__geo_interface__` esiste
+  ancora dopo il subset;
+- `.is_valid` (bool numpy) arriva come `bool` Python nativo attraverso
+  `__geo_interface__`, nessun cast esplicito `bool(...)` necessario
+  (prima il codice manuale lo faceva a mano);
+- **trovato un problema reale**: un valore `None` in una proprietà
+  (qui: `reason` per le geometrie valide) sopravvive a
+  `json.dumps()` in Python (`"reason": null` corretto), ma **sparisce
+  del tutto** quando il dict passa come valore vivo della cella
+  attraverso il bridge Pyodide→JS invece che come stringa JSON già
+  serializzata — `None` diventa `undefined` lato JS, e
+  `JSON.stringify` elimina le chiavi `undefined`. Confermato anche dal
+  test §16 della suite `lessons` (`"Python — None → undefined (known
+  ambiguity...)"`), quindi non una scoperta nuova per il progetto, solo
+  non ancora incontrata in questo punto del codice. Nella pratica qui è
+  innocuo per la tabella (`shared/map.js`'s `table()` tratta `undefined`
+  e `null` allo stesso modo, entrambi renderizzati come cella vuota) ma
+  cambierebbe quali colonne appaiono nell'unione (`keys`) se
+  **nessuna** riga avesse mai un valore non-null per quella proprietà.
+  Risolto alla radice: la lambda che calcola `reason` ora ritorna `""`
+  invece di `None` per le geometrie valide (coerente con la
+  convenzione già usata altrove nel progetto, es. `severity: ""` in
+  `topology-errors.qmd`) — non serve nessun `fillna()` a parte.
+- `extra_col`-style leak: confermato che colonne non incluse nel
+  subset non compaiono nelle `properties` — corretto.
+
+**Non applicato altrove**: le celle di `topology-errors.qmd` e
+`topology-checker.qmd` calcolano proprietà derivate per indice
+(`error_type`, `partner`, `metric`...) non presenti come colonne dirette
+di `gdf`, più feature sintetiche extra (i gap) senza una riga
+corrispondente — non sono un buon candidato per questa
+semplificazione senza un refactoring più ampio, non richiesto. I
+quattro esempi a singola geometria in `geometry-validity.qmd`
+(`pyHoleCode`/`pyTouchCode`/`pyOverlapHolesCode`) restano com'erano:
+non passano da un `GeoDataFrame`, e sono già minimi (un dict literal,
+niente loop). Verificato end-to-end via Playwright (upload di un file
+misto valido/non valido, diagnose + repair diretti via
+`WebGeoDS.CodeCell.find(...).run()`, lettura di `.value` sull'elemento
+della cella) su entrambi i file + 16/16 map-tests + 51/51 smoke-test
+lessons — nessuna regressione.
+
+**Bug reale trovato e corretto: `tableCell()` con più source scartava
+una lingua (2026-09-04)**. L'utente ha messo in dubbio l'architettura
+di reattività tabella↔mappa in `geometry-validity.qmd` (tabella
+generata a parte, poi legata reattivamente ai source della mappa via
+`map.on("sourcedata", ...)`). Verificato dal vivo prima di rispondere:
+non esiste un modo "più diretto" di legarsi al singolo source in
+MapLibre GL JS — un source non ha un proprio emitter, `sourcedata`
+filtrato per `sourceId` è l'unico modo di osservarlo, quindi quella
+parte della critica non aveva un'alternativa più semplice. Ma un altro
+punto sollevato ha portato a una scoperta concreta: `tableCell()`
+(in `shared/map.js`) mostrava, quando riceveva PIÙ source id (es.
+`["geometry-py", "geometry-r"]`), solo quello cambiato più di
+recente — non un merge — mentre la cella `validationStats` sulla
+stessa pagina fa esplicitamente il merge di entrambi i source per il
+conteggio. Risultato verificato: dopo aver eseguito Python e poi R, la
+riga statistiche diceva correttamente "2 feature, 2 invalid" ma la
+tabella sotto mostrava solo la riga di R — quella di Python spariva
+del tutto. Bug reale e visibile, non ipotetico, proprio sulla pagina
+il cui scopo è confrontare le due lingue. Stesso pattern (due source
+per lingua passati a `tableCell()`) presente anche in
+`topology-errors.qmd`, stesso bug lì (verificato: dopo Python+R la
+tabella mostrava solo le 2 righe R, non le 4 combinate).
+
+**Fix**: `tableCell()` ora fa sempre il merge di tutti i source
+tracciati (comportamento coerente con `table()`, che già combinava
+quando chiamato direttamente) invece di mostrare solo l'ultimo
+cambiato — corretto sia per liste esplicite di id sia per la modalità
+AUTO (ricalcola l'elenco dei source correnti dalla mappa a ogni
+render, invece di limitarsi al singolo id appena cambiato). Nessuna
+delle altre pagine (`topology-checker.qmd`,
+`geojson-shapefile-validator.qmd`, entrambe con un solo source
+tracciato) risente del cambiamento — con un solo id "più recente" e
+"merge" sono la stessa cosa. Verificato: entrambe le pagine bilingue
+ora mostrano correttamente le righe di entrambe le lingue insieme
+dopo Python+R; la pagina a singolo source verificata invariata;
+16/16 map-tests; 51/51 smoke-test lessons.
+
+**Grid.js sostituito con una tabella scritta a mano, selezione riga ↔
+zoomTo/evidenziazione sulla mappa (2026-09-04)**. L'utente ha chiesto
+di costruire selezione righe + `zoomTo` in Preact; verificando un
+riferimento Observable che ha segnalato (collezione "tables" di
+randomfractals) è emerso che è a sua volta basata su `Inputs.table()`
+— la stessa cosa già scartata in precedenza, non un'alternativa
+nuova. Da lì la domanda giusta: nessuna delle 4 pagine usa
+sort/search/pagination di Grid.js (solo `rowClassName` e il messaggio
+vuoto), quindi non serve nessuna libreria — `document.createElement`/
+`textContent`/`addEventListener` bastano, con `textContent` anche più
+sicuro di un templating a stringhe per contenuto che viene da un file
+caricato dall'utente.
+
+- **`shared/table.js`** riscritto da zero: nessuna libreria, nessun
+  caricamento asincrono di script (elimina alla radice la classe di
+  bug del caricamento script già vista due volte in questo progetto —
+  qui non c'è proprio nulla da caricare), nessun registro di istanze
+  (Grid.js ne aveva bisogno per `updateConfig()`, qui si ricostruisce
+  l'intera `<table>` a ogni `render()`, la stessa granularità
+  "ricostruisci tutto" che Grid.js e `Inputs.table()` avevano
+  comunque — gli aggiornamenti avvengono solo su eventi discreti, mai
+  per frame). Contratto di `data` cambiato da array posizionale ad
+  array di oggetti (`{colonna: valore}`, `rowClassName` li riceveva
+  già così).
+- **`shared/map.js`**: `setGeoJSON()`/`addGeoJSON()` assegnano ora un
+  `id` deterministico (`feature.id ?? index`) a ogni feature prima di
+  creare/aggiornare un source — nessuna cella Python/R toccata,
+  funziona per tutte le lingue/pagine. Rende finalmente utilizzabile
+  anche `highlight()`/`clearHighlights()` (mai chiamati da nessuna
+  pagina, restano lì per altri usi). `table()` ora porta un campo
+  nascosto `__key` (`${sourceId}:${id}`) per riga, necessario perché
+  su una pagina bilingue (`geometry-validity.qmd`,
+  `topology-errors.qmd`) le due lingue partono entrambe da id 0 — la
+  chiave di selezione è la coppia, non l'id da solo. `tableCell()`
+  gestisce selezione + click sulla mappa internamente (non è
+  un'opzione per pagina): click su riga → `setGeoJSON()` su un source
+  dedicato `__webgeods_selection` (non riusa `highlight()`, che è per
+  singolo source e richiederebbe di pulire OGNI altro source tracciato
+  a ogni cambio di selezione su una pagina bilingue) + `fitToData()`;
+  click sulla mappa → `queryRenderedFeatures()` ristretto ai layer
+  tracciati che esistono in quel momento (non legato a un layer
+  specifico in bind-time, perché i layer possono non esistere ancora
+  quando `tableCell()` viene chiamato) → stessa selezione; click sulla
+  riga/feature già selezionata, o su area vuota → deseleziona; il
+  pulsante Reset di ogni pagina (invariato) ora pulisce anche una
+  selezione diventata orfana (feature non più presente nella fonte
+  svuotata) invece di lasciare un'evidenziazione residua sulla mappa.
+- **Verificato empiricamente** (Playwright, non solo lettura del
+  codice): colonne dinamiche e colorazione riga invariate su tutte e 4
+  le pagine; click riga → mappa (zoom/overlay corretti, verificato
+  leggendo center/zoom/source reali, non solo la classe CSS); click
+  sulla stessa riga/mappa vuota → deseleziona; click su una feature
+  DIVERSA sulla mappa → sposta la selezione alla riga giusta;
+  **verificato in particolare il rischio di collisione di chiave sulle
+  due pagine bilingue** (selezionare la riga Python poi quella R,
+  entrambe id 0 nella propria fonte, non si confondono — l'overlay e
+  la riga evidenziata seguono correttamente la lingua cliccata); Reset
+  pulisce tabella e selezione insieme. 16/16 map-tests, 51/51
+  smoke-test lessons (l'id stamping tocca un percorso condiviso da
+  tutta la classe Map).
+- **Rimosso**: `shared/gridjs.umd.js`, `shared/gridjs-mermaid.min.css`
+  (e le copie sincronizzate) e le relative voci in
+  `sync-shared-assets.sh`/`blog/_quarto.yml`. Nessuna libreria nuova
+  aggiunta al loro posto.
+
 ### 1.2 — GeoSpatial File Inspector (dettaglio)
 
 Il "front door" della suite: upload → statistiche immediate.

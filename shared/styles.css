@@ -92,12 +92,57 @@
   background-color: #f3ede1;
 }
 
+/* WebGeoDS.Table (shared/table.js) — plain hand-built table, no
+   library. Same "Field Atlas" palette/sharp-corner language as the
+   rest of the page (.webgeods-editor-container above). */
+.webgeods-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.webgeods-table th,
+.webgeods-table td {
+  border: 1px solid #5a4f3e;
+  padding: 6px 10px;
+  text-align: left;
+}
+.webgeods-table th {
+  background-color: #eee5d2;
+  color: #2a2117;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: bold;
+}
+.webgeods-table tbody tr:hover {
+  background-color: rgba(90, 79, 62, 0.08);
+}
+.webgeods-table-empty {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #5a4f3e;
+  color: #8a7a5f;
+  font-style: italic;
+}
+
 /* Row-level coloring for WebGeoDS.Map.table()'s rowClassName option —
    tints of the same red/green already used for MapLibre fill paint
    throughout the topology-fix examples (#e05252/#2ea44f), so the
    table and the map speak the same color language. */
 .webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); }
 .webgeods-row-fixed   { background-color: rgba(46, 164, 79, 0.15); }
+
+/* Selected row (WebGeoDS.Map.tableCell()'s row-select ↔ map zoomTo/
+   highlight linking) — a left accent, not a background tint, so it
+   stays visible whether or not webgeods-row-invalid/-fixed already
+   colors the same row. #3d5a73 matches the "running" log color
+   elsewhere on the page (.webgeods-log-running), kept distinct from
+   the red/green validity tones on purpose. */
+.webgeods-row-clickable {
+  cursor: pointer;
+}
+.webgeods-row-selected {
+  box-shadow: inset 4px 0 0 #3d5a73;
+}
 
 /* Standalone-tool action buttons (Validate/Fix/Check, see
    geojson-shapefile-validator.qmd and topology-checker.qmd): a cold

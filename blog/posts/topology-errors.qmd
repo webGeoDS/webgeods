@@ -142,10 +142,7 @@ topologyErrorsTable = sharedMap.tableCell(
   Generators,
   {
     rowClassName: (row) => row.has_error === "true" ? "webgeods-row-invalid" : "",
-    // Grid.js's default ("No matching records found") reads like a
-    // search/filter came up empty — misleading before any check has
-    // ever run.
-    language: { noRecordsFound: "No results yet" }
+    emptyMessage: "No results yet"
   }
 )
 ```

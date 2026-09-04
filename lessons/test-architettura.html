@@ -26384,8 +26384,44 @@ margin-top: 20px;
 background-color: #f3ede1;
 }
 
+.webgeods-table {
+width: 100%;
+border-collapse: collapse;
+margin-top: 12px;
+font-size: 13px;
+}
+.webgeods-table th,
+.webgeods-table td {
+border: 1px solid #5a4f3e;
+padding: 6px 10px;
+text-align: left;
+}
+.webgeods-table th {
+background-color: #eee5d2;
+color: #2a2117;
+font-family: 'IBM Plex Mono', monospace;
+font-weight: bold;
+}
+.webgeods-table tbody tr:hover {
+background-color: rgba(90, 79, 62, 0.08);
+}
+.webgeods-table-empty {
+margin-top: 12px;
+padding: 10px;
+border: 1px solid #5a4f3e;
+color: #8a7a5f;
+font-style: italic;
+}
+
 .webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); }
 .webgeods-row-fixed { background-color: rgba(46, 164, 79, 0.15); }
+
+.webgeods-row-clickable {
+cursor: pointer;
+}
+.webgeods-row-selected {
+box-shadow: inset 4px 0 0 #3d5a73;
+}
 
 @keyframes webgeods-btn-pulse {
 0%, 100% { opacity: 1; }
@@ -31892,6 +31928,47 @@ window._ojs.runtime.interpretFromScriptTags();
 
 
     // ==========================================================
+    // Stamp feature ids
+    //
+    // Assigns a deterministic `id` (its index in `features`) to every
+    // feature that doesn't already have one — mutates in place, kept
+    // as a separate step (not MapLibre's own `generateId: true`
+    // source option) because it's uncertain whether
+    // source.serialize().data (what getGeoJSON() reads) reflects
+    // MapLibre-internal generated ids; stamping here guarantees
+    // table() (shared/map.js) and a "click a rendered feature" map
+    // handler both see the exact same id getGeoJSON() would return.
+    // Preserves any id already present (e.g. from geopandas'
+    // __geo_interface__, which sets one from the DataFrame index) —
+    // only fills gaps, doesn't renumber everything.
+    // ==========================================================
+
+    _stampFeatureIds(
+      data
+    ) {
+
+      if (
+        data?.type === "FeatureCollection" &&
+        Array.isArray(data.features)
+      ) {
+
+        data.features.forEach(
+          (feature, index) => {
+
+            feature.id ??=
+              index;
+
+          }
+        );
+
+      }
+
+      return data;
+
+    }
+
+
+    // ==========================================================
     // Add GeoJSON
     // ==========================================================
 
@@ -31915,6 +31992,11 @@ window._ojs.runtime.interpretFromScriptTags();
         );
 
       }
+
+
+      this._stampFeatureIds(
+        data
+      );
 
 
       const layerId =
@@ -32043,36 +32125,37 @@ window._ojs.runtime.interpretFromScriptTags();
     // table(sourceIds, containerId, options)
     //
     // Generic property dump of one or more sources' CURRENT features
-    // (via getGeoJSON() above) into a Grid.js table (shared/table.js):
+    // (via getGeoJSON() above) into a plain table (shared/table.js):
     // columns are the UNION of every `properties` key seen across ALL
     // features from ALL given sources (not just the first — different
     // features can carry different keys), one row per feature, missing
     // keys shown blank. `sourceIds` accepts a single string or an
     // array (e.g. two languages' independent sources feeding one
-    // shared table — see topology-fix.qmd). For a page that wants
-    // specific columns or custom labels, call WebGeoDS.Table.render()
-    // directly instead — this generic dump deliberately doesn't
-    // attempt that, only row-level coloring (below).
+    // shared table). For a page that wants specific columns or custom
+    // labels, call WebGeoDS.Table.render() directly instead — this
+    // generic dump deliberately doesn't attempt that, only row-level
+    // coloring and selection (below).
     //
-    // options.rowClassName(rowValues) — optional: called once per row
-    // with a plain {columnKey: stringValue} object (the SAME already-
-    // stringified values being displayed, keyed by column) — return a
-    // CSS class name to color that row, or a falsy value for none. The
-    // class itself isn't defined here; the caller's stylesheet must
-    // provide it (e.g. shared/styles.css's .webgeods-table-row-fixed/
-    // -invalid). Implemented via Grid.js's per-column `attributes`
-    // callback (verified empirically: `row.cells[i].data` is the
-    // reliable way to read a row's OTHER column values from within
-    // it — reconstructing "this row" from Grid.js's own object, not
-    // from index-matching against the original features array, stays
-    // correct even if Grid.js internally sorts/filters).
+    // Each row object also carries a hidden `__key` (`${sourceId}:${id}`,
+    // `id` being the feature's own MapLibre id — see _stampFeatureIds()
+    // above, which guarantees every feature has one) — not a
+    // `properties` key, so it's never in `columns`/never shown, but
+    // it's how tableCell() below tells shared/table.js which row is
+    // currently selected and which row a click came from.
+    //
+    // options.rowClassName(row) — optional: called once per row with
+    // the row object (each property value stringified, same
+    // convention as before + a __key field) — return a CSS class name
+    // to color that row, or a falsy value for none. The class itself
+    // isn't defined here; the caller's stylesheet must provide it
+    // (e.g. shared/styles.css's .webgeods-row-invalid/-fixed).
     //
     // Requires shared/table.js on the page — always true for blog/
     // (loaded on every page via _quarto.yml's include-after-body) but
-    // NOT for lessons/ (no table.js/gridjs entry there) even though
-    // both sync the same shared/map.js — checked explicitly so a
-    // lessons/ page calling this fails with a clear message instead of
-    // a bare "Cannot read properties of undefined".
+    // NOT for lessons/ (no table.js entry there) even though both sync
+    // the same shared/map.js — checked explicitly so a lessons/ page
+    // calling this fails with a clear message instead of a bare
+    // "Cannot read properties of undefined".
     // ==========================================================
 
     table(
@@ -32098,15 +32181,15 @@ window._ojs.runtime.interpretFromScriptTags();
           sourceIds :
           [sourceIds];
 
-      const features =
-        ids.flatMap((id) =>
-          this.getGeoJSON(id)?.features ??
-          []
+      const featuresBySource =
+        ids.flatMap((sourceId) =>
+          (this.getGeoJSON(sourceId)?.features ?? [])
+            .map((feature) => ({ sourceId, feature }))
         );
 
-      const keys =
+      const columns =
         [...new Set(
-          features.flatMap((feature) =>
+          featuresBySource.flatMap(({ feature }) =>
             Object.keys(
               feature.properties ??
               {}
@@ -32114,12 +32197,13 @@ window._ojs.runtime.interpretFromScriptTags();
           )
         )];
 
-      // Grid.js doesn't reliably display a raw boolean cell value
-      // (verified empirically: renders blank, not "true"/"false") —
-      // every other WebGeoDS.Table.render() call in this project
-      // already stringifies explicitly for the same reason, this is
-      // the generic-dump equivalent.
-      const stringify =
+      // Stringified explicitly (not left to shared/table.js's own
+      // display-time String(value)): rowClassName() callbacks across
+      // the project already compare against string values (e.g.
+      // `row.valid_after === "false"`), a convention kept unchanged
+      // here rather than silently flipping it to native types under
+      // existing callers.
+      const cellValue =
         (value) => {
 
           if (
@@ -32138,59 +32222,22 @@ window._ojs.runtime.interpretFromScriptTags();
         };
 
       const data =
-        features.map((feature) =>
-          keys.map((key) =>
-            stringify(
-              (feature.properties ?? {})[key]
+        featuresBySource.map(({ sourceId, feature }) => ({
+
+          ...Object.fromEntries(
+            columns.map((key) =>
+              [key, cellValue((feature.properties ?? {})[key])]
             )
-          )
-        );
+          ),
 
+          __key:
+            `${sourceId}:${feature.id}`
 
-      const {
-        rowClassName,
-        ...renderOptions
-      } =
-        options;
-
-      const rowAttributes =
-        (_cell, row) => {
-
-          if (!row) {
-
-            // The `th` (header) call — cell/row are empty, per
-            // Grid.js's own docs; nothing to color there.
-            return {};
-
-          }
-
-          const rowValues =
-            Object.fromEntries(
-              keys.map((key, i) =>
-                [key, row.cells[i]?.data]
-              )
-            );
-
-          const className =
-            rowClassName(rowValues);
-
-          return className ?
-            { className } :
-            {};
-
-        };
-
-      const columns =
-        rowClassName ?
-          keys.map((key) => ({
-            name: key,
-            attributes: rowAttributes
-          })) :
-          keys;
+        }));
 
       return window.WebGeoDS.Table.render(
         containerId,
-        { columns, data, ...renderOptions }
+        { columns, data, ...options }
       );
 
     }
@@ -32204,14 +32251,14 @@ window._ojs.runtime.interpretFromScriptTags();
     // class's own constructor (`new WebGeoDS.Map({...})` with no id
     // auto-creates its container) — no hand-written `<div id="...">`
     // needed elsewhere in the page. The cell then yields that element
-    // (not the Grid.js instance) on every render, so a plain (non
-    // `output: false`) {ojs} cell assigning `tableCell(...)` displays
-    // it automatically via Observable's own "a cell whose value is a
-    // DOM Node gets shown" convention — same SAME element reference
-    // every time, just mutated in place by Grid.js's own
-    // updateConfig()/forceRender(), so it never needs to "move".
-    // Passing an explicit string still works exactly as before
-    // (looked up via getElementById inside table()/Table.render()).
+    // on every render, so a plain (non `output: false`) {ojs} cell
+    // assigning `tableCell(...)` displays it automatically via
+    // Observable's own "a cell whose value is a DOM Node gets shown"
+    // convention — same SAME element reference every time, just
+    // rebuilt in place by shared/table.js's render(), so it never
+    // needs to "move". Passing an explicit string still works exactly
+    // as before (looked up via getElementById inside
+    // table()/Table.render()).
     //
     // One-line OJS wiring for table() above, self-reactive to
     // MapLibre's own "sourcedata" event instead of requiring the
@@ -32219,13 +32266,20 @@ window._ojs.runtime.interpretFromScriptTags();
     // earlier topology-fix.qmd design: a separate Generators.observe()
     // cell plus a following `{ ... }` block just to get this).
     //
-    // Unlike table(), which COMBINES every given source's features
-    // into one table, this shows exactly ONE source at a time:
-    // whichever tracked source had its data content change MOST
-    // RECENTLY. That's the shape a page with several independent
-    // per-language sources feeding one map actually wants — a table
-    // that always mirrors "whichever one just ran", not a merged view
-    // of all of them (use table() directly for that instead).
+    // Renders the MERGED features of every tracked source (same
+    // combining behavior as table() itself) — re-rendered from
+    // scratch whenever ANY tracked source's content changes, not just
+    // whichever one changed most recently. An earlier version showed
+    // only the single most-recently-changed source, on the theory
+    // that a page with independent per-language sources (e.g.
+    // geometry-py/geometry-r) wants "whichever one just ran" rather
+    // than a merged view — wrong in practice: verified empirically
+    // (geometry-validity.qmd) that running Python then R left the
+    // reactive stats line correctly combining both sources' feature
+    // counts while the table below silently dropped Python's row
+    // entirely, showing only R's — a real, visible inconsistency on
+    // exactly the page whose purpose is comparing the two languages'
+    // results side by side, not a hypothetical one.
     //
     // `sourceIds` — which sources count as "tracked":
     //   - a string or array: exactly those source ids, nothing else
@@ -32258,6 +32312,22 @@ window._ojs.runtime.interpretFromScriptTags();
     // an unhandled promise rejection rather than an inline OJS error:
     // the Generators.observe() initializer must return synchronously,
     // so render() below can't be awaited from here.
+    //
+    // Row selection ↔ map linking, built in (not an opt-in option —
+    // every current page benefits, see roadmap-acquisizione.md for
+    // the discussion that led here): clicking a row zooms the map to
+    // that feature (fitToData()) and draws it on a dedicated overlay
+    // source, `__webgeods_selection` (setGeoJSON()-managed, one per
+    // map — NOT shared/map.js's existing highlight()/clearHighlights(),
+    // which is per-tracked-source and would need clearing on every
+    // OTHER tracked source whenever selection moved between languages
+    // on a dual-source page; a single dedicated overlay sidesteps
+    // that). Clicking the map selects the corresponding row the same
+    // way; clicking empty space, or the already-selected row/feature
+    // again, clears the selection. Relies on _stampFeatureIds() (see
+    // addGeoJSON()/setGeoJSON() above) for a stable id per feature —
+    // the selection key is `${sourceId}:${feature.id}`, matching
+    // table()'s own `row.__key`.
     // ==========================================================
 
     tableCell(
@@ -32296,19 +32366,95 @@ window._ojs.runtime.interpretFromScriptTags();
             !this._basemapSourceIds?.has(sourceId) :
             ids.includes(sourceId);
 
+      // The full set of tracked ids to merge — for an explicit list
+      // this is just `ids`; for AUTO mode it's recomputed from the
+      // map's current sources each time, since new sources can appear
+      // after this cell first runs (see AUTO mode's doc above).
+      const trackedIds =
+        () =>
+          auto ?
+            Object.keys(this.map.getStyle()?.sources ?? {})
+              .filter((id) => !this._basemapSourceIds?.has(id)) :
+            ids;
+
       const container =
         containerId ??
         document.createElement("div");
 
+      const SELECTION_SOURCE_ID =
+        "__webgeods_selection";
+
+      const findFeatureByKey =
+        (key) => {
+
+          const sep =
+            key.indexOf(":");
+
+          const sourceId =
+            key.slice(0, sep);
+
+          const id =
+            key.slice(sep + 1);
+
+          const features =
+            this.getGeoJSON(sourceId)?.features ??
+            [];
+
+          return features.find(
+            (feature) => String(feature.id) === id
+          ) ??
+          null;
+
+        };
+
+      const selectionPaint =
+        (feature) => {
+
+          const type =
+            this._detectGeometryType({
+              type: "FeatureCollection",
+              features: [feature]
+            });
+
+          return type === "line" ?
+            { "line-color": "#ffeb3b", "line-width": 6 } :
+            type === "circle" ?
+              { "circle-color": "#ffeb3b", "circle-radius": 8 } :
+              { "fill-color": "#ffeb3b", "fill-opacity": 0.6 };
+
+        };
+
       return Generators.observe((change) => {
 
+        let selectedKey =
+          null;
+
         const render =
-          async (sourceId) => {
+          async () => {
+
+            // A selected feature can disappear out from under the
+            // selection (e.g. the page's own "Reset map and table"
+            // button empties the tracked source it came from) — drop
+            // a selection that no longer resolves to anything instead
+            // of leaving a stale overlay highlighted on the map.
+            if (
+              selectedKey !== null &&
+              !findFeatureByKey(selectedKey)
+            ) {
+
+              selectedKey =
+                null;
+
+              await this.removeGeoJSON(
+                SELECTION_SOURCE_ID
+              );
+
+            }
 
             await this.table(
-              sourceId,
+              trackedIds(),
               container,
-              options
+              { ...options, selectedKey, onRowClick: (row) => selectByKey(row.__key) }
             );
 
             // The SAME container every time (string id or the element
@@ -32318,9 +32464,51 @@ window._ojs.runtime.interpretFromScriptTags();
 
           };
 
-        render([]);
+        const selectByKey =
+          async (key) => {
 
-        const handler =
+            if (key === selectedKey) {
+
+              selectedKey =
+                null;
+
+              await this.removeGeoJSON(
+                SELECTION_SOURCE_ID
+              );
+
+            } else {
+
+              const feature =
+                findFeatureByKey(key);
+
+              if (!feature) {
+
+                return;
+
+              }
+
+              selectedKey =
+                key;
+
+              await this.setGeoJSON(
+                SELECTION_SOURCE_ID,
+                { type: "FeatureCollection", features: [feature] },
+                { paint: selectionPaint(feature) }
+              );
+
+              await this.fitToData(
+                feature
+              );
+
+            }
+
+            await render();
+
+          };
+
+        render();
+
+        const sourceHandler =
           (e) => {
 
             if (
@@ -32329,7 +32517,40 @@ window._ojs.runtime.interpretFromScriptTags();
               isTracked(e.sourceId)
             ) {
 
-              render(e.sourceId);
+              render();
+
+            }
+
+          };
+
+        const clickHandler =
+          (e) => {
+
+            const layers =
+              trackedIds().filter(
+                (id) => this.map.getLayer(id)
+              );
+
+            const clicked =
+              layers.length > 0 ?
+                this.map.queryRenderedFeatures(e.point, { layers }) :
+                [];
+
+            if (clicked.length === 0) {
+
+              if (selectedKey !== null) {
+
+                selectByKey(
+                  selectedKey
+                );
+
+              }
+
+            } else {
+
+              selectByKey(
+                `${clicked[0].source}:${clicked[0].id}`
+              );
 
             }
 
@@ -32337,11 +32558,20 @@ window._ojs.runtime.interpretFromScriptTags();
 
         this.map.on(
           "sourcedata",
-          handler
+          sourceHandler
         );
 
-        return () =>
-          this.map.off("sourcedata", handler);
+        this.map.on(
+          "click",
+          clickHandler
+        );
+
+        return () => {
+
+          this.map.off("sourcedata", sourceHandler);
+          this.map.off("click", clickHandler);
+
+        };
 
       });
 
@@ -32417,7 +32647,9 @@ window._ojs.runtime.interpretFromScriptTags();
         } else {
 
           source.setData(
-            data
+            this._stampFeatureIds(
+              data
+            )
           );
 
         }
