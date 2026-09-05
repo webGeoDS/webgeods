@@ -288,6 +288,10 @@ pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
     // FeatureCollection.
     await sharedMap.fitToData(pyInspect.mapFeatures);
     mutable inspectSummary = pyInspect.summary;
+    // See geojson-shapefile-validator.qmd's own comment on this same
+    // call -- the Tool Utility Rate funnel's own step, distinct from
+    // the generic code_run_completed.
+    window.WebGeoDS.track?.("validation_completed", { tool: "geospatial-file-inspector" });
   }
 }
 ```

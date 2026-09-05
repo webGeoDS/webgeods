@@ -420,18 +420,38 @@ un repository git.
     qualunque link a `/tools/`): cattura l'intento di click-through
     anche se il runtime WASM di destinazione non finisce di caricare.
 
-  Specifici solo per il Validator (non generici):
-  `tool_loaded`, `download_clicked` — aggiunti direttamente in
-  `geojson-shapefile-validator.qmd`.
+  `tool_loaded` (con `tool`) e `download_clicked` (via
+  `WebGeoDS.downloadBlob()` in `shared/download.js`, con `tool` e
+  `filename`) sono in realtà generici su tutti e quattro i tool, non
+  specifici del solo Validator come una nota precedente di questa
+  sezione diceva — corretto qui il 2026-09-05, verificato dal vivo con
+  Playwright su tutti e quattro (vedi changelog).
+
+  **`validation_completed` aggiunto il 2026-09-05** (mancava del
+  tutto — vedi changelog per come è stato scoperto): un evento
+  dedicato con `tool`, in tutti e quattro i tool, subito dopo che il
+  risultato (diagnosi/ispezione/check) è applicato alla mappa —
+  distinto dal generico `code_run_completed` (che spara per
+  qualunque cella, cellId solo nel titolo libero, non filtrabile
+  come `path` in GoatCounter).
 
   `article_view` non ha codice dedicato: GoatCounter traccia le
   pageview in automatico, e la visita a un articolo È già una
   pageview.
 
+  **`newsletter_view`/`newsletter_signup` aggiunti il 2026-09-05**
+  (0.8 esisteva già dal 2026-09-03, questo follow-up era rimasto
+  indietro — vedi changelog): il form Kit in `about.qmd` è un
+  `<form>` inline iniettato in modo asincrono dallo script
+  dell'embed, non un iframe — un `MutationObserver` intercetta la sua
+  comparsa (`newsletter_view`) e vi allega un listener `submit`
+  (`newsletter_signup`, la stessa approssimazione di intento-al-click
+  già usata per `download_clicked`/`tool_click`, non una conferma
+  server-side dell'iscrizione).
+
   **Non ancora implementati** (dipendono da funzionalità non ancora
-  esistenti): `newsletter_view`/`newsletter_signup` (0.8, prossimo),
-  `course_page_view`/`checkout_started`/`purchase` (Fase 5, Academy —
-  non esiste ancora nulla da tracciare).
+  esistenti): `course_page_view`/`checkout_started`/`purchase` (Fase
+  5, Academy — non esiste ancora nulla da tracciare).
 
   Verificato: 51/51 check della suite `lessons/test-architettura`
   ancora verdi dopo le modifiche al motore condiviso; script
@@ -2660,3 +2680,119 @@ background — non correlato alla modifica (lessons/ non tocca
 `sitemap.xml`, progetto separato) — 51/51 pulito al rerun senza
 processi concorrenti. Entrambi i fallimenti quindi ambientali, non
 regressioni.
+
+## 2026-09-05 — Verifica end-to-end degli eventi analytics in produzione
+
+Su richiesta esplicita ("verifica il punto 2" — controllare che gli
+eventi funnel definiti nel piano sparino davvero, prima che manchino i
+dati quando servono davvero), verificato dal vivo su webgeods.com con
+Playwright, intercettando le richieste di rete verso
+`goatcounter.com/count` (non solo leggendo il codice) mentre si
+esercita ogni passo del funnel reale:
+
+- **Confermati funzionanti, in ordine**: pageview automatico (`path=/`),
+  `tool_click` (click su un link `/tools/` dalla home, con `href` nel
+  titolo), `tool_loaded` (al caricamento della pagina tool, con
+  `tool=<nome>`), `file_uploaded` (con `kind=zip`), `code_run_started`/
+  `code_run_completed` — sia per la cella di diagnosi
+  (`geometry-diagnose-py`) sia per quella nascosta di export shapefile
+  (`geometry-export-shp-py`, mai vista prima perché invisibile nella
+  UI) — e infine `download_clicked` (con `tool` e `filename` corretti,
+  file scaricato per davvero con il nome atteso
+  `*-validated.zip`). **Un primo giro di test aveva fatto sembrare
+  `file_uploaded`/`code_run_completed`/`download_clicked` assenti** —
+  causa un bug nel MIO script di verifica (l'array degli eventi
+  catturati veniva svuotato prima che le richieste di rete, asincrone,
+  arrivassero davvero), non un problema del sito — risolto smettendo
+  di azzerare l'array a metà sequenza e confermato con un secondo giro
+  pulito, isolato sulla sola sequenza upload→diagnosi→download.
+
+- **Trovato un gap reale**: `newsletter_view`/`newsletter_signup`
+  erano segnati nel changelog come "non ancora implementati, in attesa
+  che 0.8 esista" — ma 0.8 (il form newsletter, embed Kit in
+  `about.qmd`) è stato spedito il 2026-09-03, due giorni prima di
+  questa verifica, e il follow-up di tracciamento non è mai stato
+  ripreso. Il form Kit è un embed di terze parti (script
+  `webgeods.kit.com/.../index.js`, submission verso il dominio di
+  Kit) — non emette un evento DOM osservabile a cui agganciare
+  `WebGeoDS.track()` senza controllare come Kit gestisce l'invio (form
+  nativo vs iframe). Risultato pratico: oggi, se qualcuno si iscrive
+  alla newsletter da webgeods.com, **zero visibilità in GoatCounter**
+  su quell'iscrizione — l'unica fonte di verità sarebbe la dashboard
+  di Kit stessa.
+
+- **Trovato un disallineamento tra piano e implementazione**: la
+  metrica "Tool Utility Rate" in questo stesso documento (sezione
+  "Metriche da leggere") descrive il funnel come `tool_loaded` →
+  `file_uploaded` → **`validation_completed`** → `download_clicked` —
+  ma nessun punto del codice emette un evento chiamato letteralmente
+  `validation_completed`. Il segnale reale più vicino è
+  `code_run_completed`, generico per QUALUNQUE cella di codice su
+  QUALUNQUE pagina (non solo la diagnosi di validazione) — la cella
+  specifica si distingue solo dal campo libero `title`
+  (`cellId=geometry-diagnose-py`), non dal `path` strutturato che
+  GoatCounter permette di filtrare direttamente. Chi provasse a
+  leggere il funnel esattamente come descritto qui (cercando
+  `validation_completed` in GoatCounter) non troverebbe nulla. Non
+  ancora deciso se correggere la definizione della metrica per
+  riflettere `code_run_completed` + filtro sul titolo, o aggiungere un
+  evento `validation_completed` dedicato nel codice — lasciato come
+  scelta aperta, non risolto in questo giro (solo verifica, non
+  implementazione, su richiesta esplicita).
+
+Nessuna modifica al codice in questo giro — solo verifica. Script
+Playwright temporanei (`_tmp-verify-analytics.mjs`,
+`_tmp-verify-download.mjs`) rimossi a fine verifica.
+
+## 2026-09-05 — Corretti entrambi i gap trovati nella verifica analytics
+
+Su richiesta esplicita ("sistema entrambi"), risolti i due problemi
+trovati nella verifica precedente.
+
+- **`validation_completed` aggiunto** in tutti e quattro i tool
+  (`geojson-shapefile-validator.qmd`, `geospatial-file-inspector.qmd`,
+  `crs-inspector.qmd`, `topology-checker.qmd`), non solo per il
+  Validator dell'esempio nel piano — stesso punto architetturale in
+  ciascuno: subito dopo `sharedMap.fitToData(...)` nella cella
+  reattiva che applica il risultato (diagnosi/ispezione/check) alla
+  mappa, con `tool: "<nome>"` come per `tool_loaded`/`download_clicked`.
+  Distinto dal generico `code_run_completed` (spara per qualunque
+  cella di codice su qualunque pagina, `cellId` solo nel titolo libero
+  di GoatCounter, non un `path` filtrabile).
+
+- **`newsletter_view`/`newsletter_signup` aggiunti** in `about.qmd`:
+  il form Kit (`data-uid="31051e3ca1"`) è un `<form>` inline, non un
+  iframe (verificato ispezionando il DOM live), iniettato in modo
+  asincrono dallo script dell'embed — un `MutationObserver` ne
+  intercetta la comparsa (`newsletter_view`) e vi allega un listener
+  `submit` (`newsletter_signup`). Deliberatamente **non testato con un
+  invio reale** — il form fa POST a `https://app.kit.com/forms/.../subscriptions`,
+  un endpoint live: un submit vero o anche sintetico avrebbe rischiato
+  di creare un'iscrizione fasulla reale sull'account Kit dell'autore.
+  Verificato invece solo che il form venga trovato e `newsletter_view`
+  spari (sicuro, nessuna scrittura); l'attach del listener `submit` è
+  stato solo revisionato nel codice, non eseguito end-to-end — stessa
+  approssimazione di intento-al-click già accettata altrove
+  (`download_clicked`, `tool_click`), non una conferma server-side.
+
+- **Corretta una nota obsoleta** in questo stesso documento: diceva
+  che `tool_loaded`/`download_clicked` fossero specifici del solo
+  Validator — in realtà sono generici su tutti e quattro i tool da
+  quando `download_clicked` è stato promosso a `shared/download.js`
+  (sessione precedente) e `tool_loaded` è stato aggiunto identico a
+  ciascun tool. Trovato ricontrollando il codice mentre si sistemava
+  il gap `validation_completed`, non assunto dal testo precedente.
+
+**Verificato in locale** (`http://127.0.0.1:8743`, `blog/_site`
+renderizzato) con Playwright: `window.WebGeoDS.track` avvolto via
+`page.addInitScript` per loggare ogni chiamata (nessuna richiesta di
+rete reale verso GoatCounter, sicuro da rieseguire) — `validation_completed`
+confermato con il `tool` corretto su tutti e quattro le pagine tool
+(il primo giro locale, con un'attesa fissa troppo breve, aveva fatto
+sembrare l'evento assente su tutte e quattro — corretto passando a un
+polling che aspetta il primo caricamento Pyodide/geopandas, non
+supponendo un tempo fisso), `newsletter_view` confermato su
+`about.html`. Nessuna regressione: 16/16 map-tests, 51/51 smoke-test
+lessons (entrambi puliti al primo giro isolato — nessun rerun
+concorrente questa volta, imparata la lezione della verifica
+precedente).

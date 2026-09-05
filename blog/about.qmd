@@ -53,3 +53,39 @@ newsletter below is the way to follow it.
 [Explore the tools →](/tools/index.html) · [Read the articles →](/index.html)
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
+<script>
+  // Kit's embed script injects the actual <form data-uid="31051e3ca1">
+  // asynchronously (it isn't in the DOM at page load) -- a
+  // MutationObserver catches it whenever it lands instead of guessing
+  // a fixed delay. "view" = the form finished rendering for this
+  // visitor (same sense as tool_loaded, not scroll-into-view).
+  // "signup" fires on the form's own submit event: Kit's own script
+  // also listens on this same event (to AJAX-submit inline instead of
+  // navigating), and multiple listeners on one event don't interfere
+  // with each other -- this only observes the click-through intent,
+  // same approximation download_clicked/tool_click already make
+  // elsewhere, not a server-confirmed subscription.
+  (() => {
+    const onFormFound = (form) => {
+      window.WebGeoDS?.track?.("newsletter_view");
+      form.addEventListener("submit", () => {
+        window.WebGeoDS?.track?.("newsletter_signup");
+      });
+    };
+
+    const existing = document.querySelector('form[data-uid="31051e3ca1"]');
+    if (existing) {
+      onFormFound(existing);
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      const form = document.querySelector('form[data-uid="31051e3ca1"]');
+      if (form) {
+        observer.disconnect();
+        onFormFound(form);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  })();
+</script>

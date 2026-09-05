@@ -584,6 +584,10 @@ pyErrors = WebGeoDS.getCellValue("topology-diagnose-py", Generators)
     await sharedMap.fitToData(pyErrors.features);
     mutable exportFeatures = pyErrors.originalCrsFeatures;
     mutable crsWarning = pyErrors.crsWarning;
+    // See geojson-shapefile-validator.qmd's own comment on this same
+    // call -- the Tool Utility Rate funnel's own step, distinct from
+    // the generic code_run_completed.
+    window.WebGeoDS.track?.("validation_completed", { tool: "topology-checker" });
   }
 }
 ```

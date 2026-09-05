@@ -356,6 +356,12 @@ pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
     await sharedMap.fitToData(pyDiagnose.features);
     mutable exportFeatures = pyDiagnose.originalCrsFeatures;
     mutable crsWarning = pyDiagnose.crsWarning;
+    // Distinct from the generic code_run_completed (fires for every
+    // cell on every page, cellId only in the free-text title) --
+    // this is the Tool Utility Rate funnel's own step (see
+    // roadmap-acquisizione.md's "Metriche da leggere"), a real path
+    // GoatCounter can filter on directly.
+    window.WebGeoDS.track?.("validation_completed", { tool: "geojson-shapefile-validator" });
   }
 }
 ```
