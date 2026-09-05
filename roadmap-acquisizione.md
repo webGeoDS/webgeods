@@ -2606,3 +2606,57 @@ residui, non solo il primo punto controllato.
 Verificato con Playwright (screenshot inclusi per navbar, illustrazioni
 topologia, diagramma CRS, nota a margine): tutto renderizza come
 atteso. Nessuna regressione: 16/16 map-tests, 51/51 smoke-test lessons.
+
+## 2026-09-05 — Search Console: primi dati, sitemap/canonical disallineati (trovato e corretto)
+
+L'autore ha condiviso i primi dati di Search Console per
+webgeods.com (filtro Ricerca Web, ultimi 3 mesi): un solo evento
+registrato, il 3 settembre 2026 — 1 impressione, 0 click, posizione
+media 1, dagli USA da Computer, sulla home page, nessuna query
+(sotto la soglia minima di Google per mostrarle). Normale per un
+sito di poche pagine con circa una settimana di vita: non c'è ancora
+storico reale da leggere.
+
+Come verifica indipendente (test di query Google "probabili" per gli
+strumenti del sito — validator geojson/shapefile, topology checker,
+CRS detector — più il nome del brand da solo): **webgeods.com non
+compare in nessun risultato**, nemmeno cercando "webgeods" (escono
+solo risultati per "WebGeoDa", framework diverso). Atteso per un
+sito così giovane senza backlink, non di per sé preoccupante.
+
+Controllando poi il sito live direttamente (`robots.txt`,
+`sitemap.xml`, tag canonical della home) per rispondere al suggerimento
+dell'autore di verificare indicizzazione/sitemap: **trovato un bug
+reale**. `sitemap.xml` (generato automaticamente da Quarto da
+`site-url`, nessuna opzione di config per la forma degli URL) elenca
+`https://webgeods.com/index.html` e
+`https://webgeods.com/tools/index.html`, mentre i tag canonical
+generati da `seo-meta.lua` per quelle stesse pagine dicono la forma
+pulita `https://webgeods.com/` e `https://webgeods.com/tools/` — due
+URL diversi dichiarati per la stessa pagina, un segnale di
+canonicalizzazione contraddittorio per i motori di ricerca.
+
+**Corretto** aggiungendo `fixSitemap()` a `post-render-fixups.mjs`
+(terzo fixup dello script, stesso pattern dei due già esistenti):
+riscrive ogni `<loc>` che termina in `.../index.html` nella forma
+pulita della directory, rispecchiando esattamente la logica di
+`canonical_url()` in `seo-meta.lua`. Verificato: dopo
+`quarto render blog` + `node post-render-fixups.mjs`, riscritte
+esattamente le 2 voci attese (root e `tools/`); `sitemap.xml`
+risultante ora coincide con i canonical su tutte le 12 pagine.
+
+**Nota pratica**: la correzione è nel codice locale ma raggiunge il
+sito live solo al prossimo render + fixups + deploy (prossimo push) —
+`sitemap.xml` in produzione, al momento di questa verifica, è ancora
+quello vecchio con `index.html`.
+
+Test: map-tests fallito una volta in modo isolato (timeout di
+caricamento dello style della mappa, 20s — non correlato alla
+modifica, che tocca solo `sitemap.xml`), 16/16 al rerun immediato.
+Smoke-test lessons crashato una volta a metà suite
+("Target page, context or browser has been closed") per contesa di
+risorse causata da un mio rerun concorrente di map-tests in
+background — non correlato alla modifica (lessons/ non tocca
+`sitemap.xml`, progetto separato) — 51/51 pulito al rerun senza
+processi concorrenti. Entrambi i fallimenti quindi ambientali, non
+regressioni.

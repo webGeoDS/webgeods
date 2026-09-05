@@ -3,7 +3,7 @@
 //
 // Small, independent post-render patches for things Quarto's own
 // output gets wrong or leaves undone, run AFTER `quarto render blog`.
-// Two fixes today:
+// Three fixes today:
 //
 //   1. Search index text leaking hidden code/comments (see
 //      fixSearchIndex()'s own comment for the full story).
@@ -17,6 +17,11 @@
 //      this project (_brand.yml's `typography.fonts.source: file`,
 //      see fonts.css's own comment) -- patched here instead of
 //      re-litigated.
+//   3. sitemap.xml listing "index.html" for a directory's own listing
+//      page while its canonical tag says the clean "/" form (see
+//      fixSitemap()'s own comment) -- found 2026-09-05 while checking
+//      Search Console's near-empty coverage against the live site's
+//      own robots.txt/sitemap.xml/canonical tags.
 //
 // Quarto's own search-index builder works off each .qmd's raw
 // markdown source (confirmed by inspecting .quarto/idx/*.qmd.json:
@@ -50,6 +55,7 @@ import path from "node:path";
 const SITE_DIR = "blog/_site";
 const SRC_DIR = "blog";
 const SEARCH_JSON = path.join(SITE_DIR, "search.json");
+const SITEMAP_XML = path.join(SITE_DIR, "sitemap.xml");
 
 function stripExecutableCells(markdown) {
   const lines = markdown.split("\n");
@@ -271,5 +277,39 @@ function fixLogoAlt() {
   console.log("post-render-fixups: logo alt -- fixed " + fixedCount + " page(s)");
 }
 
+// Quarto auto-generates sitemap.xml itself (no config to shape the
+// URL form -- confirmed against _quarto.yml's own comment on
+// site-url) and lists every page's raw output path, "index.html"
+// included -- but seo-meta.lua's canonical tags deliberately use the
+// clean "/" / "/tools/" form for a directory's own listing page (the
+// conventional form search engines expect). Left alone, the homepage
+// (and any other index.html) would tell Google two different URLs for
+// the same page: sitemap.xml says ".../index.html", the page's own
+// canonical says ".../" -- caught by fetching the live site's
+// robots.txt/sitemap.xml/canonical tag directly and comparing them
+// side by side, not assumed from reading the config alone. Rewrites
+// sitemap.xml's <loc> entries to match, mirroring seo-meta.lua's own
+// canonical_url() logic exactly.
+function fixSitemap() {
+  if (!existsSync(SITEMAP_XML)) {
+    console.error("Not found: " + SITEMAP_XML + " -- run quarto render first (requires website.site-url set).");
+    process.exit(1);
+  }
+
+  const xml = readFileSync(SITEMAP_XML, "utf8");
+  let fixedCount = 0;
+
+  const fixed = xml.replace(/<loc>(https?:\/\/[^<]+)<\/loc>/g, (match, url) => {
+    const m = url.match(/^(https?:\/\/[^/]+)(\/(?:.*\/)?)index\.html$/);
+    if (!m) return match;
+    fixedCount++;
+    return "<loc>" + m[1] + m[2] + "</loc>";
+  });
+
+  writeFileSync(SITEMAP_XML, fixed);
+  console.log("post-render-fixups: sitemap -- rewrote " + fixedCount + " index.html entries to their clean directory URL in " + SITEMAP_XML);
+}
+
 fixSearchIndex();
 fixLogoAlt();
+fixSitemap();
