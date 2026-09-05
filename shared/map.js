@@ -262,6 +262,36 @@
 
 
   // ============================================================
+  // designToken(name, fallback) — read a CSS custom property
+  // ============================================================
+  //
+  // MapLibre's paint expressions need a real color string, not a CSS
+  // var() reference — it renders via WebGL/canvas, not the DOM/CSSOM,
+  // so it never resolves var() itself the way a stylesheet rule
+  // would. Before this, the palette below was duplicated as literal
+  // hex, hand-copied from shared/styles.css's :root block and already
+  // found to have drifted from it in one spot (addMarkers()'s default
+  // marker color happened to still match --dataviz-invalid, by luck,
+  // not by reference) — see roadmap-acquisizione.md's "Field Atlas"
+  // audit. Reading the custom property directly, on every call rather
+  // than caching, means a future dark-mode toggle (redefining these
+  // under prefers-color-scheme/a [data-theme] attribute) needs no
+  // extra invalidation here — this always sees the value that's live
+  // right now. Falls back to the pre-fix literal only if the property
+  // is somehow unset (styles.css not loaded yet).
+  function designToken(name, fallback) {
+
+    const value =
+      getComputedStyle(document.documentElement)
+        .getPropertyValue(name)
+        .trim();
+
+    return value || fallback;
+
+  }
+
+
+  // ============================================================
   // WebGeoDSMap
   // ============================================================
 
@@ -756,11 +786,12 @@
 
     _defaultPaint(type) {
 
-      // "Field Atlas" palette (see _brand.yml): moss for area fills,
-      // terracotta for points/lines — same roles the design system
-      // assigns them (study areas vs. sampled data points), with a
-      // paper-colored halo for contrast against the neutral Positron
-      // basemap.
+      // "Field Atlas" palette (see _brand.yml, read live via
+      // designToken() — see its own comment for why): moss for area
+      // fills, terracotta for points/lines — same roles the design
+      // system assigns them (study areas vs. sampled data points),
+      // with a paper-colored halo for contrast against the neutral
+      // Positron basemap.
       switch (type) {
 
         case "fill":
@@ -768,13 +799,13 @@
           return {
 
             "fill-color":
-              "#42583c",
+              designToken("--muschio", "#42583c"),
 
             "fill-opacity":
               0.45,
 
             "fill-outline-color":
-              "#2a2117"
+              designToken("--inchiostro", "#2a2117")
 
           };
 
@@ -784,7 +815,7 @@
           return {
 
             "line-color":
-              "#b0522c",
+              designToken("--terracotta", "#b0522c"),
 
             "line-width":
               3,
@@ -803,13 +834,13 @@
               6,
 
             "circle-color":
-              "#b0522c",
+              designToken("--terracotta", "#b0522c"),
 
             "circle-stroke-width":
               1,
 
             "circle-stroke-color":
-              "#f3ede1"
+              designToken("--carta", "#f3ede1")
 
           };
 
@@ -1318,11 +1349,14 @@
               features: [feature]
             });
 
+          const selection =
+            designToken("--dataviz-selection", "#ffeb3b");
+
           return type === "line" ?
-            { "line-color": "#ffeb3b", "line-width": 6 } :
+            { "line-color": selection, "line-width": 6 } :
             type === "circle" ?
-              { "circle-color": "#ffeb3b", "circle-radius": 8 } :
-              { "fill-color": "#ffeb3b", "fill-opacity": 0.6 };
+              { "circle-color": selection, "circle-radius": 8 } :
+              { "fill-color": selection, "fill-opacity": 0.6 };
 
         };
 
@@ -1650,7 +1684,7 @@
         property,
         filter,
         position,
-        color = "#e05252"
+        color = designToken("--dataviz-invalid", "#e05252")
       } = options;
 
       const pos =
@@ -1752,13 +1786,16 @@
           this.getGeoJSON(sourceId)
         );
 
+      const selection =
+        designToken("--dataviz-selection", "#ffeb3b");
+
       const paint =
         options.paint ??
         (layerType === "line" ?
-          { "line-color": "#ffeb3b", "line-width": 6 } :
+          { "line-color": selection, "line-width": 6 } :
           layerType === "circle" ?
-            { "circle-color": "#ffeb3b", "circle-radius": 8 } :
-            { "fill-color": "#ffeb3b", "fill-opacity": 0.6 });
+            { "circle-color": selection, "circle-radius": 8 } :
+            { "fill-color": selection, "fill-opacity": 0.6 });
 
       const filter =
         ["in", ["id"], ["literal", featureIds]];

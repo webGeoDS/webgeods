@@ -2402,3 +2402,54 @@ post-submit sia il testo dell'email di conferma per puntare al nuovo
 URL. Il vecchio file (`geometric-topological-errors-cheatsheet.pdf`)
 resta pubblicato finché quell'aggiornamento non viene fatto, per non
 rompere il flusso di iscrizione esistente nel frattempo.
+
+**Audit "Field Atlas" (design system) + fix in `shared/map.js`
+(2026-09-06)**, su richiesta di una review esterna del sito live
+("interpella lo strumento design"). `DesignSync`/`/design-login` non
+disponibili in questo ambiente — impossibile leggere il canvas
+originale del Field Atlas System su claude.ai/design. La review è
+stata fatta comunque (fonte esterna, non uno strumento di questa
+sessione), confrontando il sito live contro `shared/_brand.yml` (che
+dichiara esplicitamente di essere la trascrizione di quel canvas).
+Ogni claim tecnico della review è stato **verificato riga per riga con
+grep prima di agire** (disciplina già consolidata in questo progetto):
+tutti confermati esatti, incluso il conteggio preciso (6 occorrenze di
+`#ffeb3b`, 8 di `"IBM Plex Mono"`, zero `prefers-color-scheme`).
+
+**Il problema reale**: `shared/styles.css` ha un sistema di custom
+property a due livelli ben fatto (palette letterale → alias
+semantici, "everything below this block should reference a var(), not
+a literal hex") rispettato ovunque nel CSS — ma `shared/map.js` (il
+componente mappa condiviso da tutti i tool, la superficie colorata
+maggiore del sito) reimplementava la stessa palette come stringhe hex
+letterali scollegate, in `_defaultPaint()`, `addMarkers()`,
+`selectionPaint()`/`highlight()` — una vera doppia fonte di verità:
+cambiare `--terracotta`/`--muschio` in CSS non si sarebbe mai
+propagato alle mappe. Confermato che nessun altro file JS condiviso
+(`table.js`, `upload.js`, `download.js`, `code-cell.js`, `runtime.js`,
+`python.js`, `r.js`) ha lo stesso problema — fix chirurgico, isolato a
+un solo file.
+
+**Fix**: nuova funzione `designToken(name, fallback)` in `map.js` —
+legge `getComputedStyle(document.documentElement).getPropertyValue(...)`
+**a ogni chiamata, non in cache** (scelta deliberata: MapLibre non
+risolve mai `var()` da solo, essendo canvas/WebGL e non DOM/CSSOM, ma
+non cachare il valore letto significa che una futura modalità scura
+via `prefers-color-scheme`/`[data-theme]` — già segnalata come
+possibile passo successivo — funzionerebbe qui senza bisogno di
+invalidare nulla). Tutti gli 8 hex hardcoded sostituiti con
+`designToken("--nome-token", "<stesso hex di prima come fallback>")`.
+Aggiunto anche il token mancante segnalato dalla review — il giallo di
+selezione `#ffeb3b`, mai token in `_brand.yml` né in `styles.css`,
+ora `--dataviz-selection` (stesso valore, accanto a `--dataviz-invalid`/
+`--dataviz-valid`, stesso pattern "non in _brand.yml" già usato per
+`--muschio-hover`/`--action-disabled-bg`).
+
+Verificato con Playwright: i valori restituiti da `_defaultPaint()`
+("fill"/"line"/"circle") corrispondono esattamente al valore LIVE di
+`getComputedStyle` per gli stessi custom property, non più a copie
+statiche — la doppia fonte di verità è eliminata. Nessuna regressione:
+16/16 map-tests, 51/51 smoke-test lessons. Non toccati (esplicitamente
+fuori scope, segnalati dalla review come miglioramenti non urgenti):
+la conversione degli `rgba(90, 79, 62, ...)` sparsi in `color-mix()`,
+e l'estensione dello stesso schema a due livelli a spacing/tipografia.

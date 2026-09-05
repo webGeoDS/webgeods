@@ -49,6 +49,7 @@
      accent — see roadmap-acquisizione.md's design-tokens entry. */
   --dataviz-invalid: #e05252;
   --dataviz-valid: #2ea44f;
+  --dataviz-selection: #ffeb3b; /* not in _brand.yml — map.js's row-selection/highlight() yellow, promoted from a literal repeated 6 times with no token at all (see roadmap-acquisizione.md's "Field Atlas" audit) */
 }
 
 /* Code cell container — "Field Atlas" palette. Sharp corners
