@@ -43,6 +43,12 @@ website:
         menu:
           - href: tools/index.qmd
             text: All tools
+          # A plain "---" divider has no room for a label of its own
+          # (renders as a bare <hr>), and Quarto rejects a nested
+          # `menu:` here ("this menu does not support sub-menus",
+          # confirmed by quarto render itself) — so this divider is
+          # the anchor a small script (see include-after-body below)
+          # attaches a "Spatial Data Quality" header to at runtime.
           - text: "---"
           - href: tools/geospatial-file-inspector.qmd
             text: Inspect
@@ -63,8 +69,8 @@ website:
             text: Check Topology
       - about.qmd
     # Each dropdown groups the current "Spatial Data Quality" phase —
-    # add a second divider block per menu (or a second top-level entry,
-    # if it grows large enough) once Fase 2 (Spatial Analysis) ships.
+    # add a second divider + label (see include-after-body's script)
+    # once Fase 2 (Spatial Analysis) ships.
   open-graph: true
   # sitemap.xml is not a key of its own: Quarto generates it automatically in
   # _site/ when site-url is set. Placeholder to be confirmed — change it if
@@ -123,6 +129,27 @@ format:
           <script src="/table.js"></script>
           <script src="/upload.js"></script>
           <script src="/download.js"></script>
+          <script>
+            // Quarto's navbar schema has no non-clickable header item
+            // inside a dropdown, and nested `menu:` submenus aren't
+            // supported either (quarto render itself refuses them:
+            // "this menu does not support sub-menus") -- so the
+            // "Spatial Data Quality" group label under Tools/Articles
+            // (see _quarto.yml's navbar) is inserted here instead,
+            // right where the "---" divider already marks its place.
+            // Revisit once a second phase (Spatial Analysis) needs its
+            // own label too -- this only handles one per dropdown.
+            document.addEventListener("DOMContentLoaded", () => {
+              ["nav-menu-tools", "nav-menu-articles"].forEach((id) => {
+                const toggle = document.getElementById(id);
+                const divider = toggle?.nextElementSibling?.querySelector(".dropdown-divider");
+                if (!divider) return;
+                const li = document.createElement("li");
+                li.innerHTML = '<h6 class="dropdown-header">Spatial Data Quality</h6>';
+                divider.closest("li").after(li);
+              });
+            });
+          </script>
     toc: true
 filters:
   - webgeods-cells.lua

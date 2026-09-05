@@ -2258,3 +2258,40 @@ ciascuno, la homepage ha un'unica intestazione "Spatial Data Quality"
 ancora elencati, `/articles.html` esiste ed elenca gli stessi 3
 articoli. Nessuna regressione: 16/16 map-tests, 51/51 smoke-test
 lessons.
+
+**Correzione: label "Spatial Data Quality" nel menu + tool elencati in
+homepage (2026-09-05)**, dopo verifica dell'utente sulla homepage LIVE
+(non sul sorgente — stesso errore di valutazione già fatto una volta
+in questa sessione, questa volta preso PRIMA di rispondere): il
+divisore `"---"` tra "All tools"/"All articles" e i 3 item nei
+dropdown renderizza come un semplice `<hr>`, senza alcun testo — la
+categoria "Spatial Data Quality" descritta nel piano non era visibile
+da nessuna parte nel menu. Tentativo iniziale con un sotto-menu
+annidato (`text: Spatial Data Quality` + `menu:` dentro un `menu:`)
+**rifiutato da Quarto stesso** ("this menu does not support
+sub-menus", errore in fase di `quarto render`, non solo un limite
+documentale) — lo schema navbar di Quarto non ha né un header
+non-cliccabile né sotto-dropdown veri. Risolto con un piccolo script
+in `include-after-body` (site-wide, in `_quarto.yml`) che al
+`DOMContentLoaded` inserisce un `<h6 class="dropdown-header">Spatial
+Data Quality</h6>` subito dopo il divisore nei due menu `#nav-menu-tools`/
+`#nav-menu-articles` — usa una classe Bootstrap già stilizzata dal
+tema, verificato via screenshot Playwright che il risultato è
+visivamente corretto (etichetta in maiuscolo/grigio, coerente con lo
+stile nativo dei dropdown header). Da rivedere quando arriva una
+seconda fase (Spatial Analysis): oggi lo script gestisce un solo
+divisore/etichetta per dropdown.
+
+Seconda correzione nello stesso giro: l'utente non vedeva "l'indice
+completo nella main page" — la homepage elencava solo i 3 articoli
+(via la listing automatica), i tool erano solo linkati genericamente
+("Explore the tools →"), mai per nome. Aggiunte due righe sotto
+"## Spatial Data Quality" — **Tools** — Inspect/Validate/Check
+Topology (link diretti) + "all tools →", e lo stesso per **Articles**
+— così la homepage mostra davvero il contenuto della categoria, non
+solo un sottoinsieme di esso.
+
+Verificato con Playwright (screenshot incluso): entrambi i dropdown
+mostrano l'header "Spatial Data Quality" al posto giusto, la homepage
+linka direttamente le 3 pagine tool + le 3 pagine articolo per nome.
+Nessuna regressione: 16/16 map-tests, 51/51 smoke-test lessons.

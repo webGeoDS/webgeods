@@ -22,8 +22,15 @@ need an answer, not the full explanation.
 
 ## Spatial Data Quality
 
-**Inspect → Validate → Check Topology → CRS** — a small, focused
-toolkit for checking geospatial data before you trust it. Free, no
-account, nothing leaves your browser. See the
-[full list of articles →](/articles.html) or the
-[standalone tools →](/tools/index.html).
+A small, focused toolkit for checking geospatial data before you trust
+it. Free, no account, nothing leaves your browser.
+
+**Tools** — [Inspect](/tools/geospatial-file-inspector.html) ·
+[Validate](/tools/geojson-shapefile-validator.html) ·
+[Check Topology](/tools/topology-checker.html) ·
+[all tools →](/tools/index.html)
+
+**Articles** — [Inspect](/posts/geospatial-file-inspection.html) ·
+[Validate](/posts/geometry-validity.html) ·
+[Check Topology](/posts/topology-errors.html) ·
+[all articles →](/articles.html)
