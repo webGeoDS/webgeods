@@ -253,7 +253,45 @@ topologyErrorsStats = Generators.observe((change) => {
 })
 ```
 
-**Topology check** — ${topologyErrorsStats.total} feature, ${topologyErrorsStats.errors} with an error, ${topologyErrorsStats.gaps} total gaps.
+```{ojs}
+//| echo: false
+// Combines whichever of pyCrsWarning/rCrsWarning is currently set —
+// at most one in practice (both languages read the same uploaded
+// file), but shown separately just in case they ever disagree.
+crsWarningNotice = {
+  const warnings = [pyCrsWarning, rCrsWarning].filter(Boolean);
+  return warnings.length ? ` ⚠️ ${[...new Set(warnings)].join(" ")}` : "";
+}
+```
+
+**Topology check** — ${topologyErrorsStats.total} feature, ${topologyErrorsStats.errors} with an error, ${topologyErrorsStats.gaps} total gaps.${crsWarningNotice}
+
+```{ojs}
+//| echo: false
+// Download payloads in each language's own original CRS, not the
+// WGS84 working copy the map/table show — kept in sync with whichever
+// of the example cells or the "apply to your file" cells ran most
+// recently (pyErrors/rErrors and pyErrorsUploaded/rErrorsUploaded
+// below all write to the SAME map sources and must all update these
+// together, or downloading after loading a plain example would
+// wrongly reuse a stale reprojection from an earlier upload).
+mutable pyExportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+mutable rExportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+mutable pyCrsWarning = null
+```
+
+```{ojs}
+//| echo: false
+mutable rCrsWarning = null
+```
 
 ```{ojs}
 //| echo: false
@@ -264,6 +302,10 @@ resetTopologyErrors = async () => {
       await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
     }
   }
+  mutable pyExportFeatures = null;
+  mutable rExportFeatures = null;
+  mutable pyCrsWarning = null;
+  mutable rCrsWarning = null;
 }
 ```
 
@@ -289,7 +331,7 @@ downloadButton = {
   const button = document.createElement("button");
   button.textContent = "⬇ Download";
   button.onclick = () => {
-    const features = ["topology-errors-py", "topology-errors-r"].flatMap((id) => sharedMap.getGeoJSON(id)?.features ?? []);
+    const features = [pyExportFeatures, rExportFeatures].flatMap((fc) => fc?.features ?? []);
     if (features.length === 0) return;
     const base = WebGeoDS.Upload.baseName(uploadedFiles);
     WebGeoDS.downloadBlob(
@@ -792,6 +834,13 @@ pyErrors = WebGeoDS.getCellValue("topology-errors-example-py", Generators)
     // alone already covers it in practice; a no-op on an empty
     // FeatureCollection.
     await sharedMap.fitToData(pyErrors.features);
+    // Always EPSG:4326 by construction (see the code above) — no
+    // reprojection needed, but still refreshed here (not just by
+    // pyErrorsUploaded below) so downloading after loading a plain
+    // example doesn't reuse a stale reprojection from an earlier
+    // upload.
+    mutable pyExportFeatures = pyErrors.features;
+    mutable pyCrsWarning = null;
   }
 }
 ```
@@ -805,6 +854,8 @@ rErrors = WebGeoDS.getCellValue("topology-errors-example-r", Generators)
     await sharedMap.setGeoJSON("topology-errors-r", rErrors.features, { paint: errorPaint(rErrors.features) });
     await sharedMap.setGeoJSON("topology-errors-gaps-r", rErrors.gaps, { paint: gapPaint });
     await sharedMap.fitToData(rErrors.features);
+    mutable rExportFeatures = rErrors.features;
+    mutable rCrsWarning = null;
   }
 }
 ```
@@ -997,6 +1048,20 @@ for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
     except Exception:
         pass
 
+# check_gap()'s proximity/check_sliver()'s compactness above work in
+# gdf's OWN coordinate units — reprojected to WGS84 here (same units
+# every example on this page already uses) before detect_and_check()
+# runs, not just before the map draws it.
+crs_warning = None
+original_crs = None
+if gdf is not None:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    original_crs = gdf.crs
+    if original_crs != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+
 if gdf is not None and "name" not in gdf.columns:
     gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
@@ -1004,8 +1069,20 @@ if gdf is None:
     a = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.52, 41.85], [12.52, 41.92], [12.45, 41.92], [12.45, 41.85]]]}
     b = {"type": "Polygon", "coordinates": [[[12.50, 41.87], [12.57, 41.87], [12.57, 41.94], [12.50, 41.94], [12.50, 41.87]]]}
     gdf = gpd.GeoDataFrame({"name": ["A (example)", "B (example)"]}, geometry=[shape(a), shape(b)], crs="EPSG:4326")
+    original_crs = gdf.crs
 
-detect_and_check(gdf)
+result = detect_and_check(gdf)
+# Reprojects the now report-annotated gdf back to the CRS it was
+# uploaded in — used by the download button further up the page, so
+# what comes out matches what went in even though the checks above
+# always run in WGS84.
+result["originalCrsFeatures"] = (
+    gdf.to_crs(original_crs).__geo_interface__
+    if original_crs is not None and original_crs != "EPSG:4326"
+    else result["features"]
+)
+result["crsWarning"] = crs_warning
+result
 ```
 
 ## R
@@ -1017,6 +1094,23 @@ for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
   if (!is.null(data)) break
 }
 
+# check_gap()'s proximity/check_sliver()'s compactness above work in
+# data's OWN coordinate units — reprojected to WGS84 here (same units
+# every example on this page already uses) before detect_and_check()
+# runs, not just before the map draws it.
+crs_warning <- NULL
+original_crs <- NULL
+if (!is.null(data)) {
+  if (is.na(sf::st_crs(data))) {
+    sf::st_crs(data) <- 4326
+    crs_warning <- "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+  }
+  original_crs <- sf::st_crs(data)
+  if (!isTRUE(original_crs == sf::st_crs(4326))) {
+    data <- sf::st_transform(data, 4326)
+  }
+}
+
 if (!is.null(data) && !("name" %in% names(data))) {
   data$name <- paste("geometry", seq_len(nrow(data)))
 }
@@ -1025,9 +1119,21 @@ if (is.null(data)) {
   a <- sf::st_polygon(list(rbind(c(12.45, 41.85), c(12.52, 41.85), c(12.52, 41.92), c(12.45, 41.92), c(12.45, 41.85))))
   b <- sf::st_polygon(list(rbind(c(12.50, 41.87), c(12.57, 41.87), c(12.57, 41.94), c(12.50, 41.94), c(12.50, 41.87))))
   data <- sf::st_sf(name = c("A (example)", "B (example)"), geometry = sf::st_sfc(a, b, crs = 4326))
+  original_crs <- sf::st_crs(data)
 }
 
-detect_and_check(data)
+result <- detect_and_check(data)
+# Reprojects the now report-annotated `data` back to the CRS it was
+# uploaded in — used by the download button further up the page, so
+# what comes out matches what went in even though the checks above
+# always run in WGS84.
+result$originalCrsFeatures <- if (!isTRUE(original_crs == sf::st_crs(4326))) {
+  jsonlite::fromJSON(geojsonsf::sf_geojson(sf::st_transform(data, original_crs)), simplifyVector = FALSE)
+} else {
+  result$features
+}
+result$crsWarning <- crs_warning
+result
 ```
 
 :::
@@ -1041,6 +1147,8 @@ pyErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-py", Generato
     await sharedMap.setGeoJSON("topology-errors-py", pyErrorsUploaded.features, { paint: errorPaint(pyErrorsUploaded.features) });
     await sharedMap.setGeoJSON("topology-errors-gaps-py", pyErrorsUploaded.gaps, { paint: gapPaint });
     await sharedMap.fitToData(pyErrorsUploaded.features);
+    mutable pyExportFeatures = pyErrorsUploaded.originalCrsFeatures ?? pyErrorsUploaded.features;
+    mutable pyCrsWarning = pyErrorsUploaded.crsWarning ?? null;
   }
 }
 ```
@@ -1054,6 +1162,8 @@ rErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-r", Generators
     await sharedMap.setGeoJSON("topology-errors-r", rErrorsUploaded.features, { paint: errorPaint(rErrorsUploaded.features) });
     await sharedMap.setGeoJSON("topology-errors-gaps-r", rErrorsUploaded.gaps, { paint: gapPaint });
     await sharedMap.fitToData(rErrorsUploaded.features);
+    mutable rExportFeatures = rErrorsUploaded.originalCrsFeatures ?? rErrorsUploaded.features;
+    mutable rCrsWarning = rErrorsUploaded.crsWarning ?? null;
   }
 }
 ```

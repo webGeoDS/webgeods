@@ -147,14 +147,20 @@ mutable rSummary = null
 pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
 {
   if (pyInspect) {
-    await sharedMap.setGeoJSON("inspect-py", pyInspect.features, { paint: INSPECT_PAINT });
+    // mapFeatures (WGS84), falling back to features: the default
+    // inspect-py code returns both, but the CRS-mismatch example in
+    // section 6 deliberately returns only "features", still in Web
+    // Mercator — that's the whole point of that example (see its own
+    // callout below), so it must NOT be silently reprojected here.
+    const mapData = pyInspect.mapFeatures ?? pyInspect.features;
+    await sharedMap.setGeoJSON("inspect-py", mapData, { paint: INSPECT_PAINT });
     // Zooms to whatever was just inspected — same as the standalone
     // tool. Without this the CRS-mismatch example in section 6 would
     // load fine but stay invisible: the map would just sit at its
     // fixed initial view over Italy instead of jumping to wherever the
     // Web Mercator coordinates actually land, missing the whole point
     // of that example.
-    await sharedMap.fitToData(pyInspect.features);
+    await sharedMap.fitToData(mapData);
     mutable pySummary = pyInspect.summary;
   }
 }
@@ -166,8 +172,10 @@ pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
 rInspect = WebGeoDS.getCellValue("inspect-r", Generators)
 {
   if (rInspect) {
-    await sharedMap.setGeoJSON("inspect-r", rInspect.features, { paint: INSPECT_PAINT });
-    await sharedMap.fitToData(rInspect.features);
+    // Same mapFeatures/features fallback as pyInspect above.
+    const mapData = rInspect.mapFeatures ?? rInspect.features;
+    await sharedMap.setGeoJSON("inspect-r", mapData, { paint: INSPECT_PAINT });
+    await sharedMap.fitToData(mapData);
     mutable rSummary = rInspect.summary;
   }
 }
@@ -216,7 +224,7 @@ statCard = (label, s) => {
 
   row("Features", s.total.toLocaleString());
   row("Geometry", geometryLabel);
-  row("CRS", s.crs ?? "Unknown");
+  row("CRS", s.crsWarning ? `${s.crs} ⚠️ ${s.crsWarning}` : (s.crs ?? "Unknown"));
   row("Bounds", s.bounds ? s.bounds.join(", ") : "—");
   row("Attributes", `${s.attributeNames.length}${s.attributeNames.length > 0 ? ` (${s.attributeNames.join(", ")})` : ""}`);
   row("Invalid", String(s.invalid));
@@ -295,6 +303,16 @@ if gdf is None:
         crs="EPSG:4326"
     )
 
+# CRS is reported in the file's OWN units below (see section 2/6) — a
+# bounding box in the hundreds of thousands is itself the "something's
+# off" signal, which reprojecting here would erase. Only a MISSING CRS
+# gets corrected (assumed WGS84, flagged) — there's nothing native to
+# report otherwise.
+crs_warning = None
+if gdf.crs is None:
+    gdf = gdf.set_crs("EPSG:4326")
+    crs_warning = "No CRS found in the file — assuming WGS84 (EPSG:4326)."
+
 if "name" not in gdf.columns:
     gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
@@ -317,12 +335,21 @@ geometry_types = sorted(set(gdf.geometry.geom_type))
 bounds = [round(float(b), 6) for b in gdf.total_bounds]
 crs = gdf.crs.to_string() if gdf.crs is not None else None
 
+# MapLibre/GeoJSON require WGS84 — the summary above intentionally
+# stays in the file's own native CRS (see comment above), so the map
+# gets its own throwaway reprojected copy instead of reusing gdf
+# directly. gdf.crs is never None here (a missing CRS was already
+# assumed WGS84 above).
+map_gdf = gdf if gdf.crs == "EPSG:4326" else gdf.to_crs("EPSG:4326")
+
 {
     "features": gdf.__geo_interface__,
+    "mapFeatures": map_gdf.__geo_interface__,
     "summary": {
         "total": len(gdf),
         "geometryTypes": geometry_types,
         "crs": crs,
+        "crsWarning": crs_warning,
         "bounds": bounds,
         "attributeNames": attribute_columns,
         "invalid": int((~gdf["valid"]).sum()),
@@ -349,6 +376,17 @@ if (is.null(data)) {
   data <- sf::st_sf(name = c("square", "square (copy)", "bowtie"), population = c(1200, 1200, NA), geometry = geoms)
 }
 
+# CRS is reported in the file's OWN units below (see section 2/6) — a
+# bounding box in the hundreds of thousands is itself the "something's
+# off" signal, which reprojecting here would erase. Only a MISSING CRS
+# gets corrected (assumed WGS84, flagged) — there's nothing native to
+# report otherwise.
+crs_warning <- NULL
+if (is.na(sf::st_crs(data))) {
+  sf::st_crs(data) <- 4326
+  crs_warning <- "No CRS found in the file — assuming WGS84 (EPSG:4326)."
+}
+
 if (!("name" %in% names(data))) {
   data$name <- paste("geometry", seq_len(nrow(data)))
 }
@@ -365,6 +403,13 @@ geometry_types <- sort(unique(as.character(sf::st_geometry_type(data))))
 bnd <- sf::st_bbox(data)
 crs_input <- sf::st_crs(data)$input
 
+# MapLibre/GeoJSON require WGS84 — the summary above intentionally
+# stays in the file's own native CRS (see comment above), so the map
+# gets its own throwaway reprojected copy instead of reusing `data`
+# directly. st_crs(data) is never NA here (a missing CRS was already
+# assumed WGS84 above).
+map_data <- if (isTRUE(sf::st_crs(data) == sf::st_crs(4326))) data else sf::st_transform(data, 4326)
+
 # jsonlite::unbox() marks a value as a genuine scalar, explicitly,
 # field by field — the alternative would be toJSON(auto_unbox = TRUE)
 # globally, but that unboxes EVERY length-1 vector in the structure,
@@ -378,10 +423,12 @@ crs_input <- sf::st_crs(data)$input
 # handling needed for them at all.
 result <- list(
   features = jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE),
+  mapFeatures = jsonlite::fromJSON(geojsonsf::sf_geojson(map_data), simplifyVector = FALSE),
   summary = list(
     total = jsonlite::unbox(nrow(data)),
     geometryTypes = geometry_types,
     crs = if (is.null(crs_input)) NULL else jsonlite::unbox(crs_input),
+    crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning),
     bounds = unname(round(as.numeric(bnd), 6)),
     attributeNames = attribute_names,
     invalid = jsonlite::unbox(sum(!data$valid)),

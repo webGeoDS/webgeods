@@ -170,6 +170,16 @@ for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
     except Exception:
         pass
 
+# CRS is reported in the file's OWN units below (see the full article
+# this tool links to) — a bounding box in the hundreds of thousands is
+# itself the "something's off" signal, which reprojecting here would
+# erase. Only a MISSING CRS gets corrected (assumed WGS84, flagged) —
+# there's nothing native to report otherwise.
+crs_warning = None
+if gdf is not None and gdf.crs is None:
+    gdf = gdf.set_crs("EPSG:4326")
+    crs_warning = "No CRS found in the file — assuming WGS84 (EPSG:4326)."
+
 if gdf is not None:
     if "name" not in gdf.columns:
         gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
@@ -201,12 +211,23 @@ geometry_types = sorted(set(gdf.geometry.geom_type)) if gdf is not None and len(
 bounds = [round(float(b), 6) for b in gdf.total_bounds] if gdf is not None and len(gdf) > 0 else None
 crs = gdf.crs.to_string() if gdf is not None and gdf.crs is not None else None
 
+# MapLibre/GeoJSON require WGS84 — the summary above stays in the
+# file's own native CRS on purpose (see comment above), so the map
+# gets its own throwaway reprojected copy instead of reusing gdf
+# directly. gdf.crs is never None here (a missing CRS was already
+# assumed WGS84 above), so this only reprojects when the file actually
+# declared something else — and the download button (further down)
+# reads "features" (native CRS), not this one.
+map_gdf = gdf if (gdf is None or gdf.crs == "EPSG:4326") else gdf.to_crs("EPSG:4326")
+
 {
     "features": gdf.__geo_interface__ if gdf is not None else {"type": "FeatureCollection", "features": []},
+    "mapFeatures": map_gdf.__geo_interface__ if map_gdf is not None else {"type": "FeatureCollection", "features": []},
     "summary": {
         "total": len(gdf) if gdf is not None else 0,
         "geometryTypes": geometry_types,
         "crs": crs,
+        "crsWarning": crs_warning,
         "bounds": bounds,
         "attributeNames": attribute_columns,
         "invalid": int((~gdf["valid"]).sum()) if gdf is not None else 0,
@@ -258,11 +279,14 @@ mutable inspectSummary = null
 pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
 {
   if (pyInspect) {
-    await sharedMap.setGeoJSON("inspect-py", pyInspect.features, { paint: INSPECT_PAINT });
+    // mapFeatures, not features: the map needs WGS84, the summary
+    // card (and the download button below) intentionally keep the
+    // file's own native CRS — see inspect-py's own comment.
+    await sharedMap.setGeoJSON("inspect-py", pyInspect.mapFeatures, { paint: INSPECT_PAINT });
     // Zooms to whatever was just inspected — an upload or "Load
     // example" — same as every other tool. A no-op on an empty
     // FeatureCollection.
-    await sharedMap.fitToData(pyInspect.features);
+    await sharedMap.fitToData(pyInspect.mapFeatures);
     mutable inspectSummary = pyInspect.summary;
   }
 }
@@ -295,18 +319,18 @@ resetMapButton = {
 //| echo: false
 //| output: false
 // WebGeoDS.downloadBlob (shared/download.js) — the same helper every
-// other tool uses. Downloads the SAME enriched GeoJSON shown on the
-// map (original columns + valid/empty/duplicate), not a re-export of
-// the untouched upload: this tool never modifies geometry, so there's
-// nothing to "repair" here, but the three flags it computed are
-// useful to keep.
+// other tool uses. Downloads the enriched GeoJSON (original columns +
+// valid/empty/duplicate) in the file's own native CRS — pyInspect.
+// features, not the map source: the map source holds the WGS84 copy
+// reprojected just for display (see inspect-py/pyInspect's comments),
+// and a downloaded file should give back the same CRS it came in.
 downloadButton = {
   const button = document.createElement("button");
   button.className = "webgeods-panel-btn";
   button.dataset.variant = "outline";
   button.textContent = "⬇ Download";
   button.onclick = () => {
-    const data = sharedMap.getGeoJSON("inspect-py");
+    const data = pyInspect?.features;
     if (!data) return;
     const base = WebGeoDS.Upload.baseName(uploadedFiles);
     WebGeoDS.downloadBlob(
@@ -392,7 +416,7 @@ statCard = {
 
   row("Features", s.total.toLocaleString());
   row("Geometry", geometryLabel);
-  row("CRS", s.crs ?? "Unknown");
+  row("CRS", s.crsWarning ? `${s.crs} ⚠️ ${s.crsWarning}` : (s.crs ?? "Unknown"));
   row("Bounds", s.bounds ? s.bounds.join(", ") : "—");
   row("Attributes", `${s.attributeNames.length}${s.attributeNames.length > 0 ? ` (${s.attributeNames.join(", ")})` : ""}`);
   row("Invalid", String(s.invalid));

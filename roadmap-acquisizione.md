@@ -2146,3 +2146,69 @@ Playwright), nessuna regressione sul test esistente "getBounds /
 fitToData don't throw on valid GeoJSON", 16/16 map-tests, 51/51
 smoke-test lessons (incluso il timeout isolato `§16 R — sf`, rieseguito
 pulito in questo stesso giro).
+
+**Riproiezione CRS aggiunta ovunque un file caricato viene letto
+(2026-09-05)**, su richiesta esplicita dell'utente ("le conversioni
+shp→geojson e le visualizzazioni su MapLibre tengono conto di
+eventuali trasformazioni di CRS necessarie? Fai una verifica"). Audit
+(grep sistematico di `gpd.read_file`/`sf::st_read`/`to_crs`/
+`st_transform` sui 3 tool + 3 articoli) ha confermato un gap reale in
+TUTTO il progetto: **zero riproiezioni** applicate a un file caricato
+davvero — le uniche due chiamate `to_crs`/`st_transform` esistenti
+erano dentro l'esempio didattico CRS-mismatch di
+`geospatial-file-inspection.qmd`, che rompe DELIBERATAMENTE un CRS
+buono per dimostrare il problema, non lo corregge. GeoJSON (RFC 7946)
+richiede WGS84 e MapLibre non riproietta mai una sorgente GeoJSON da
+solo: un file caricato in un CRS proiettato (UTM, Web Mercator, ecc.
+— comunissimo nella pratica) veniva silenziosamente mal renderizzato,
+o lasciava la mappa ferma grazie all'hardening di `fitToData()` sopra
+(che maschera il sintomo, non la causa).
+
+Corretto in tutti e 6 i punti (3 tool Python-only in `blog/tools/`, 3
+articoli bilingue in `blog/posts/`), con lo stesso pattern in ogni
+cella che legge un file:
+- CRS mancante (nessun `.prj`) → assunto WGS84
+  (`gdf.set_crs("EPSG:4326")` / `sf::st_crs(data) <- 4326`), con un
+  avviso (`crsWarning`) che risale fino alla UI (riga di stato del
+  pannello per i tool, riga statistiche per gli articoli, riga "CRS"
+  della stat card per l'Inspector) — decisione esplicita dell'utente,
+  non presa autonomamente.
+- CRS presente ma diverso da WGS84 → la copia di lavoro usata per
+  mappa/validità/topologia viene riproiettata a EPSG:4326 (necessario
+  anche per la correttezza dei controlli stessi: le soglie del
+  Topology Checker, "Gap search distance (degrees)" in testa, hanno
+  senso solo se i dati sono davvero in gradi).
+- **Download nel CRS originale** (seconda richiesta esplicita
+  dell'utente): ogni cella che alimenta un download tiene un secondo
+  export, riproiettato ALL'INDIETRO verso il CRS con cui il file è
+  stato caricato (`export_crs()` in Python, funzione equivalente in
+  R) — sia per lo shapefile re-zippato del Validator
+  (`geometry-export-shp-py`, .prj compreso) sia per i download GeoJSON
+  degli altri tool/articoli. Sopravvive a Fix/Repair (la copia
+  esportata si aggiorna anche dopo la riparazione).
+- **Eccezione deliberata**: il GeoSpatial File Inspector (tool +
+  articolo) NON riproietta i valori mostrati nella stat card (CRS,
+  bounds) — restano nel CRS nativo del file, perché è esattamente il
+  segnale didattico che l'Inspector deve mostrare ("bounds nell'ordine
+  delle centinaia di migliaia" come sintomo di un problema di CRS,
+  discusso esplicitamente nell'articolo). Solo la copia usata per la
+  mappa (`mapFeatures`) viene riproiettata a WGS84, silenziosamente,
+  così la mappa non si rompe pur mostrando dati nativi nella stat
+  card. L'esempio CRS-mismatch stesso non è stato toccato (continua a
+  restituire solo `features`, senza `mapFeatures`): è la dimostrazione
+  DELIBERATA del problema, riproiettarlo automaticamente ne avrebbe
+  vanificato lo scopo — le celle effetto (`pyInspect`/`rInspect`)
+  gestiscono questo con `pyInspect.mapFeatures ?? pyInspect.features`.
+
+Verificato con 6 test Playwright end-to-end (upload di uno shapefile
+vero in EPSG:32633 costruito al volo con GeoPandas dentro la pagina
+stessa, e un secondo caso senza `.prj`): Inspector (CRS/bounds nativi
+in stat card + download, mappa riproiettata, nessun warning console),
+Validator (diagnose+repair riproiettano per i controlli, download
+GeoJSON e shapefile tornano in UTM nativo), Topology Checker (stessa
+cosa), articolo `geometry-validity.qmd` lato R (diagnose+repair),
+articolo `geospatial-file-inspection.qmd` lato R (CRS nativo
+"WGS 84 / UTM zone 33N" — formato diverso da Python, atteso e già
+discusso nell'articolo — bounds nativi, mappa riproiettata), e il caso
+CRS-mancante (warning corretto, assunto WGS84, visibile nella UI).
+Nessuna regressione: 16/16 map-tests, 51/51 smoke-test lessons.

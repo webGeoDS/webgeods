@@ -257,6 +257,19 @@ def diagnose(geom):
         return False, m.group(1).strip(), f"{m.group(2)} {m.group(3)}"
     return False, message, ""
 
+def export_crs(g):
+    # Reprojects `g` back to the CRS it was UPLOADED in (original_crs,
+    # set below and reused as a module-level global by
+    # geometry-repair-py and geometry-export-shp-py) — every
+    # downloadable result goes through this, so what comes out matches
+    # what went in, even though the map/diagnosis above always work in
+    # WGS84 (GeoJSON and MapLibre both assume it).
+    if g is None or original_crs is None or original_crs == "EPSG:4326":
+        return g
+    return g.to_crs(original_crs)
+
+EMPTY_FC = {"type": "FeatureCollection", "features": []}
+
 # No built-in fallback: if nothing is readable, gdf stays None and the
 # result is an empty FeatureCollection — this cell only ever runs
 # after a successful upload or "Load example" (see autoValidate() in
@@ -270,7 +283,16 @@ for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
     except Exception:
         pass
 
+crs_warning = None
+original_crs = None
 if gdf is not None:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    original_crs = gdf.crs
+    if original_crs != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+
     if "name" not in gdf.columns:
         gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
@@ -290,7 +312,11 @@ if gdf is not None:
         if col != "geometry":
             gdf[col] = gdf[col].fillna("")
 
-gdf.__geo_interface__ if gdf is not None else {"type": "FeatureCollection", "features": []}
+{
+    "features": gdf.__geo_interface__ if gdf is not None else EMPTY_FC,
+    "originalCrsFeatures": export_crs(gdf).__geo_interface__ if gdf is not None else EMPTY_FC,
+    "crsWarning": crs_warning
+}
 ```
 
 ```{ojs}
@@ -321,15 +347,36 @@ VALIDITY_PAINT = ({
 pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
 {
   if (pyDiagnose) {
-    await sharedMap.setGeoJSON("geometry-py", pyDiagnose, { paint: VALIDITY_PAINT });
+    await sharedMap.setGeoJSON("geometry-py", pyDiagnose.features, { paint: VALIDITY_PAINT });
     // Zooms to whatever was just diagnosed — an upload or "Load
     // example" — instead of leaving the map at its initial wide view
     // (see autoValidate() above: there's no button click left to hang
     // a "now zoom" moment off of). A no-op on an empty FeatureCollection
     // (fitToData()/getBounds() already handle that safely).
-    await sharedMap.fitToData(pyDiagnose);
+    await sharedMap.fitToData(pyDiagnose.features);
+    mutable exportFeatures = pyDiagnose.originalCrsFeatures;
+    mutable crsWarning = pyDiagnose.crsWarning;
   }
 }
+```
+
+```{ojs}
+//| echo: false
+// The CRS-correct download payload — in the file's own original CRS,
+// not the WGS84 working copy the map/table show — kept in sync with
+// whichever of diagnose/repair ran most recently (see pyDiagnose/
+// pyRepair above and below). Cleared by resetValidator alongside the
+// map.
+mutable exportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+// Set alongside exportFeatures above — "no CRS in the file, assumed
+// WGS84" is a fact about the upload, not about diagnose vs. repair, so
+// it only needs to come from whichever cell actually read the file
+// (diagnose; repair reuses its result and never re-reads).
+mutable crsWarning = null
 ```
 
 ```{ojs}
@@ -338,6 +385,8 @@ resetValidator = async () => {
   if (sharedMap.getGeoJSON("geometry-py")) {
     await sharedMap.setGeoJSON("geometry-py", { type: "FeatureCollection", features: [] });
   }
+  mutable exportFeatures = null;
+  mutable crsWarning = null;
 }
 ```
 
@@ -392,22 +441,28 @@ for col in gdf.columns:
     if col != "geometry":
         gdf[col] = gdf[col].fillna("")
 
-gdf.__geo_interface__
+{
+    "features": gdf.__geo_interface__,
+    "originalCrsFeatures": export_crs(gdf).__geo_interface__
+}
 ```
 
 ```{.webgeods-python #geometry-export-shp-py}
 # Only run on demand (see downloadButton below), not on every
-# diagnose/repair: writes the CURRENT gdf as an actual shapefile
-# (geopandas.to_file(), confirmed to work in this Pyodide build),
-# zips the resulting .shp/.shx/.dbf/.prj/.cpg in memory, and returns
-# it base64-encoded — the only way to get binary bytes out of a cell
-# value and into a downloadable Blob on the JS side.
+# diagnose/repair: writes the CURRENT gdf, reprojected back to the CRS
+# it was uploaded in (export_crs(), defined in geometry-diagnose-py —
+# gdf itself stays in WGS84, the working CRS the map/diagnosis use), as
+# an actual shapefile (geopandas.to_file(), confirmed to work in this
+# Pyodide build), zips the resulting .shp/.shx/.dbf/.prj/.cpg in
+# memory, and returns it base64-encoded — the only way to get binary
+# bytes out of a cell value and into a downloadable Blob on the JS
+# side.
 import base64
 import io
 import os
 import zipfile
 
-gdf.to_file("/tmp/webgeods_export.shp", driver="ESRI Shapefile")
+export_crs(gdf).to_file("/tmp/webgeods_export.shp", driver="ESRI Shapefile")
 
 buf = io.BytesIO()
 with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -454,7 +509,8 @@ fixButton = {
 pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
 {
   if (pyRepair) {
-    await sharedMap.setGeoJSON("geometry-py", pyRepair);
+    await sharedMap.setGeoJSON("geometry-py", pyRepair.features);
+    mutable exportFeatures = pyRepair.originalCrsFeatures;
   }
 }
 ```
@@ -501,7 +557,12 @@ downloadButton = {
         const base64 = document.getElementById("geometry-export-shp-py").value;
         WebGeoDS.downloadBlob(base64ToBytes(base64), base ? `${base}-validated.zip` : "validated-shapefile.zip", "application/zip", options);
       } else {
-        const data = sharedMap.getGeoJSON("geometry-py");
+        // exportFeatures, not the map source: the map source holds the
+        // WGS84 working copy (see pyDiagnose/pyRepair above), while
+        // exportFeatures is already reprojected back to the file's own
+        // CRS — same "give back what came in" behavior as the
+        // shapefile branch above.
+        const data = exportFeatures;
         if (data) WebGeoDS.downloadBlob(JSON.stringify(data, null, 2), base ? `${base}-validated.geojson` : "validated-geojson.geojson", "application/geo+json", options);
       }
     } finally {
@@ -565,7 +626,11 @@ controlPanelRow = {
   row.append(uploadControl, loadExampleButton, fixButton, downloadButton, resetMapButton);
   const status = document.createElement("span");
   status.className = "webgeods-panel-status";
-  status.textContent = `${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid`;
+  const base = `${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid`;
+  // crsWarning referenced here (not just read elsewhere) so this cell
+  // is reactive on it — a missing CRS is only known once diagnose has
+  // actually run, after this row was first built.
+  status.textContent = crsWarning ? `${base} — ⚠️ ${crsWarning}` : base;
   row.appendChild(status);
   return row;
 }

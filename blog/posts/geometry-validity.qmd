@@ -163,7 +163,18 @@ validationStats = Generators.observe((change) => {
 })
 ```
 
-**Geometry validity** — ${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid.
+```{ojs}
+//| echo: false
+// Combines whichever of pyCrsWarning/rCrsWarning is currently set —
+// at most one in practice (both languages read the same uploaded
+// file), but shown separately just in case they ever disagree.
+crsWarningNotice = {
+  const warnings = [pyCrsWarning, rCrsWarning].filter(Boolean);
+  return warnings.length ? ` ⚠️ ${[...new Set(warnings)].join(" ")}` : "";
+}
+```
+
+**Geometry validity** — ${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid.${crsWarningNotice}
 
 ```{ojs}
 //| echo: false
@@ -173,6 +184,10 @@ resetValidity = async () => {
       await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
     }
   }
+  mutable pyExportFeatures = null;
+  mutable rExportFeatures = null;
+  mutable pyCrsWarning = null;
+  mutable rCrsWarning = null;
 }
 ```
 
@@ -193,12 +208,15 @@ resetMapButton = {
 // merge validationStats already does), same "download whatever's on
 // the map right now" behavior the tool has, including after Repair
 // has replaced the data (setGeoJSON above already writes the
-// repaired result back onto the same two sources).
+// repaired result back onto the same two sources). Reads
+// pyExportFeatures/rExportFeatures, not the map sources: those hold
+// each language's own original CRS, reprojected back from the WGS84
+// working copy the map/table show (see pyDiagnose/rDiagnose above).
 downloadButton = {
   const button = document.createElement("button");
   button.textContent = "⬇ Download";
   button.onclick = () => {
-    const features = ["geometry-py", "geometry-r"].flatMap((id) => sharedMap.getGeoJSON(id)?.features ?? []);
+    const features = [pyExportFeatures, rExportFeatures].flatMap((fc) => fc?.features ?? []);
     if (features.length === 0) return;
     const base = WebGeoDS.Upload.baseName(uploadedFiles);
     WebGeoDS.downloadBlob(
@@ -251,6 +269,23 @@ if gdf is None:
     bowtie = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.55, 41.95], [12.45, 41.95], [12.55, 41.85], [12.45, 41.85]]]}
     gdf = gpd.GeoDataFrame({"name": ["bowtie"]}, geometry=[shape(bowtie)], crs="EPSG:4326")
 
+# Diagnosis and the map both need WGS84 (GeoJSON/MapLibre assume it) —
+# original_crs/export_crs stay in the session as globals, reused by
+# geometry-repair-py below to reproject BACK before a download.
+crs_warning = None
+original_crs = gdf.crs
+if original_crs is None:
+    gdf = gdf.set_crs("EPSG:4326")
+    original_crs = gdf.crs
+    crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+elif original_crs != "EPSG:4326":
+    gdf = gdf.to_crs("EPSG:4326")
+
+def export_crs(g):
+    if g is None or original_crs is None or original_crs == "EPSG:4326":
+        return g
+    return g.to_crs(original_crs)
+
 if "name" not in gdf.columns:
     gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
@@ -274,7 +309,7 @@ for col in gdf.columns:
     if col != "geometry":
         gdf[col] = gdf[col].fillna("")
 
-gdf.__geo_interface__`
+{"features": gdf.__geo_interface__, "originalCrsFeatures": export_crs(gdf).__geo_interface__, "crsWarning": crs_warning}`
 rBowtieCode = `data <- NULL
 for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
   data <- tryCatch(sf::st_read(path, quiet = TRUE), error = function(e) NULL)
@@ -284,6 +319,22 @@ if (is.null(data)) {
   wkt <- "POLYGON((12.45 41.85, 12.55 41.95, 12.45 41.95, 12.55 41.85, 12.45 41.85))"
   data <- sf::st_sf(name = "bowtie", geometry = sf::st_as_sfc(wkt, crs = 4326))
 }
+
+crs_warning <- NULL
+original_crs <- sf::st_crs(data)
+if (is.na(original_crs)) {
+  sf::st_crs(data) <- 4326
+  original_crs <- sf::st_crs(data)
+  crs_warning <- "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+} else if (!isTRUE(original_crs == sf::st_crs(4326))) {
+  data <- sf::st_transform(data, 4326)
+}
+
+export_crs <- function(d) {
+  if (is.null(d) || isTRUE(original_crs == sf::st_crs(4326))) return(d)
+  sf::st_transform(d, original_crs)
+}
+
 if (!("name" %in% names(data))) {
   data$name <- paste("geometry", seq_len(nrow(data)))
 }
@@ -292,7 +343,11 @@ data$valid <- sf::st_is_valid(data)
 data$reason <- sf::st_is_valid(data, reason = TRUE)
 data$reason[data$valid] <- NA
 
-jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)`
+list(
+  features = jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE),
+  originalCrsFeatures = jsonlite::fromJSON(geojsonsf::sf_geojson(export_crs(data)), simplifyVector = FALSE),
+  crsWarning = crs_warning
+)`
 ```
 
 ```{ojs}
@@ -329,6 +384,23 @@ if gdf is None:
     bowtie = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.55, 41.95], [12.45, 41.95], [12.55, 41.85], [12.45, 41.85]]]}
     gdf = gpd.GeoDataFrame({"name": ["bowtie"]}, geometry=[shape(bowtie)], crs="EPSG:4326")
 
+# Diagnosis and the map both need WGS84 (GeoJSON/MapLibre assume it) —
+# original_crs/export_crs stay in the session as globals, reused by
+# geometry-repair-py below to reproject BACK before a download.
+crs_warning = None
+original_crs = gdf.crs
+if original_crs is None:
+    gdf = gdf.set_crs("EPSG:4326")
+    original_crs = gdf.crs
+    crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+elif original_crs != "EPSG:4326":
+    gdf = gdf.to_crs("EPSG:4326")
+
+def export_crs(g):
+    if g is None or original_crs is None or original_crs == "EPSG:4326":
+        return g
+    return g.to_crs(original_crs)
+
 if "name" not in gdf.columns:
     gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
 
@@ -359,7 +431,7 @@ for col in gdf.columns:
     if col != "geometry":
         gdf[col] = gdf[col].fillna("")
 
-gdf.__geo_interface__
+{"features": gdf.__geo_interface__, "originalCrsFeatures": export_crs(gdf).__geo_interface__, "crsWarning": crs_warning}
 ```
 
 ## R
@@ -375,6 +447,25 @@ if (is.null(data)) {
   wkt <- "POLYGON((12.45 41.85, 12.55 41.95, 12.45 41.95, 12.55 41.85, 12.45 41.85))"
   data <- sf::st_sf(name = "bowtie", geometry = sf::st_as_sfc(wkt, crs = 4326))
 }
+
+# Diagnosis and the map both need WGS84 (GeoJSON/MapLibre assume it) —
+# original_crs/export_crs stay in the session as globals, reused by
+# geometry-repair-r below to reproject BACK before a download.
+crs_warning <- NULL
+original_crs <- sf::st_crs(data)
+if (is.na(original_crs)) {
+  sf::st_crs(data) <- 4326
+  original_crs <- sf::st_crs(data)
+  crs_warning <- "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+} else if (!isTRUE(original_crs == sf::st_crs(4326))) {
+  data <- sf::st_transform(data, 4326)
+}
+
+export_crs <- function(d) {
+  if (is.null(d) || isTRUE(original_crs == sf::st_crs(4326))) return(d)
+  sf::st_transform(d, original_crs)
+}
+
 if (!("name" %in% names(data))) {
   data$name <- paste("geometry", seq_len(nrow(data)))
 }
@@ -383,7 +474,11 @@ data$valid <- sf::st_is_valid(data)
 data$reason <- sf::st_is_valid(data, reason = TRUE)
 data$reason[data$valid] <- NA
 
-jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)
+list(
+  features = jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE),
+  originalCrsFeatures = jsonlite::fromJSON(geojsonsf::sf_geojson(export_crs(data)), simplifyVector = FALSE),
+  crsWarning = crs_warning
+)
 ```
 
 :::
@@ -401,7 +496,7 @@ jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)
 pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
 {
   if (pyDiagnose) {
-    await sharedMap.setGeoJSON("geometry-py", pyDiagnose, { paint: VALIDITY_PAINT });
+    await sharedMap.setGeoJSON("geometry-py", pyDiagnose.features, { paint: VALIDITY_PAINT });
     // Zooms to whatever was just diagnosed — an upload or a "Load
     // this example" click — same as every standalone tool. Without
     // this the map stays at its fixed initial view, which happened to
@@ -411,9 +506,34 @@ pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
     // that page is what surfaced this gap. A no-op on an empty
     // FeatureCollection (getBounds()/fitToData() already handle that
     // safely).
-    await sharedMap.fitToData(pyDiagnose);
+    await sharedMap.fitToData(pyDiagnose.features);
+    mutable pyExportFeatures = pyDiagnose.originalCrsFeatures;
+    mutable pyCrsWarning = pyDiagnose.crsWarning;
   }
 }
+```
+
+```{ojs}
+//| echo: false
+// Download payloads in each language's own original CRS, not the
+// WGS84 working copy the map/table show — kept in sync with whichever
+// of diagnose/repair ran most recently. Cleared by resetValidity.
+mutable pyExportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+mutable rExportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+mutable pyCrsWarning = null
+```
+
+```{ojs}
+//| echo: false
+mutable rCrsWarning = null
 ```
 
 ```{ojs}
@@ -422,8 +542,10 @@ pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
 rDiagnose = WebGeoDS.getCellValue("geometry-diagnose-r", Generators)
 {
   if (rDiagnose) {
-    await sharedMap.setGeoJSON("geometry-r", rDiagnose, { paint: VALIDITY_PAINT });
-    await sharedMap.fitToData(rDiagnose);
+    await sharedMap.setGeoJSON("geometry-r", rDiagnose.features, { paint: VALIDITY_PAINT });
+    await sharedMap.fitToData(rDiagnose.features);
+    mutable rExportFeatures = rDiagnose.originalCrsFeatures;
+    mutable rCrsWarning = rDiagnose.crsWarning;
   }
 }
 ```
@@ -703,7 +825,7 @@ for col in gdf.columns:
     if col != "geometry":
         gdf[col] = gdf[col].fillna("")
 
-gdf.__geo_interface__
+{"features": gdf.__geo_interface__, "originalCrsFeatures": export_crs(gdf).__geo_interface__}
 ```
 
 ## R
@@ -717,7 +839,10 @@ sf::sf_use_s2(TRUE)
 
 data$valid_after <- sf::st_is_valid(data)
 
-jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)
+list(
+  features = jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE),
+  originalCrsFeatures = jsonlite::fromJSON(geojsonsf::sf_geojson(export_crs(data)), simplifyVector = FALSE)
+)
 ```
 
 :::
@@ -732,7 +857,8 @@ jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE)
 pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
 {
   if (pyRepair) {
-    await sharedMap.setGeoJSON("geometry-py", pyRepair);
+    await sharedMap.setGeoJSON("geometry-py", pyRepair.features);
+    mutable pyExportFeatures = pyRepair.originalCrsFeatures;
   }
 }
 ```
@@ -743,7 +869,8 @@ pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
 rRepair = WebGeoDS.getCellValue("geometry-repair-r", Generators)
 {
   if (rRepair) {
-    await sharedMap.setGeoJSON("geometry-r", rRepair);
+    await sharedMap.setGeoJSON("geometry-r", rRepair.features);
+    mutable rExportFeatures = rRepair.originalCrsFeatures;
   }
 }
 ```

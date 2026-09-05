@@ -390,9 +390,31 @@ for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
     except Exception:
         pass
 
+# The sliver/gap thresholds above (and every check_*() function) work
+# in gdf's OWN coordinate units — "Gap search distance (degrees)" in
+# the panel only means what it says if gdf is actually in a geographic
+# CRS — so it's reprojected to WGS84 here before any check runs, not
+# just before the map draws it.
+crs_warning = None
+original_crs = None
 if gdf is not None:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    original_crs = gdf.crs
+    if original_crs != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+
     if "name" not in gdf.columns:
         gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+def export_crs(g):
+    # Reprojects `g` back to the CRS it was uploaded in — used by the
+    # download button below, so what comes out matches what went in
+    # even though the checks above always run in WGS84.
+    if g is None or original_crs is None or original_crs == "EPSG:4326":
+        return g
+    return g.to_crs(original_crs)
 
 # No built-in fallback anymore (an earlier version diagnosed two
 # hardcoded example polygons automatically whenever nothing had been
@@ -401,7 +423,13 @@ if gdf is not None:
 # file or clicks "Load example" below, so "no results yet" actually
 # means no results yet.
 EMPTY_FC = {"type": "FeatureCollection", "features": []}
-detect_and_check(gdf, sliver_threshold=sliverThreshold, gap_proximity=gapProximity) if gdf is not None else {"features": EMPTY_FC, "gaps": EMPTY_FC}
+if gdf is not None:
+    result = detect_and_check(gdf, sliver_threshold=sliverThreshold, gap_proximity=gapProximity)
+    result["originalCrsFeatures"] = export_crs(gdf).__geo_interface__
+    result["crsWarning"] = crs_warning
+else:
+    result = {"features": EMPTY_FC, "gaps": EMPTY_FC, "originalCrsFeatures": EMPTY_FC, "crsWarning": None}
+result
 ```
 
 ```{ojs}
@@ -554,8 +582,24 @@ pyErrors = WebGeoDS.getCellValue("topology-diagnose-py", Generators)
     // effect — so switching tabs never itself moves the map. A no-op
     // on an empty FeatureCollection.
     await sharedMap.fitToData(pyErrors.features);
+    mutable exportFeatures = pyErrors.originalCrsFeatures;
+    mutable crsWarning = pyErrors.crsWarning;
   }
 }
+```
+
+```{ojs}
+//| echo: false
+// The CRS-correct download payload — original features only (no
+// gaps, same reasoning as downloadButton below), in the file's own
+// CRS rather than the WGS84 working copy the map/table show. Cleared
+// by resetChecker alongside the map.
+mutable exportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+mutable crsWarning = null
 ```
 
 ```{ojs}
@@ -677,6 +721,8 @@ resetChecker = async () => {
   if (sharedMap.getGeoJSON("topology-gaps-py")) {
     await sharedMap.setGeoJSON("topology-gaps-py", empty);
   }
+  mutable exportFeatures = null;
+  mutable crsWarning = null;
 }
 ```
 
@@ -713,8 +759,11 @@ downloadButton = {
     // the whole reason it got its own map source and table tab
     // instead of being merged in), so a downloaded "here's your data
     // plus its topology report" file shouldn't reintroduce synthetic
-    // rows the source data never had either.
-    const data = sharedMap.getGeoJSON("topology-py") ?? { type: "FeatureCollection", features: [] };
+    // rows the source data never had either. exportFeatures (not the
+    // map source) so the download comes back in the file's own CRS,
+    // not the WGS84 working copy the checks/map use — see
+    // topology-diagnose-py's export_crs().
+    const data = exportFeatures ?? { type: "FeatureCollection", features: [] };
     WebGeoDS.downloadBlob(
       JSON.stringify(data, null, 2),
       base ? `${base}-topology-report.geojson` : "topology-report.geojson",
@@ -753,7 +802,11 @@ controlPanelRow = {
   // of synthetic gap features found between them, so the two numbers
   // together can't be misread as "N of these M things are broken"
   // when M actually mixes two different kinds of thing.
-  status.textContent = `${topologyStats.total} feature, ${topologyStats.errors} with an error, ${topologyStats.gaps} total gaps`;
+  const base = `${topologyStats.total} feature, ${topologyStats.errors} with an error, ${topologyStats.gaps} total gaps`;
+  // crsWarning referenced here (not just read elsewhere) so this cell
+  // is reactive on it — only known once Check has actually run, after
+  // this row was first built.
+  status.textContent = crsWarning ? `${base} — ⚠️ ${crsWarning}` : base;
   row.appendChild(status);
   return row;
 }
