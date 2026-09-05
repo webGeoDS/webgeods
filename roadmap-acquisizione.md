@@ -2359,3 +2359,46 @@ Inspector & Converter, 1.4 Topology Checker) sono live, ciascuno con
 il proprio articolo bilingue. Prossimo passo naturale secondo il piano:
 Fase 2 (Spatial Analysis) — ma condizionata, come sempre, ai dati reali
 di Search Console (Fase 0.7), non ancora maturi.
+
+**Lead magnet newsletter (0.8) aggiornato a 4 pagine (2026-09-05)**, su
+richiesta esplicita: il cheatsheet esistente
+(`geometric-topological-errors-cheatsheet.pdf`, 2 pagine) copriva solo
+Validate + Topology, da prima che Inspector e CRS Inspector &
+Converter esistessero. Ricostruito da zero come
+`blog/downloads/spatial-data-quality-cheatsheet.pdf` (4 pagine, una
+per pilastro nell'ordine del sito — Inspect/Validate/Check Topology/
+CRS — stile grafico identico all'originale: stesso HTML→PDF via
+Playwright `page.pdf()`, stessi font vendorizzati/palette da
+`_brand.yml`, stesso pattern header/eyebrow numerato/card/callout).
+Contenuto Inspect e CRS scritto ex novo (glossario delle 8 statistiche
+dell'Inspector con idiomi Python/R; euristica di mismatch magnitudine-
+coordinate del CRS Inspector, con l'avvertenza esplicita di NON
+convertire un CRS mal etichettato prima di averlo corretto). Validate/
+Topology sostanzialmente riusati dal cheatsheet originale, solo
+rinumerati (01→02, 02→03) per la nuova sequenza a quattro.
+
+**Bug di impaginazione trovato e corretto durante la revisione
+visiva**: `.page` nel CSS ha un'altezza fissa (297mm, A4) — quando ho
+aggiunto un riquadro "Go deeper" di troppo anche alla pagina 1 (già la
+più densa, otto righe di glossario + due blocchi di codice), il
+contenuto ha superato l'altezza della pagina e il riquadro extra si è
+sovrapposto letteralmente all'intestazione della pagina 2 nel PDF
+renderizzato — non un errore, un vero difetto visivo, trovato
+rileggendo il PDF pagina per pagina (non assumendo che il rendering
+fosse corretto solo perché il comando non aveva restituito errori).
+Risolto rimuovendo quel riquadro dalla pagina 1 (le pagine 2/3 lo
+mantengono, avevano davvero spazio vuoto da riempire con link
+pertinenti, non solo per bilanciare la pagina).
+
+**Decisione sul nome del file, chiesta esplicitamente all'utente**:
+il redirect-dopo-iscrizione e il testo dell'email di conferma di Kit
+puntano all'URL esatto del vecchio PDF — impostazioni che vivono solo
+nella dashboard di Kit, non in questo repository, quindi non
+aggiornabili da qui. L'utente ha scelto un nome nuovo
+(`spatial-data-quality-cheatsheet.pdf`, coerente col contenuto
+ampliato) invece di sostituire in-place lo stesso file — **azione
+richiesta all'utente**: aggiornare manualmente su Kit sia il redirect
+post-submit sia il testo dell'email di conferma per puntare al nuovo
+URL. Il vecchio file (`geometric-topological-errors-cheatsheet.pdf`)
+resta pubblicato finché quell'aggiornamento non viene fatto, per non
+rompere il flusso di iscrizione esistente nel frattempo.
