@@ -26550,6 +26550,36 @@ opacity: 0;
 pointer-events: none;
 }
 
+.webgeods-stat-grid {
+display: grid;
+grid-template-columns: max-content 1fr;
+column-gap: 20px;
+row-gap: 8px;
+border: 1px solid var(--border);
+background-color: var(--surface-muted);
+padding: 16px 20px;
+margin: 20px 0 0 0;
+}
+.webgeods-panel + .webgeods-stat-grid {
+margin-top: 0;
+}
+.webgeods-stat-grid + .webgeods-map-container {
+margin-top: 0;
+}
+.webgeods-stat-label {
+font-family: 'IBM Plex Mono', monospace;
+font-size: 12px;
+font-weight: 600;
+letter-spacing: 0.02em;
+text-transform: uppercase;
+color: var(--text-muted);
+}
+.webgeods-stat-value {
+font-family: 'IBM Plex Mono', monospace;
+font-size: 14px;
+color: var(--text);
+}
+
 
 .webgeods-closing-note {
 margin: 40px 0 32px 0;

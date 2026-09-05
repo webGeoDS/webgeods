@@ -362,6 +362,43 @@
   pointer-events: none;
 }
 
+/* Key/value summary card (geospatial-file-inspector.qmd) — same
+   bordered-surface language as .webgeods-panel, but a 2-column grid
+   instead of a button row: this tool's whole point is a scannable
+   dataset summary, not an action bar. Flush against the panel above
+   and the map below (same reasoning as .webgeods-panel +
+   .webgeods-map-container), so panel → summary → map reads as one
+   connected instrument, not three separate boxes. */
+.webgeods-stat-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 20px;
+  row-gap: 8px;
+  border: 1px solid var(--border);
+  background-color: var(--surface-muted);
+  padding: 16px 20px;
+  margin: 20px 0 0 0;
+}
+.webgeods-panel + .webgeods-stat-grid {
+  margin-top: 0;
+}
+.webgeods-stat-grid + .webgeods-map-container {
+  margin-top: 0;
+}
+.webgeods-stat-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.webgeods-stat-value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 14px;
+  color: var(--text);
+}
+
 /* Closing cross-link to the full article — previously butted straight
    up against the table/style block above it with only a bare <hr>;
    more breathing room and a touch more visual weight so it reads as

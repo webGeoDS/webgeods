@@ -18,5 +18,5 @@ it. Free, no account, nothing ever leaves your browser.
 **Inspect** → **Validate** → **Check Topology** → *CRS Inspector
 (planned)*
 
-Two are live so far — Validate geometry, and Check Topology. Inspect
-(what's actually in this file?) and the CRS Inspector are next.
+Three are live so far — Inspect, Validate geometry, and Check
+Topology. The CRS Inspector & Converter is next.

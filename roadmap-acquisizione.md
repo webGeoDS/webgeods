@@ -689,7 +689,7 @@ con quello di Observable Inputs, dato che entrambi espongono
 | # | Tool | Stato | Priorità | Difficoltà | Note |
 |---|---|---|---|---|---|
 | 1.1 | **Geometry Validation & Repair** | ✅ Fatto | — | — | `blog/tools/geojson-shapefile-validator.qmd`, live in produzione, ridisegnato a pulsanti (vedi 2026-09-03 sotto), cross-linkato con l'articolo |
-| 1.2 | **GeoSpatial File Inspector** | Da fare | Alta | Bassa-media | Vedi dettaglio sotto — probabilmente il tool più economico rimasto |
+| 1.2 | **GeoSpatial File Inspector** | ✅ Fatto (2026-09-05) | — | — | `blog/tools/geospatial-file-inspector.qmd`, live in produzione — card riassuntiva (Features/Geometry/CRS/Bounds/Attributes/Invalid/Empty/Duplicates) invece della tabella riga-per-riga del Validator, cross-linkato con l'articolo |
 | 1.3 | **CRS Inspector & Converter** | Da fare | Alta | Media | Vedi dettaglio sotto |
 | 1.4 | **Topology Check & Report** (standalone) | ✅ Fatto (2026-09-03) | — | — | `blog/tools/topology-checker.qmd`, live in produzione — costruito fuori dall'ordine originale (dopo 1.1, prima di 1.2/1.3): costo marginale basso avendo appena costruito il pattern a pulsanti per 1.1, motore già scritto in `topology-errors.qmd`. Solo diagnosi, niente Fix (una topologia rotta richiede quasi sempre una decisione umana). **Soglie sliver/gap rese configurabili (2026-09-03)** — prima con slider nativi hand-rolled (niente libreria, per evitare il CDN esterno di Observable Inputs), **poi Observable Inputs vendorizzata su richiesta esplicita** (`shared/observable-inputs.min.js` + `shared/htl.min.js`, sua dipendenza runtime non ovvia — vedi sezione dedicata più sotto) e usata per gli stessi due slider. `#| inject` resta la prima vera applicazione del meccanismo nel progetto |
 
@@ -2009,3 +2009,69 @@ with an error, 1 total gaps", download con 2 feature senza gap, reset
 funzionante, nessun errore console. Download verificato anche su
 `geometry-validity.qmd` (via l'esempio bowtie). 16/16 map-tests, 51/51
 smoke-test lessons.
+
+**1.2 GeoSpatial File Inspector — tool + articolo (2026-09-05)**.
+Discussione preliminare su Vega-Lite/Altair/vegawidget/vegalite per
+eventuali grafici di distribuzione attributi (verificato empiricamente
+che `vegawidget` è presente nel repository binario di webR con catena
+di dipendenze pulita — solo pacchetti R puri; `vegalite` invece tira
+dentro `webshot`/`openssl` come `Imports:` obbligatori, dipendenze
+OS-specifiche senza senso in un sandbox WASM) — **conclusione: nessuna
+delle due nello scope attuale**, il mockup del piano prevede solo
+numeri scalari, aggiungere una libreria di grafici avrebbe contraddetto
+il motivo stesso per cui questo tool viene costruito ora ("probabilmente
+il più economico rimasto").
+
+- **Tool** (`blog/tools/geospatial-file-inspector.qmd`): Python-only
+  (scelto per precedente consolidato — Python ha sempre vinto su ogni
+  tool misurato finora — non ri-misurato da zero per questo, costo
+  computazionale comparabile a check già leggeri). Card chiave/valore
+  invece di tabella riga-per-riga: Features, Geometry, CRS, Bounds,
+  Attributes, Invalid, Empty, Duplicates. Duplicate detection O(n)
+  via hash del WKB esatto (`gdf.geometry.to_wkb().duplicated()`),
+  deliberatamente NON la versione topologica O(n²) del Topology
+  Checker — coerente con lo scopo di questo tool (prima occhiata
+  veloce anche su file grandi, non un report di topologia
+  autorevole).
+- **Articolo** (`blog/posts/geospatial-file-inspection.qmd`):
+  bilingue, una sola coppia di celle riusabile (niente libreria di
+  funzioni condivisa come `topology-errors.qmd` — non serviva, la
+  logica è breve). Due card affiancate (Python e R) invece di una
+  fusa: a differenza di una `FeatureCollection` (dove fondere ha
+  senso), fondere due conteggi "totale feature" non l'avrebbe. Un
+  esempio dedicato con CRS sbagliato (Web Mercator invece di
+  geografico) per mostrare il "tell" dei bounds descritto nel testo.
+
+**Due bug reali trovati e corretti durante la verifica** (non
+ipotetici, confermati via Playwright):
+
+1. **Reset non svuotava la card riassuntiva** (solo la mappa) — la
+   card leggeva `pyInspect.summary`/`rInspect.summary` (il valore
+   cache della cella) direttamente, che Reset non ha modo di
+   azzerare (non c'è nulla da rieseguire). Corretto con uno stato
+   `mutable inspectSummary`/`pySummary`+`rSummary` esplicito,
+   impostato insieme alla mappa nell'effetto reattivo e azzerato
+   insieme ad essa nella funzione di reset — stesso problema
+   presente sia nel tool che nell'articolo (l'articolo non aveva
+   nemmeno un pulsante Reset, aggiunto ora, prima mancante).
+2. **`jsonlite::toJSON(..., auto_unbox = TRUE)` lato R** collassa un
+   vettore di un solo elemento in uno scalare invece che in un array
+   — `geometryTypes` è quasi sempre lunghezza 1 (un file con un solo
+   tipo di geometria è il caso comune), quindi `["Polygon"]`
+   diventava silenziosamente `"Polygon"`, rompendo `.join()` lato JS
+   con un errore reale (`TypeError: s.geometryTypes.join is not a
+   function`, non ipotetico). Corretto avvolgendo ogni campo
+   vettoriale (`geometryTypes`, `bounds`, `attributeNames`) con `I()`
+   (AsIs di R base), che forza la serializzazione ad array
+   indipendentemente dalla lunghezza — utile ricordarlo per
+   `topology-errors.qmd` se in futuro dovesse tornare a usare
+   `auto_unbox` su strutture con vettori di lunghezza variabile (oggi
+   non lo fa, quindi non affetto).
+
+Verificato: flusso completo upload/load-example/download/reset su
+entrambe le pagine, esempio CRS-mismatch eseguito su Python e R
+(bounds coerenti tra i due linguaggi, differenza di formattazione
+CRS/geometry-type esattamente quella descritta nel testo come punto
+didattico), nessun errore console dopo le due correzioni, 16/16
+map-tests, 51/51 smoke-test lessons. Aggiornato anche
+`blog/tools/index.qmd` ("tre tool live" invece di due).

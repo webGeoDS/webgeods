@@ -1,0 +1,545 @@
+---
+title: "First Look at a Geospatial File: What to Check Before You Trust It"
+date: 2026-09-05
+categories: [tool, geometry, bilingual]
+description: "Upload a GeoJSON or a Shapefile and get an instant summary — feature count, geometry type, CRS, bounds, attributes, invalid/empty/duplicate geometries — in Python and R on the same map."
+---
+
+Before you validate, fix, or check topology, it helps to know what
+you're actually holding. A feature count in the thousands changes what
+checks are even practical. A CRS you didn't expect explains a map that
+looks wrong before you've touched a single geometry. A handful of
+exact duplicates might be an import artifact, not a data-quality
+problem worth chasing.
+
+This isn't a repair tool and it isn't a topology report — it's the
+five-second first look that tells you which of those tools you
+actually need next.
+
+Just want the summary, without the rest of the reading? Use the
+[standalone tool](/tools/geospatial-file-inspector.html) — same
+engine, less prose.
+
+## 1. Upload your file
+
+A `.geojson`, or a shapefile: either as a single `.zip`, or as the
+individual `.shp`/`.dbf`/`.shx` files (and optionally `.prj`) selected
+together.
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+// A native <input type="file"> (WebGeoDS.Upload.createControl(), see
+// shared/upload.js) — see its doc comment there for why, over an
+// Observable Inputs `viewof`-bound widget.
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+## 2. Why start with a summary?
+
+Eight numbers, each answering a question you'd otherwise have to dig
+for:
+
+- **Features** — how many rows. Determines whether an O(n²) check
+  (like the [Topology Checker's](topology-errors.qmd) pairwise
+  overlap/gap detection) is even practical to run.
+- **Geometry type** — Point, Line, Polygon, or a mix. Some checks only
+  apply to one family; a "mixed" result is itself useful information.
+- **CRS** — the coordinate reference system the file claims to be in.
+  Not verified against the actual coordinates here — that mismatch
+  detection is a distinct, more involved check, planned as its own
+  tool.
+- **Bounds** — the bounding box, in the file's own CRS units. A
+  bounding box in the thousands or millions instead of the -180..180 /
+  -90..90 range is usually the first hint of a CRS problem, before any
+  dedicated check runs.
+- **Attributes** — how many non-geometry columns, and their names. How
+  much there is to a feature beyond its shape.
+- **Invalid** — geometries that fail the Simple Features validity
+  rules. See [Geometry validity](geometry-validity.qmd) for what that
+  actually means and how to fix it.
+- **Empty** — geometries with no coordinates at all. Easy to miss in a
+  raw file, and something naive code (yours or a library's) can choke
+  on silently.
+- **Duplicates** — exact repeats (identical coordinates), detected by
+  comparing binary geometry representations, not a full topological
+  equality check. Fast enough for a large file; the
+  [Topology Checker](topology-errors.qmd) has the slower, more
+  thorough version if you need it.
+
+## 3. Shared map and summary
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Same coloring convention as geometry-validity.qmd's VALIDITY_PAINT
+// — green valid, red invalid.
+INSPECT_PAINT = ({
+  "fill-color": [
+    "case",
+    ["==", ["get", "valid"], true],
+    "#2ea44f",
+    "#e05252"
+  ],
+  "fill-opacity": 0.55
+})
+```
+
+```{ojs}
+//| echo: false
+// The summary cards' own state, separate from reading pyInspect/
+// rInspect directly: those are the CodeCells' cached values, which
+// Reset below has no way to clear (there's nothing to re-run) —
+// without this, clicking Reset would empty the map but leave both
+// summary cards showing stale numbers. Set alongside each map update
+// below, cleared alongside the map reset further down.
+mutable pySummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable rSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
+{
+  if (pyInspect) {
+    await sharedMap.setGeoJSON("inspect-py", pyInspect.features, { paint: INSPECT_PAINT });
+    mutable pySummary = pyInspect.summary;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rInspect = WebGeoDS.getCellValue("inspect-r", Generators)
+{
+  if (rInspect) {
+    await sharedMap.setGeoJSON("inspect-r", rInspect.features, { paint: INSPECT_PAINT });
+    mutable rSummary = rInspect.summary;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+// Two summary cards side by side — Python's and R's — instead of one
+// merged card: unlike a FeatureCollection (where combining both
+// languages' results on one map is the whole point of a shared map),
+// merging two "total feature count" numbers wouldn't mean anything.
+// Seeing them agree (or notice where they don't, e.g. a differently
+// formatted CRS string between GDAL bindings) is itself the point.
+statCard = (label, s) => {
+  const wrap = document.createElement("div");
+  wrap.style.flex = "1";
+  wrap.style.minWidth = "260px";
+
+  const heading = document.createElement("div");
+  heading.className = "webgeods-label";
+  heading.textContent = label;
+  wrap.appendChild(heading);
+
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  wrap.appendChild(box);
+
+  const row = (rowLabel, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = rowLabel;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s || s.total === 0) {
+    row("Features", "0");
+    return wrap;
+  }
+
+  const geometryLabel = s.geometryTypes.length > 1
+    ? `Mixed (${s.geometryTypes.join(", ")})`
+    : (s.geometryTypes[0] ?? "—");
+
+  row("Features", s.total.toLocaleString());
+  row("Geometry", geometryLabel);
+  row("CRS", s.crs ?? "Unknown");
+  row("Bounds", s.bounds ? s.bounds.join(", ") : "—");
+  row("Attributes", `${s.attributeNames.length}${s.attributeNames.length > 0 ? ` (${s.attributeNames.join(", ")})` : ""}`);
+  row("Invalid", String(s.invalid));
+  row("Empty", String(s.empty));
+  row("Duplicates", String(s.duplicates));
+
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+statCardsRow = {
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "16px";
+  row.append(statCard("Python", pySummary), statCard("R", rSummary));
+  return row;
+}
+```
+
+${statCardsRow}
+
+```{ojs}
+//| echo: false
+resetInspection = async () => {
+  for (const id of ["inspect-py", "inspect-r"]) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
+  }
+  mutable pySummary = null;
+  mutable rSummary = null;
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and summary";
+  button.onclick = () => resetInspection();
+  return button;
+}
+```
+
+## 4. Inspect: summarize your file
+
+Run the same summary in Python or R on the current data (your file
+uploaded above, or the example already loaded below).
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #inspect-py}
+#| package: geopandas, shapely
+import geopandas as gpd
+from shapely.geometry import shape
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+if gdf is None:
+    a = {"type": "Polygon", "coordinates": [[[12.40, 41.80], [12.50, 41.80], [12.50, 41.90], [12.40, 41.90], [12.40, 41.80]]]}
+    c = {"type": "Polygon", "coordinates": [[[12.75, 41.80], [12.85, 41.90], [12.75, 41.90], [12.85, 41.80], [12.75, 41.80]]]}
+    gdf = gpd.GeoDataFrame(
+        {"name": ["square", "square (copy)", "bowtie"], "population": [1200, 1200, None]},
+        geometry=[shape(a), shape(a), shape(c)],
+        crs="EPSG:4326"
+    )
+
+if "name" not in gdf.columns:
+    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+# Three per-feature checks, each cheap and vectorized (no O(n²)
+# pairwise comparisons — unlike the Topology Checker's check_gap()/
+# check_overlap(), this is a fast first look, not an authoritative
+# topology report).
+gdf["valid"] = gdf.geometry.apply(lambda g: g is not None and g.is_valid)
+gdf["empty"] = gdf.geometry.apply(lambda g: g is None or g.is_empty)
+# Exact-match only (same WKB bytes) — catches a copy-pasted row, not a
+# topologically-identical polygon traced with different vertex order.
+gdf["duplicate"] = gdf.geometry.to_wkb().duplicated()
+
+for col in gdf.columns:
+    if col != "geometry":
+        gdf[col] = gdf[col].fillna("")
+
+attribute_columns = [c for c in gdf.columns if c not in ("geometry", "valid", "empty", "duplicate")]
+geometry_types = sorted(set(gdf.geometry.geom_type))
+bounds = [round(float(b), 6) for b in gdf.total_bounds]
+crs = gdf.crs.to_string() if gdf.crs is not None else None
+
+{
+    "features": gdf.__geo_interface__,
+    "summary": {
+        "total": len(gdf),
+        "geometryTypes": geometry_types,
+        "crs": crs,
+        "bounds": bounds,
+        "attributeNames": attribute_columns,
+        "invalid": int((~gdf["valid"]).sum()),
+        "empty": int(gdf["empty"].sum()),
+        "duplicates": int(gdf["duplicate"].sum())
+    }
+}
+```
+
+## R
+
+```{.webgeods-r #inspect-r}
+#| package: sf, geojsonsf, jsonlite
+data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(sf::st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+
+if (is.null(data)) {
+  wkt_a <- "POLYGON((12.40 41.80, 12.50 41.80, 12.50 41.90, 12.40 41.90, 12.40 41.80))"
+  wkt_c <- "POLYGON((12.75 41.80, 12.85 41.90, 12.75 41.90, 12.85 41.80, 12.75 41.80))"
+  geoms <- sf::st_as_sfc(c(wkt_a, wkt_a, wkt_c), crs = 4326)
+  data <- sf::st_sf(name = c("square", "square (copy)", "bowtie"), population = c(1200, 1200, NA), geometry = geoms)
+}
+
+if (!("name" %in% names(data))) {
+  data$name <- paste("geometry", seq_len(nrow(data)))
+}
+
+data$valid <- sf::st_is_valid(data)
+data$empty <- sf::st_is_empty(data)
+# Exact-match only, via WKT text comparison (st_as_binary() also
+# exists but WKT is the more commonly relied-on round-trip in sf) —
+# same reasoning as the Python side: not a topological check.
+data$duplicate <- duplicated(sf::st_as_text(sf::st_geometry(data)))
+
+attribute_names <- setdiff(names(data), c("geometry", "valid", "empty", "duplicate"))
+geometry_types <- sort(unique(as.character(sf::st_geometry_type(data))))
+bnd <- sf::st_bbox(data)
+crs_input <- sf::st_crs(data)$input
+
+# I() (base R's "AsIs" marker) on every field that's a vector, not a
+# single value: auto_unbox = TRUE below (needed so total/crs/invalid/
+# etc. serialize as plain JSON scalars, not [value]-wrapped arrays)
+# has the side effect of ALSO unboxing any OTHER vector down to a bare
+# value whenever it happens to have exactly one element — geometryTypes
+# is length 1 for the overwhelmingly common case of a single-geometry-
+# type file, silently turning ["POLYGON"] into "POLYGON" and breaking
+# .join() on the JS side. Verified empirically (Playwright): a real
+# TypeError, not a hypothetical one. I() forces array serialization
+# regardless of length.
+result <- list(
+  features = jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE),
+  summary = list(
+    total = nrow(data),
+    geometryTypes = I(geometry_types),
+    crs = crs_input,
+    bounds = I(unname(round(as.numeric(bnd), 6))),
+    attributeNames = I(attribute_names),
+    invalid = sum(!data$valid),
+    empty = sum(data$empty),
+    duplicates = sum(data$duplicate)
+  )
+)
+
+# Round-tripped through JSON once more, whole-object this time: R's
+# atomic vectors (geometry_types, bounds, attribute_names) don't cross
+# the webR->JS bridge as plain JS arrays on their own the way a
+# jsonlite-parsed list does — same reasoning already applied to
+# "features" above, just for the summary fields too.
+jsonlite::fromJSON(jsonlite::toJSON(result, auto_unbox = TRUE, null = "null"), simplifyVector = FALSE)
+```
+
+:::
+
+## 5. Same spatial question, two languages
+
+Python and R read the same numbers off the same engines, but the
+accessors differ:
+
+**Python** (GeoPandas)
+
+```python
+len(gdf)                  # feature count
+gdf.geometry.geom_type    # per-feature geometry type
+gdf.crs.to_string()       # CRS
+gdf.total_bounds          # [minx, miny, maxx, maxy]
+gdf.geometry.to_wkb()     # exact-match key for duplicate detection
+```
+
+**R** (sf)
+
+```r
+nrow(data)                        # feature count
+sf::st_geometry_type(data)        # per-feature geometry type
+sf::st_crs(data)$input            # CRS
+sf::st_bbox(data)                 # xmin, ymin, xmax, ymax
+sf::st_as_text(sf::st_geometry(data))  # exact-match key
+```
+
+The CRS string is the one place they can genuinely disagree in
+formatting, not just vocabulary: `st_crs()$input` returns whatever
+string the file's own CRS definition resolved to (often `"EPSG:4326"`
+for a clean case, but sometimes a full WKT string for a less common
+one), while GeoPandas' `.crs.to_string()` goes through PyPROJ's own
+formatting — same underlying CRS, not always the same displayed text.
+Worth knowing before assuming a mismatch between the two summary cards
+above means an actual data problem.
+
+## 6. Load an example
+
+```{ojs}
+//| echo: false
+loadExampleButton = (label, pyCode, rCode) => {
+  const button = document.createElement("button");
+  button.textContent = label;
+  button.onclick = async () => {
+    await Promise.all([
+      window.WebGeoDS.CodeCell.find("inspect-py")?.setCode(pyCode),
+      window.WebGeoDS.CodeCell.find("inspect-r")?.setCode(rCode)
+    ]);
+    document.getElementById("inspect-py")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  return button;
+}
+```
+
+The reusable cell pair above already loads a small dataset with one
+exact duplicate and one invalid geometry whenever nothing has been
+uploaded — click **▶ Run** on both languages above to see it. This
+button swaps in a dataset with a deliberately unusual CRS instead, to
+see the bounds stat do its job:
+
+```{ojs}
+//| echo: false
+pyCrsExampleCode = `import geopandas as gpd
+from shapely.geometry import shape
+
+# The same square as the default example, but reprojected to Web
+# Mercator (EPSG:3857) — coordinates in the hundreds of thousands to
+# millions instead of -180..180, exactly the tell described in
+# section 2 above.
+gdf = gpd.GeoDataFrame(
+    {"name": ["square"]},
+    geometry=[shape({"type": "Polygon", "coordinates": [[[12.40, 41.80], [12.50, 41.80], [12.50, 41.90], [12.40, 41.90], [12.40, 41.80]]]})],
+    crs="EPSG:4326"
+).to_crs("EPSG:3857")
+
+if "name" not in gdf.columns:
+    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+gdf["valid"] = gdf.geometry.apply(lambda g: g is not None and g.is_valid)
+gdf["empty"] = gdf.geometry.apply(lambda g: g is None or g.is_empty)
+gdf["duplicate"] = gdf.geometry.to_wkb().duplicated()
+
+for col in gdf.columns:
+    if col != "geometry":
+        gdf[col] = gdf[col].fillna("")
+
+attribute_columns = [c for c in gdf.columns if c not in ("geometry", "valid", "empty", "duplicate")]
+geometry_types = sorted(set(gdf.geometry.geom_type))
+bounds = [round(float(b), 6) for b in gdf.total_bounds]
+crs = gdf.crs.to_string() if gdf.crs is not None else None
+
+{
+    "features": gdf.__geo_interface__,
+    "summary": {
+        "total": len(gdf), "geometryTypes": geometry_types, "crs": crs, "bounds": bounds,
+        "attributeNames": attribute_columns,
+        "invalid": int((~gdf["valid"]).sum()), "empty": int(gdf["empty"].sum()), "duplicates": int(gdf["duplicate"].sum())
+    }
+}`
+rCrsExampleCode = `wkt <- "POLYGON((12.40 41.80, 12.50 41.80, 12.50 41.90, 12.40 41.90, 12.40 41.80))"
+data <- sf::st_sf(name = "square", geometry = sf::st_as_sfc(wkt, crs = 4326))
+data <- sf::st_transform(data, 3857)
+
+data$valid <- sf::st_is_valid(data)
+data$empty <- sf::st_is_empty(data)
+data$duplicate <- duplicated(sf::st_as_text(sf::st_geometry(data)))
+
+attribute_names <- setdiff(names(data), c("geometry", "valid", "empty", "duplicate"))
+geometry_types <- sort(unique(as.character(sf::st_geometry_type(data))))
+bnd <- sf::st_bbox(data)
+
+result <- list(
+  features = jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE),
+  summary = list(
+    total = nrow(data), geometryTypes = I(geometry_types), crs = sf::st_crs(data)$input,
+    bounds = I(unname(round(as.numeric(bnd), 6))), attributeNames = I(attribute_names),
+    invalid = sum(!data$valid), empty = sum(data$empty), duplicates = sum(data$duplicate)
+  )
+)
+jsonlite::fromJSON(jsonlite::toJSON(result, auto_unbox = TRUE, null = "null"), simplifyVector = FALSE)`
+```
+
+```{ojs}
+//| echo: false
+loadCrsExampleButton = loadExampleButton("📋 Load a CRS-mismatch example", pyCrsExampleCode, rCrsExampleCode)
+```
+
+::: {.callout-note}
+Web Mercator coordinates plotted at the same zoom level as geographic
+coordinates land far outside any sensible map view — that's the
+"bounds in the hundreds of thousands" tell in practice, not just in
+the abstract. Actually correcting a CRS mismatch — reprojecting a file
+to match what you expect — is a separate, dedicated tool, planned as
+the CRS Inspector & Converter.
+:::
+
+## 7. Where to next
+
+A summary is a starting point, not an endpoint:
+
+- **Invalid geometries?** → [Geometry validity](geometry-validity.qmd)
+  explains why, and how `make_valid()`/`st_make_valid()` fix it — or
+  use the [standalone Validator](/tools/geojson-shapefile-validator.html)
+  directly.
+- **Everything valid, but the dataset still looks wrong?** →
+  [Topology errors](topology-errors.qmd) covers overlaps, gaps,
+  slivers, duplicates, and dangles — relationships *between* features,
+  not properties of any one of them — or use the
+  [standalone Topology Checker](/tools/topology-checker.html).
+- **Just needed the numbers?** The
+  [standalone Inspector](/tools/geospatial-file-inspector.html) has
+  the same summary, no reading required.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

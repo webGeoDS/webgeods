@@ -1,0 +1,441 @@
+---
+title: "GeoSpatial File Inspector"
+date: 2026-09-05
+categories: [tool, geometry]
+description: "Upload a GeoJSON or a Shapefile and get an instant summary — feature count, geometry type, CRS, bounds, attributes, invalid/empty/duplicate geometries. Free, runs entirely in your browser: the file never leaves your computer."
+page-layout: full
+---
+
+Upload a file — `.geojson`, or a shapefile as a single `.zip` or as
+`.shp`/`.dbf`/`.shx` selected together — and get an instant summary of
+what's actually in it, before you dig into any one check.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (Python via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+```{ojs}
+//| echo: false
+// Pulses the status text while true — set around both the actual
+// file write AND the automatic inspection that follows it, same
+// pattern as every other tool on this site.
+mutable uploadBusy = false
+```
+
+```{ojs}
+//| echo: false
+// The current file selection — a plain `mutable`, written by
+// uploadControl's onChange below. See WebGeoDS.Upload.createControl's
+// doc comment in shared/upload.js for why this is a native
+// <input type="file"> instead of a `viewof`-bound Observable Inputs
+// widget.
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The upload control itself — a native <input type="file"> wrapped
+// in a <label> styled as a .webgeods-panel-btn. output:false + only
+// ever consumed via controlPanelRow's row.append() below (same
+// reasoning as loadExampleButton/downloadButton there): folding it
+// into that one JS-built row, instead of giving it its own
+// `${uploadControl}` markdown interpolation, sidesteps a real bug
+// found on geojson-shapefile-validator.qmd — two `${...}`
+// interpolations on separate paragraphs each get wrapped in their own
+// <p> by Pandoc, and each <p> becomes an independent flex item,
+// breaking vertical alignment between them.
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "📁 Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  // Python-only tool: skip writing to R's filesystem entirely, so
+  // selecting a file doesn't also load webR in the background for no
+  // reason (see shared/upload.js's `languages` option doc).
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
+    if (result.ok) {
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Only ever shown via ${uploadStatusEl} inside the panel — see
+// loadExampleButton's comment for why this needs output:false too.
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "geospatial-file-inspector" });
+  return map;
+}
+```
+
+The code itself isn't shown here — it's a fixed, non-editable summary
+using GeoPandas/Shapely underneath; see the
+[full article](/posts/geospatial-file-inspection.html) for the actual
+code, editable and explained one stat at a time.
+
+```{ojs}
+//| echo: false
+//| output: false
+// No fallback on page load anymore (an earlier version of this
+// pattern — see geojson-shapefile-validator.qmd's own history —
+// diagnosed hardcoded data automatically) — the page starts genuinely
+// empty until the user either uploads a file or clicks "Load
+// example" below. A small, deliberately imperfect dataset: one exact
+// duplicate (b2), one invalid geometry (bowtie), so every stat in the
+// summary below has something real to show.
+EXAMPLE_GEOJSON = JSON.stringify({
+  type: "FeatureCollection",
+  features: [
+    { type: "Feature", properties: { name: "square-1", population: 1200 }, geometry: { type: "Polygon", coordinates: [[[12.40, 41.80], [12.50, 41.80], [12.50, 41.90], [12.40, 41.90], [12.40, 41.80]]] } },
+    { type: "Feature", properties: { name: "square-1-copy", population: 1200 }, geometry: { type: "Polygon", coordinates: [[[12.40, 41.80], [12.50, 41.80], [12.50, 41.90], [12.40, 41.90], [12.40, 41.80]]] } },
+    { type: "Feature", properties: { name: "triangle", population: 340 }, geometry: { type: "Polygon", coordinates: [[[12.60, 41.80], [12.70, 41.80], [12.65, 41.90], [12.60, 41.80]]] } },
+    { type: "Feature", properties: { name: "bowtie (invalid)", population: null }, geometry: { type: "Polygon", coordinates: [[[12.75, 41.80], [12.85, 41.90], [12.75, 41.90], [12.85, 41.80], [12.75, 41.80]]] } }
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
+      await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
+}
+```
+
+```{.webgeods-python #inspect-py}
+#| package: geopandas, shapely
+import geopandas as gpd
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+if gdf is not None:
+    if "name" not in gdf.columns:
+        gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+    # Three per-feature checks, each cheap and vectorized (no O(n²)
+    # pairwise comparisons — unlike topology-checker.qmd's check_gap()/
+    # check_overlap(), this tool's whole point is a fast first look at
+    # a potentially large file, not an authoritative topology report;
+    # that's what the Topology Checker is for, linked below).
+    gdf["valid"] = gdf.geometry.apply(lambda g: g is not None and g.is_valid)
+    gdf["empty"] = gdf.geometry.apply(lambda g: g is None or g.is_empty)
+    # Exact-match only (same WKB bytes) — catches a copy-pasted row,
+    # not a topologically-identical polygon traced with different
+    # vertex order. That distinction is deliberate: an exact-duplicate
+    # check is O(n) via hashing and scales to a large file; a
+    # topological one is the O(n²) check the Topology Checker already
+    # does, cross-linked instead of duplicated here.
+    gdf["duplicate"] = gdf.geometry.to_wkb().duplicated()
+
+    # Same reasoning as every other tool: keep every original column,
+    # fillna("") so a None doesn't silently vanish crossing the
+    # Pyodide->JS bridge as a live cell value.
+    for col in gdf.columns:
+        if col != "geometry":
+            gdf[col] = gdf[col].fillna("")
+
+attribute_columns = [c for c in gdf.columns if c not in ("geometry", "valid", "empty", "duplicate")] if gdf is not None else []
+geometry_types = sorted(set(gdf.geometry.geom_type)) if gdf is not None and len(gdf) > 0 else []
+bounds = [round(float(b), 6) for b in gdf.total_bounds] if gdf is not None and len(gdf) > 0 else None
+crs = gdf.crs.to_string() if gdf is not None and gdf.crs is not None else None
+
+{
+    "features": gdf.__geo_interface__ if gdf is not None else {"type": "FeatureCollection", "features": []},
+    "summary": {
+        "total": len(gdf) if gdf is not None else 0,
+        "geometryTypes": geometry_types,
+        "crs": crs,
+        "bounds": bounds,
+        "attributeNames": attribute_columns,
+        "invalid": int((~gdf["valid"]).sum()) if gdf is not None else 0,
+        "empty": int(gdf["empty"].sum()) if gdf is not None else 0,
+        "duplicates": int(gdf["duplicate"].sum()) if gdf is not None else 0
+    }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+autoInspect = async () => {
+  await window.WebGeoDS.CodeCell.find("inspect-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Same coloring convention as geojson-shapefile-validator.qmd's
+// VALIDITY_PAINT — green valid, red invalid — so a reader who has
+// already seen that tool recognizes the color language immediately.
+INSPECT_PAINT = ({
+  "fill-color": [
+    "case",
+    ["==", ["get", "valid"], true],
+    "#2ea44f",
+    "#e05252"
+  ],
+  "fill-opacity": 0.55
+})
+```
+
+```{ojs}
+//| echo: false
+// The summary card's own state, separate from reading pyInspect
+// directly: pyInspect is the CodeCell's cached value, which Reset
+// below has no way to clear (there's nothing to re-run) — without
+// this, clicking Reset would empty the map but leave the summary card
+// showing stale numbers. Set alongside the map update below, cleared
+// alongside the map reset further down, so the two always agree.
+mutable inspectSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
+{
+  if (pyInspect) {
+    await sharedMap.setGeoJSON("inspect-py", pyInspect.features, { paint: INSPECT_PAINT });
+    // Zooms to whatever was just inspected — an upload or "Load
+    // example" — same as every other tool. A no-op on an empty
+    // FeatureCollection.
+    await sharedMap.fitToData(pyInspect.features);
+    mutable inspectSummary = pyInspect.summary;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+resetInspector = async () => {
+  if (sharedMap.getGeoJSON("inspect-py")) {
+    await sharedMap.setGeoJSON("inspect-py", { type: "FeatureCollection", features: [] });
+  }
+  mutable inspectSummary = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
+  button.onclick = () => resetInspector();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// WebGeoDS.downloadBlob (shared/download.js) — the same helper every
+// other tool uses. Downloads the SAME enriched GeoJSON shown on the
+// map (original columns + valid/empty/duplicate), not a re-export of
+// the untouched upload: this tool never modifies geometry, so there's
+// nothing to "repair" here, but the three flags it computed are
+// useful to keep.
+downloadButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "⬇ Download";
+  button.onclick = () => {
+    const data = sharedMap.getGeoJSON("inspect-py");
+    if (!data) return;
+    const base = WebGeoDS.Upload.baseName(uploadedFiles);
+    WebGeoDS.downloadBlob(
+      JSON.stringify(data, null, 2),
+      base ? `${base}-inspected.geojson` : "inspected.geojson",
+      "application/geo+json",
+      { tool: "geospatial-file-inspector" }
+    );
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// output:false: this cell's own definition sits well before the
+// panel in the document — without it, the fully-grouped row would
+// flash into view there FIRST (Quarto's own auto-display), then
+// disappear and reappear down in the panel once ${controlPanelRow}
+// mounts the same node — same reasoning as every button cell above.
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
+  const status = document.createElement("span");
+  status.className = "webgeods-panel-status";
+  status.textContent = "";
+  row.appendChild(status);
+  return row;
+}
+```
+
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+:::: {.webgeods-panel}
+
+::: {.webgeods-panel-row}
+${controlPanelRow}
+:::
+
+::: {.webgeods-panel-row}
+${uploadStatusEl}
+:::
+
+::::
+
+```{ojs}
+//| echo: false
+// Reactive directly on inspectSummary (a mutable set alongside the
+// map, cleared alongside it too — see resetInspector), not on the
+// map's "sourcedata" event like other tools' stats lines: reading
+// straight from pyInspect instead would have left this showing stale
+// numbers after Reset, since there's no cell to re-run that would
+// naturally clear it. Physically positioned here, between the panel
+// and the map, matching the roadmap's own sketch of this tool:
+// controls, then a summary card, then the map to see it on.
+statCard = {
+  const s = inspectSummary;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s || s.total === 0) {
+    row("Features", "0");
+    row("—", "Upload a file or load the example above");
+    return box;
+  }
+
+  const geometryLabel = s.geometryTypes.length > 1
+    ? `Mixed (${s.geometryTypes.join(", ")})`
+    : (s.geometryTypes[0] ?? "—");
+
+  row("Features", s.total.toLocaleString());
+  row("Geometry", geometryLabel);
+  row("CRS", s.crs ?? "Unknown");
+  row("Bounds", s.bounds ? s.bounds.join(", ") : "—");
+  row("Attributes", `${s.attributeNames.length}${s.attributeNames.length > 0 ? ` (${s.attributeNames.join(", ")})` : ""}`);
+  row("Invalid", String(s.invalid));
+  row("Empty", String(s.empty));
+  row("Duplicates", String(s.duplicates));
+
+  return box;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+<style>
+/* inspect-py is functional (the CodeCell engine still runs it), just
+   not shown — see geojson-shapefile-validator.qmd for the full
+   rationale and the display:none pitfall (breaks maplibre-gl.js
+   loading) already found and avoided here from the start. Stays HERE,
+   after the last {ojs} cell, and the closing note below is raw HTML
+   rather than a Pandoc fenced div — same two Quarto/Pandoc bugs
+   documented at length in geojson-shapefile-validator.qmd's own
+   equivalent block: this block must stay after the OJS cells, and the
+   closing note must stay raw HTML, or the page breaks in one of two
+   different ways. */
+#inspect-py {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+Want the full picture instead of just a summary? The
+<a href="/posts/geospatial-file-inspection.html">full article</a>
+walks through what each of these stats means and why it matters, in
+Python and R. Once you know what's in your file, the
+<a href="/tools/geojson-shapefile-validator.html">Geometry
+Validator</a> and the <a href="/tools/topology-checker.html">Topology
+Checker</a> are the natural next steps.
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
