@@ -786,6 +786,12 @@ pyErrors = WebGeoDS.getCellValue("topology-errors-example-py", Generators)
   if (pyErrors) {
     await sharedMap.setGeoJSON("topology-errors-py", pyErrors.features, { paint: errorPaint(pyErrors.features) });
     await sharedMap.setGeoJSON("topology-errors-gaps-py", pyErrors.gaps, { paint: gapPaint });
+    // Zooms to the real features' bounds — same as
+    // topology-checker.qmd's own pyErrors effect. A gap sits between
+    // two nearby features by construction, so fitting to the features
+    // alone already covers it in practice; a no-op on an empty
+    // FeatureCollection.
+    await sharedMap.fitToData(pyErrors.features);
   }
 }
 ```
@@ -798,6 +804,7 @@ rErrors = WebGeoDS.getCellValue("topology-errors-example-r", Generators)
   if (rErrors) {
     await sharedMap.setGeoJSON("topology-errors-r", rErrors.features, { paint: errorPaint(rErrors.features) });
     await sharedMap.setGeoJSON("topology-errors-gaps-r", rErrors.gaps, { paint: gapPaint });
+    await sharedMap.fitToData(rErrors.features);
   }
 }
 ```
@@ -1033,6 +1040,7 @@ pyErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-py", Generato
   if (pyErrorsUploaded) {
     await sharedMap.setGeoJSON("topology-errors-py", pyErrorsUploaded.features, { paint: errorPaint(pyErrorsUploaded.features) });
     await sharedMap.setGeoJSON("topology-errors-gaps-py", pyErrorsUploaded.gaps, { paint: gapPaint });
+    await sharedMap.fitToData(pyErrorsUploaded.features);
   }
 }
 ```
@@ -1045,6 +1053,7 @@ rErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-r", Generators
   if (rErrorsUploaded) {
     await sharedMap.setGeoJSON("topology-errors-r", rErrorsUploaded.features, { paint: errorPaint(rErrorsUploaded.features) });
     await sharedMap.setGeoJSON("topology-errors-gaps-r", rErrorsUploaded.gaps, { paint: gapPaint });
+    await sharedMap.fitToData(rErrorsUploaded.features);
   }
 }
 ```

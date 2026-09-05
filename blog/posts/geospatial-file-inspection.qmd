@@ -148,6 +148,13 @@ pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
 {
   if (pyInspect) {
     await sharedMap.setGeoJSON("inspect-py", pyInspect.features, { paint: INSPECT_PAINT });
+    // Zooms to whatever was just inspected — same as the standalone
+    // tool. Without this the CRS-mismatch example in section 6 would
+    // load fine but stay invisible: the map would just sit at its
+    // fixed initial view over Italy instead of jumping to wherever the
+    // Web Mercator coordinates actually land, missing the whole point
+    // of that example.
+    await sharedMap.fitToData(pyInspect.features);
     mutable pySummary = pyInspect.summary;
   }
 }
@@ -160,6 +167,7 @@ rInspect = WebGeoDS.getCellValue("inspect-r", Generators)
 {
   if (rInspect) {
     await sharedMap.setGeoJSON("inspect-r", rInspect.features, { paint: INSPECT_PAINT });
+    await sharedMap.fitToData(rInspect.features);
     mutable rSummary = rInspect.summary;
   }
 }
@@ -357,27 +365,28 @@ geometry_types <- sort(unique(as.character(sf::st_geometry_type(data))))
 bnd <- sf::st_bbox(data)
 crs_input <- sf::st_crs(data)$input
 
-# I() (base R's "AsIs" marker) on every field that's a vector, not a
-# single value: auto_unbox = TRUE below (needed so total/crs/invalid/
-# etc. serialize as plain JSON scalars, not [value]-wrapped arrays)
-# has the side effect of ALSO unboxing any OTHER vector down to a bare
-# value whenever it happens to have exactly one element — geometryTypes
-# is length 1 for the overwhelmingly common case of a single-geometry-
-# type file, silently turning ["POLYGON"] into "POLYGON" and breaking
-# .join() on the JS side. Verified empirically (Playwright): a real
-# TypeError, not a hypothetical one. I() forces array serialization
-# regardless of length.
+# jsonlite::unbox() marks a value as a genuine scalar, explicitly,
+# field by field — the alternative would be toJSON(auto_unbox = TRUE)
+# globally, but that unboxes EVERY length-1 vector in the structure,
+# not just the fields meant to be scalars: geometryTypes is length 1
+# for the overwhelmingly common case of a single-geometry-type file,
+# and auto_unbox would silently turn ["POLYGON"] into bare "POLYGON",
+# breaking .join() on the JS side (verified empirically via Playwright
+# — a real TypeError, not a hypothetical one). unbox()'d here instead
+# of relying on a blanket flag, so geometryTypes/bounds/attributeNames
+# stay real arrays (jsonlite's default for a vector) with no special
+# handling needed for them at all.
 result <- list(
   features = jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE),
   summary = list(
-    total = nrow(data),
-    geometryTypes = I(geometry_types),
-    crs = crs_input,
-    bounds = I(unname(round(as.numeric(bnd), 6))),
-    attributeNames = I(attribute_names),
-    invalid = sum(!data$valid),
-    empty = sum(data$empty),
-    duplicates = sum(data$duplicate)
+    total = jsonlite::unbox(nrow(data)),
+    geometryTypes = geometry_types,
+    crs = if (is.null(crs_input)) NULL else jsonlite::unbox(crs_input),
+    bounds = unname(round(as.numeric(bnd), 6)),
+    attributeNames = attribute_names,
+    invalid = jsonlite::unbox(sum(!data$valid)),
+    empty = jsonlite::unbox(sum(data$empty)),
+    duplicates = jsonlite::unbox(sum(data$duplicate))
   )
 )
 
@@ -386,7 +395,7 @@ result <- list(
 # the webR->JS bridge as plain JS arrays on their own the way a
 # jsonlite-parsed list does — same reasoning already applied to
 # "features" above, just for the summary fields too.
-jsonlite::fromJSON(jsonlite::toJSON(result, auto_unbox = TRUE, null = "null"), simplifyVector = FALSE)
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
 ```
 
 :::
@@ -503,12 +512,14 @@ bnd <- sf::st_bbox(data)
 result <- list(
   features = jsonlite::fromJSON(geojsonsf::sf_geojson(data), simplifyVector = FALSE),
   summary = list(
-    total = nrow(data), geometryTypes = I(geometry_types), crs = sf::st_crs(data)$input,
-    bounds = I(unname(round(as.numeric(bnd), 6))), attributeNames = I(attribute_names),
-    invalid = sum(!data$valid), empty = sum(data$empty), duplicates = sum(data$duplicate)
+    total = jsonlite::unbox(nrow(data)), geometryTypes = geometry_types,
+    crs = jsonlite::unbox(sf::st_crs(data)$input),
+    bounds = unname(round(as.numeric(bnd), 6)), attributeNames = attribute_names,
+    invalid = jsonlite::unbox(sum(!data$valid)), empty = jsonlite::unbox(sum(data$empty)),
+    duplicates = jsonlite::unbox(sum(data$duplicate))
   )
 )
-jsonlite::fromJSON(jsonlite::toJSON(result, auto_unbox = TRUE, null = "null"), simplifyVector = FALSE)`
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)`
 ```
 
 ```{ojs}

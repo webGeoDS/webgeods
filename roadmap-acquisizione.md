@@ -438,6 +438,30 @@ un repository git.
   GoatCounter e chiamate di tracking confermati presenti
   sull'HTML live (`http://webgeods.com/tools/geojson-shapefile-validator.html`).
 
+  **Escludere le proprie visite dal conteggio (2026-09-05)**: prima
+  analisi reale del report GoatCounter (46 visite, 29/08-05/09) — un
+  buon numero risultavano nostre (giri di verifica dal vivo dopo i
+  commit, il telefono Android dell'autore, e una visita chiesta a
+  ChatGPT, che spiega verosimilmente sia il traffico iOS/Safari — molti
+  agenti di browsing AI si presentano con user-agent mobile per
+  compatibilità — sia il referrer bing.com, se ChatGPT ha cercato il
+  sito invece di navigarci direttamente). `localhost` è già escluso
+  automaticamente da GoatCounter, ma questo non copre visite reali sul
+  dominio pubblico da dispositivi propri. Verificata la documentazione
+  ufficiale (`goatcounter.com/help/skip-dev`): tre meccanismi esistono
+  (Ignore IPs — impraticabile con IP mobile dinamico; environment
+  detection via `no_onload` — serve per escludere interi ambienti di
+  staging, non applicabile qui; **toggle via URL**
+  `https://webgeods.com/#toggle-goatcounter` — un cookie di opt-out
+  impostato una tantum per browser/dispositivo, nessuna modifica al
+  codice). **Azione per l'autore**: visitare quell'URL una volta da
+  ogni dispositivo personale usato per controllare il sito (telefono
+  Android, eventuale laptop) per smettere di essere conteggiato da lì
+  in avanti. Nessun meccanismo affidabile esiste per escludere in
+  anticipo visite di agenti AI (IP/browser imprevedibili, spesso senza
+  stato persistente) — restano da interpretare a posteriori nei
+  report, non da filtrare a monte.
+
 ### 0.6 `type: website` → `type: blog`
 
 - **✅ fatto (2026-09-03), ma non come previsto**: `type: blog` **non
@@ -2060,13 +2084,17 @@ ipotetici, confermati via Playwright):
    tipo di geometria è il caso comune), quindi `["Polygon"]`
    diventava silenziosamente `"Polygon"`, rompendo `.join()` lato JS
    con un errore reale (`TypeError: s.geometryTypes.join is not a
-   function`, non ipotetico). Corretto avvolgendo ogni campo
-   vettoriale (`geometryTypes`, `bounds`, `attributeNames`) con `I()`
-   (AsIs di R base), che forza la serializzazione ad array
-   indipendentemente dalla lunghezza — utile ricordarlo per
-   `topology-errors.qmd` se in futuro dovesse tornare a usare
-   `auto_unbox` su strutture con vettori di lunghezza variabile (oggi
-   non lo fa, quindi non affetto).
+   function`, non ipotetico). Prima corretto avvolgendo i campi
+   vettoriali con `I()` (AsIs di R base, forza la serializzazione ad
+   array indipendentemente dalla lunghezza) — **poi rivisto su
+   richiesta dell'utente** verso la soluzione più esplicita:
+   `auto_unbox = TRUE` rimosso del tutto, ogni campo SCALARE marcato a
+   mano con `jsonlite::unbox()` (`total`, `crs`, `invalid`, `empty`,
+   `duplicates`), i campi vettoriali (`geometryTypes`, `bounds`,
+   `attributeNames`) lasciati semplici — array per comportamento di
+   default di jsonlite, nessun `I()` necessario. Stesso risultato, ma
+   dichiara esplicitamente quali campi sono voluti scalari invece di
+   "vettori che capitano ad avere lunghezza 1".
 
 Verificato: flusso completo upload/load-example/download/reset su
 entrambe le pagine, esempio CRS-mismatch eseguito su Python e R
@@ -2075,3 +2103,46 @@ CRS/geometry-type esattamente quella descritta nel testo come punto
 didattico), nessun errore console dopo le due correzioni, 16/16
 map-tests, 51/51 smoke-test lessons. Aggiornato anche
 `blog/tools/index.qmd` ("tre tool live" invece di due).
+
+**`fitToData()` aggiunto ai tre articoli bilingue (2026-09-05)**, su
+domanda diretta dell'utente ("negli articoli la mappa visualizza e
+zooma le geometrie appena caricate?"). Verificato che no — nessuno dei
+tre articoli (`geometry-validity.qmd`, `topology-errors.qmd`,
+`geospatial-file-inspection.qmd`) chiamava `fitToData()`, solo
+`setGeoJSON()`: la mappa disegnava i dati ma restava ferma alla vista
+iniziale, a differenza dei tre tool standalone (dove è già presente).
+Poco visibile finora perché gli esempi degli articoli sono scritti
+apposta vicino al centro iniziale — ma rilevante subito per l'esempio
+CRS-mismatch appena aggiunto in `geospatial-file-inspection.qmd`, il
+cui intero scopo didattico è mostrare "dove finiscono" coordinate in
+un CRS sbagliato. Aggiunto a tutte le celle reattive diagnose/inspect
+nei tre articoli (non alle celle di repair — nessun tool le usa
+neanche lì, il pattern seguito è lo stesso).
+
+**Bug reale scoperto proprio grazie a questo (non ipotetico, trovato
+con Playwright)**: l'esempio CRS-mismatch ha davvero prodotto quello
+che doveva dimostrare — coordinate Web Mercator (centinaia di migliaia
+di metri) lette come lon/lat producono una "latitudine" ben oltre il
+range valido (-90..90), e `MapLibre` lo rifiuta lanciando
+`Invalid LngLat latitude value` invece di limitarsi a zoomare nel
+posto sbagliato. L'errore nasce dentro `getBounds()`'s stesso
+`bounds.extend(coordinates)` (non in `fitBounds()` a valle), quindi
+prima ancora che `fitToData()` arrivi al controllo `bounds.isEmpty()`.
+Dato che OGNI chiamante di `fitToData()` finisce per leggere le
+coordinate di un file caricato dall'utente, questo è un fallimento
+reale e raggiungibile per qualunque tool, non solo per l'esempio
+didattico che l'ha fatto emergere — un file reale con CRS/coordinate
+davvero incoerenti ci sarebbe incappato allo stesso modo in
+produzione. **Corretto una sola volta in `shared/map.js`'s
+`fitToData()`** (non nei 9+ punti di chiamata sparsi in 6 file tra tool
+e articoli): `getBounds()` e `map.fitBounds()` avvolti in try/catch,
+un `console.warn()` e "lascia la mappa dov'è" al posto di
+un'eccezione che romperebbe la cella reattiva chiamante.
+
+Verificato: zoom corretto sui tre articoli (4 → ~11 sugli esempi
+normali), l'esempio CRS-mismatch produce il warning atteso invece di
+un errore (confermato leggendo il testo esatto del `console.warn` via
+Playwright), nessuna regressione sul test esistente "getBounds /
+fitToData don't throw on valid GeoJSON", 16/16 map-tests, 51/51
+smoke-test lessons (incluso il timeout isolato `§16 R — sf`, rieseguito
+pulito in questo stesso giro).

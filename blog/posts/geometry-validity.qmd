@@ -402,6 +402,16 @@ pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
 {
   if (pyDiagnose) {
     await sharedMap.setGeoJSON("geometry-py", pyDiagnose, { paint: VALIDITY_PAINT });
+    // Zooms to whatever was just diagnosed — an upload or a "Load
+    // this example" click — same as every standalone tool. Without
+    // this the map stays at its fixed initial view, which happened to
+    // make every example invisible-but-not-broken so far (they're all
+    // written near that same center) but would leave the CRS example
+    // over in geospatial-file-inspection.qmd effectively invisible —
+    // that page is what surfaced this gap. A no-op on an empty
+    // FeatureCollection (getBounds()/fitToData() already handle that
+    // safely).
+    await sharedMap.fitToData(pyDiagnose);
   }
 }
 ```
@@ -413,6 +423,7 @@ rDiagnose = WebGeoDS.getCellValue("geometry-diagnose-r", Generators)
 {
   if (rDiagnose) {
     await sharedMap.setGeoJSON("geometry-r", rDiagnose, { paint: VALIDITY_PAINT });
+    await sharedMap.fitToData(rDiagnose);
   }
 }
 ```

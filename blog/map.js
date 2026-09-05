@@ -1954,10 +1954,38 @@
       await this.ready();
 
 
-      const bounds =
-        this.getBounds(
-          data
+      // getBounds()'s own bounds.extend(coordinates) constructs a
+      // real MapLibre LngLat internally, which THROWS immediately on
+      // an out-of-range latitude (must be -90..90) — not a
+      // hypothetical case: a file whose CRS doesn't match its actual
+      // coordinates (e.g. Web Mercator meters read as if they were
+      // lon/lat degrees — see geospatial-file-inspection.qmd's own
+      // CRS-mismatch example) produces exactly this. Every caller of
+      // fitToData() ultimately reads an uploaded file's own
+      // coordinates, so this is a real, reachable failure for any of
+      // them, not just that one teaching example. Caught here once,
+      // for every caller, instead of wrapping each call site
+      // individually: "can't zoom to this" is a reasonable no-op for
+      // a zoom-to-fit helper, not a reason to break whatever reactive
+      // cell called it.
+      let bounds;
+
+      try {
+
+        bounds =
+          this.getBounds(
+            data
+          );
+
+      } catch (err) {
+
+        console.warn(
+          `WebGeoDS.Map: fitToData() couldn't compute bounds (${err.message || err}) — leaving the map where it is.`
         );
+
+        return this;
+
+      }
 
 
       if (
@@ -1969,26 +1997,36 @@
       }
 
 
-      this.map.fitBounds(
-        bounds,
-        {
+      try {
 
-          padding:
-            options.padding ??
-            40,
+        this.map.fitBounds(
+          bounds,
+          {
 
-          duration:
-            options.duration ??
-            1000,
+            padding:
+              options.padding ??
+              40,
 
-          maxZoom:
-            options.maxZoom ??
-            15,
+            duration:
+              options.duration ??
+              1000,
 
-          ...options
+            maxZoom:
+              options.maxZoom ??
+              15,
 
-        }
-      );
+            ...options
+
+          }
+        );
+
+      } catch (err) {
+
+        console.warn(
+          `WebGeoDS.Map: fitToData() couldn't fit to bounds (${err.message || err}) — leaving the map where it is.`
+        );
+
+      }
 
 
       return this;
