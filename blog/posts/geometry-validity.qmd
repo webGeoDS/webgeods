@@ -566,15 +566,15 @@ gdf.geometry.is_valid
 sf::st_is_valid(data)
 ```
 
-Both go through the same geometry engine, GEOS, for this calculation —
-but don't expect the exact same text when you ask *why* a geometry is
-invalid: `explain_validity()` in Python includes the coordinates of the
-problem (e.g. `"Self-intersection[12.5 41.9]"`), while
-`st_is_valid(reason = TRUE)` in R describes the edges involved without
-coordinates (e.g. `"Edge 0 crosses edge 2"`) — same calculation,
-different vocabulary. It's exactly the kind of detail that
-distinguishes one spatial ecosystem from the other, not a bug in
-either one.
+Both go through the same geometry engine, GEOS, for this calculation.[^reason-text]
+
+[^reason-text]: Don't expect the exact same text when you ask *why* a
+geometry is invalid, though: `explain_validity()` in Python includes
+the coordinates of the problem (e.g. `"Self-intersection[12.5
+41.9]"`), while `st_is_valid(reason = TRUE)` in R describes the edges
+involved without coordinates (e.g. `"Edge 0 crosses edge 2"`) — same
+calculation, different vocabulary. Not a bug in either one, just a
+detail that distinguishes one spatial ecosystem from the other.
 
 ## Valid according to whom?
 

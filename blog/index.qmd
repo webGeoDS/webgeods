@@ -1,5 +1,5 @@
 ---
-title: "webgeods"
+title: "webGeoDs"
 description: "Spatial Data Science, directly in your browser — interactive articles and free tools for Python and R, with no local setup and nothing ever uploaded."
 listing:
   contents: posts

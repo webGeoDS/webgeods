@@ -32,6 +32,14 @@ jobs:
       - name: Render blog
         run: quarto render blog
 
+      - name: Post-render fixups
+        # Search index text leaking hidden code/comments, and the
+        # navbar logo's alt text not actually being set despite a
+        # valid `logo-alt:` config — see post-render-fixups.mjs's own
+        # header comment for the full story on both. ubuntu-latest
+        # ships Node.js already, no setup step needed.
+        run: node post-render-fixups.mjs
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

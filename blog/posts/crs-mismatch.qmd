@@ -76,6 +76,32 @@ its own: whatever numbers you hand them, that's where they land.
   the single most common reason a map "looks wrong" before you've
   touched a single geometry.
 
+::: {}
+<svg viewBox="0 0 460 200" style="max-width: 460px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="The same point shown two ways: small numbers in a degrees grid on the left, numbers in the millions in a meters grid on the right">
+  <rect x="1" y="1" width="210" height="178" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
+  <line x1="1" y1="45" x2="211" y2="45" stroke="#ddd1b8" stroke-width="1"/>
+  <line x1="1" y1="90" x2="211" y2="90" stroke="#ddd1b8" stroke-width="1"/>
+  <line x1="1" y1="135" x2="211" y2="135" stroke="#ddd1b8" stroke-width="1"/>
+  <line x1="53" y1="1" x2="53" y2="179" stroke="#ddd1b8" stroke-width="1"/>
+  <line x1="106" y1="1" x2="106" y2="179" stroke="#ddd1b8" stroke-width="1"/>
+  <line x1="159" y1="1" x2="159" y2="179" stroke="#ddd1b8" stroke-width="1"/>
+  <circle cx="106" cy="90" r="6" fill="#42583c" stroke="#2a2117" stroke-width="1.5"/>
+  <text x="106" y="20" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">12.5, 41.9</text>
+  <text x="106" y="165" text-anchor="middle" font-family="monospace" font-size="11" fill="#5a4f3e">geographic — degrees</text>
+  <rect x="250" y="1" width="210" height="178" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
+  <line x1="250" y1="45" x2="460" y2="45" stroke="#ddd1b8" stroke-width="1"/>
+  <line x1="250" y1="90" x2="460" y2="90" stroke="#ddd1b8" stroke-width="1"/>
+  <line x1="250" y1="135" x2="460" y2="135" stroke="#ddd1b8" stroke-width="1"/>
+  <line x1="302" y1="1" x2="302" y2="179" stroke="#ddd1b8" stroke-width="1"/>
+  <line x1="355" y1="1" x2="355" y2="179" stroke="#ddd1b8" stroke-width="1"/>
+  <line x1="408" y1="1" x2="408" y2="179" stroke="#ddd1b8" stroke-width="1"/>
+  <circle cx="355" cy="90" r="6" fill="#42583c" stroke="#2a2117" stroke-width="1.5"/>
+  <text x="355" y="15" text-anchor="middle" font-family="monospace" font-size="10" fill="#2a2117">1,391,000</text>
+  <text x="355" y="27" text-anchor="middle" font-family="monospace" font-size="10" fill="#2a2117">5,140,000</text>
+  <text x="355" y="165" text-anchor="middle" font-family="monospace" font-size="11" fill="#5a4f3e">projected — meters</text>
+</svg>
+:::
+
 ## 3. Shared map and detection
 
 ```{ojs}
@@ -358,14 +384,16 @@ sf::st_is_longlat(data)
 ```
 
 Both ultimately ask PROJ (the library underneath both PyPROJ and
-`sf`'s CRS handling) the same question — but the accessor and the
-formatted CRS string differ: `original_crs.to_string()` in Python
-routinely returns `"EPSG:4326"`, while `st_crs(data)$input` in R
-returns whatever string the file's own CRS definition resolved to,
-sometimes a full human-readable name instead of an EPSG code. Same
-underlying CRS, not always the same displayed text — worth knowing
-before assuming a mismatch between the two cards above means an
-actual data problem, rather than a formatting one.
+`sf`'s CRS handling) the same question.[^crs-string-format]
+
+[^crs-string-format]: The accessor and the formatted CRS string
+differ, though: `original_crs.to_string()` in Python routinely returns
+`"EPSG:4326"`, while `st_crs(data)$input` in R returns whatever string
+the file's own CRS definition resolved to, sometimes a full
+human-readable name instead of an EPSG code. Same underlying CRS, not
+always the same displayed text — worth knowing before assuming a
+mismatch between the two cards above means an actual data problem,
+rather than a formatting one.
 
 ## 5. Convert to a different CRS
 

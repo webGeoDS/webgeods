@@ -79,16 +79,57 @@ Five recurring categories, drawn from the
 catalog and from the
 [QGIS Topology Checker](https://docs.qgis.org/3.44/en/docs/user_manual/plugins/core_plugins/plugins_topology_checker.html):
 
-- **Overlap** — two polygons that should be adjacent instead overlap
-  over a portion of surface.
-- **Gap** — a gap remains between polygons that should continuously
-  cover an area.
-- **Sliver** — a leftover polygon, thin and with no real geographic
-  meaning, often the result of an overlay.
-- **Duplicates** — two features with identical geometry (applies to
-  both polygons and lines).
-- **Dangle** — the end of a line that should connect to another line
-  stays isolated.
+::: {style="display: flex; flex-direction: column; gap: 0.9rem; margin: 1.2rem 0;"}
+::: {style="display: flex; align-items: center; gap: 1rem;"}
+<svg viewBox="0 0 110 90" style="width: 80px; height: auto; flex: none;" role="img" aria-label="Two overlapping polygons">
+  <rect x="10" y="20" width="55" height="50" fill="#42583c" fill-opacity="0.25" stroke="#2a2117" stroke-width="2"/>
+  <rect x="45" y="35" width="55" height="50" fill="#42583c" fill-opacity="0.25" stroke="#2a2117" stroke-width="2"/>
+  <rect x="45" y="35" width="20" height="35" fill="#e05252" fill-opacity="0.75"/>
+</svg>
+<div>**Overlap** — two polygons that should be adjacent instead overlap
+over a portion of surface.</div>
+:::
+
+::: {style="display: flex; align-items: center; gap: 1rem;"}
+<svg viewBox="0 0 110 90" style="width: 80px; height: auto; flex: none;" role="img" aria-label="A gap between two polygons">
+  <rect x="8" y="20" width="35" height="50" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
+  <rect x="67" y="20" width="35" height="50" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
+  <rect x="43" y="20" width="24" height="50" fill="#c48a2e" fill-opacity="0.5" stroke="#c48a2e" stroke-width="1.5" stroke-dasharray="3 2"/>
+</svg>
+<div>**Gap** — a gap remains between polygons that should continuously
+cover an area.</div>
+:::
+
+::: {style="display: flex; align-items: center; gap: 1rem;"}
+<svg viewBox="0 0 110 90" style="width: 80px; height: auto; flex: none;" role="img" aria-label="A regular polygon next to a thin sliver">
+  <rect x="8" y="20" width="45" height="50" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
+  <rect x="62" y="40" width="42" height="7" fill="#e05252" fill-opacity="0.85" stroke="#2a2117" stroke-width="1.2"/>
+</svg>
+<div>**Sliver** — a leftover polygon, thin and with no real geographic
+meaning, often the result of an overlay.</div>
+:::
+
+::: {style="display: flex; align-items: center; gap: 1rem;"}
+<svg viewBox="0 0 110 90" style="width: 80px; height: auto; flex: none;" role="img" aria-label="Two identical, overlapping polygons">
+  <rect x="25" y="18" width="55" height="50" fill="#e05252" fill-opacity="0.25" stroke="#2a2117" stroke-width="2"/>
+  <rect x="31" y="24" width="55" height="50" fill="#e05252" fill-opacity="0.5" stroke="#2a2117" stroke-width="2" stroke-dasharray="4 3"/>
+</svg>
+<div>**Duplicates** — two features with identical geometry (applies to
+both polygons and lines).</div>
+:::
+
+::: {style="display: flex; align-items: center; gap: 1rem;"}
+<svg viewBox="0 0 110 90" style="width: 80px; height: auto; flex: none;" role="img" aria-label="A line network with one unconnected end">
+  <path d="M 15 70 L 55 30 L 95 70" fill="none" stroke="#2a2117" stroke-width="3"/>
+  <path d="M 55 30 L 55 8" fill="none" stroke="#e05252" stroke-width="3"/>
+  <circle cx="15" cy="70" r="3.5" fill="#2a2117"/>
+  <circle cx="95" cy="70" r="3.5" fill="#2a2117"/>
+  <circle cx="55" cy="8" r="4.5" fill="#e05252" stroke="#2a2117" stroke-width="1.2"/>
+</svg>
+<div>**Dangle** — the end of a line that should connect to another line
+stays isolated.</div>
+:::
+:::
 
 ## 3. Shared map and table
 
@@ -894,7 +935,16 @@ loadOverlapButton = loadExampleButton("Load the overlap example", pyOverlapCode,
 
 Two aligned polygons that should cover a single continuous area
 instead leave a gap between them — detected by comparing the union of
-the polygons with the convex hull containing both.
+the polygons with the convex hull containing both.[^gap-convex-hull]
+
+[^gap-convex-hull]: The gap is shown as its own feature (a synthetic
+geometry, not one of yours), colored like the other error rows. The
+check only looks at polygon pairs that are **close and not already
+overlapping**, using the convex hull of the single pair — not of the
+whole dataset, which would flag as "gap" even the simple fact that two
+distant or overlapping shapes aren't aligned with each other. For a
+real dataset with a known study area, that area is still the more
+correct reference, not a convex hull.
 
 ```{ojs}
 //| echo: false
@@ -918,23 +968,18 @@ detect_and_check(data)`
 loadGapButton = loadExampleButton("Load the gap example", pyGapCode, rGapCode)
 ```
 
-::: {.callout-note}
-The gap is shown as its own feature (a synthetic geometry, not one of
-yours), colored like the other error rows. The check only looks at
-polygon pairs that are **close and not already overlapping**, using
-the convex hull of the single pair — not of the whole dataset, which
-would flag as "gap" even the simple fact that two distant or
-overlapping shapes aren't aligned with each other. For a real dataset
-with a known study area, that area is still the more correct
-reference, not a convex hull.
-:::
-
 ### 4.3 Sliver
 
 An extremely thin polygon — 0.1° wide, 0.001° tall — a typical leftover
 from an overlay between nearly coincident boundaries. Detected with
 the Polsby-Popper compactness index (4π·area/perimeter²): below 0.15
-is considered a sliver.
+is considered a sliver.[^compactness-scale]
+
+[^compactness-scale]: The index is bounded at the *most* compact shape
+possible for a given perimeter — a circle scores exactly 1 — so 0.15
+means "less than a sixth as compact as the roundest shape with the
+same perimeter would be," not an arbitrary cutoff. A perfect square
+scores about 0.785, for a sense of scale between the two.
 
 ```{ojs}
 //| echo: false

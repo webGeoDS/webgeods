@@ -19,6 +19,7 @@ project:
     - "styles.css"
     - "alidade_smooth.json"
     - "webgeods-logo.svg"
+    - "og-image.png"
     - "maplibre-gl.js"
     - "maplibre-gl.css"
     - "fonts.css"
@@ -29,10 +30,17 @@ project:
     - "observable-inputs.min.js"
 
 website:
-  title: "webgeods"
+  title: "webGeoDs"
   description: "Bilingual (Python/R) spatial data science — interactive articles and tools running entirely in your browser via WebAssembly." # required together with site-url for RSS feed generation, not just descriptive
   navbar:
     logo: webgeods-logo.svg
+    # Documented, schema-valid option — but doesn't actually reach the
+    # rendered <img>'s alt attribute in this Quarto version (1.7.29),
+    # verified empirically (rendered, grepped, still alt=""). Kept
+    # here anyway (harmless, and free if a future Quarto version wires
+    # it up) — post-render-fixups.mjs patches the real HTML output in
+    # the meantime, see its own header comment.
+    logo-alt: "webgeods"
     background: "#eee5d2" # dark-paper — light navbar in the reference design,
     foreground: "#2a2117" # not a bar filled with the primary color (the cosmo
                            # theme's default behavior, not what's wanted here)
@@ -88,6 +96,7 @@ format:
       - brand # from _brand.yml, copied here from shared/ via sync-shared-assets.sh
     css: [styles.css, fonts.css]
     page-layout: article # for full-width PoCs/webapps: override per-page with `page-layout: full`
+    reference-location: margin # footnotes render as Tufte-style sidenotes in the same margin column the TOC already uses, instead of endnotes at the page bottom
     # false (not true, unlike lessons/_quarto.yml): confirmed via
     # `quarto render` that embed-resources:true silently suppresses
     # RSS feed generation (feed: true on the index.qmd listing then
@@ -154,6 +163,25 @@ format:
               });
             });
           </script>
+          <script>
+            // The navbar's own title text (Quarto's `website.title`,
+            // rendered plain by its template — no way to hand it
+            // already-styled HTML) restyled to the wordmark: "web" +
+            // "Geo" (capitalized, colored to match the logo's
+            // terracotta point) + "Ds". Every OTHER "webGeoDs"
+            // mention on the site is real HTML written directly in
+            // its own page instead of found-and-replaced here — this
+            // one script only owns the navbar, since it is the one
+            // spot Quarto itself generates the text with no
+            // opportunity to write it by hand.
+            document.addEventListener("DOMContentLoaded", () => {
+              const title = document.querySelector(".navbar-title");
+              if (title && title.textContent.trim().toLowerCase() === "webgeods") {
+                title.innerHTML = 'web<span class="webgeods-wordmark-geo">Geo</span>Ds';
+              }
+            });
+          </script>
     toc: true
 filters:
   - webgeods-cells.lua
+  - seo-meta.lua

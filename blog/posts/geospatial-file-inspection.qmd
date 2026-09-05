@@ -474,13 +474,15 @@ sf::st_as_text(sf::st_geometry(data))  # exact-match key
 ```
 
 The CRS string is the one place they can genuinely disagree in
-formatting, not just vocabulary: `st_crs()$input` returns whatever
-string the file's own CRS definition resolved to (often `"EPSG:4326"`
-for a clean case, but sometimes a full WKT string for a less common
-one), while GeoPandas' `.crs.to_string()` goes through PyPROJ's own
-formatting — same underlying CRS, not always the same displayed text.
-Worth knowing before assuming a mismatch between the two summary cards
-above means an actual data problem.
+formatting, not just vocabulary.[^inspect-crs-format]
+
+[^inspect-crs-format]: `st_crs()$input` returns whatever string the
+file's own CRS definition resolved to (often `"EPSG:4326"` for a clean
+case, but sometimes a full WKT string for a less common one), while
+GeoPandas' `.crs.to_string()` goes through PyPROJ's own formatting —
+same underlying CRS, not always the same displayed text. Worth knowing
+before assuming a mismatch between the two summary cards above means
+an actual data problem.
 
 ## 6. Load an example
 
@@ -504,7 +506,15 @@ The reusable cell pair above already loads a small dataset with one
 exact duplicate and one invalid geometry whenever nothing has been
 uploaded — click **▶ Run** on both languages above to see it. This
 button swaps in a dataset with a deliberately unusual CRS instead, to
-see the bounds stat do its job:
+see the bounds stat do its job.[^crs-mismatch-bounds]
+
+[^crs-mismatch-bounds]: Web Mercator coordinates plotted at the same
+zoom level as geographic coordinates land far outside any sensible map
+view — that's the "bounds in the hundreds of thousands" tell in
+practice, not just in the abstract. Detecting exactly this kind of
+mismatch, and converting a file to a different CRS, is what
+[Coordinate Reference Systems](crs-mismatch.qmd) and its [standalone
+tool](/tools/crs-inspector.html) do.
 
 ```{ojs}
 //| echo: false
@@ -574,16 +584,6 @@ jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FAL
 //| echo: false
 loadCrsExampleButton = loadExampleButton("📋 Load a CRS-mismatch example", pyCrsExampleCode, rCrsExampleCode)
 ```
-
-::: {.callout-note}
-Web Mercator coordinates plotted at the same zoom level as geographic
-coordinates land far outside any sensible map view — that's the
-"bounds in the hundreds of thousands" tell in practice, not just in
-the abstract. Detecting exactly this kind of mismatch, and converting
-a file to a different CRS, is what
-[Coordinate Reference Systems](crs-mismatch.qmd) and its
-[standalone tool](/tools/crs-inspector.html) do.
-:::
 
 ## 7. Where to next
 

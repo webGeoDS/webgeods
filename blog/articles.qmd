@@ -1,5 +1,5 @@
 ---
-title: "webgeods — Articles"
+title: "webGeoDs — Articles"
 description: "Interactive articles on spatial data science, with runnable Python and R examples built in, not just diagrams. The standalone tools distill the same checks without the reading."
 listing:
   contents: posts

@@ -2453,3 +2453,156 @@ statiche — la doppia fonte di verità è eliminata. Nessuna regressione:
 fuori scope, segnalati dalla review come miglioramenti non urgenti):
 la conversione degli `rgba(90, 79, 62, ...)` sparsi in `color-mix()`,
 e l'estensione dello stesso schema a due livelli a spacing/tipografia.
+
+**Seconda review generale (Aspetto/Navigabilità/Contenuti/SEO,
+2026-09-06)** — anche questa verificata claim per claim prima di
+agire (contrasto ricalcolato in autonomia con la formula WCAG,
+layout misurato dal vivo con Playwright su webgeods.com,
+`search.json` scaricato e ispezionato, meta tag confrontati uno per
+uno) — tutto confermato esatto. Fix applicati:
+
+- **Contrasto**: `terracotta` (#b0522c → **#ab502b**, 4.40:1 → 4.60:1)
+  e `etichetta` (#8a7a5f → **#766851**, 3.58:1 → 4.66:1), entrambi ora
+  sopra la soglia AA (4.5:1). Aggiornati **sia** `_brand.yml` **sia**
+  `styles.css` insieme — scoperto nel farlo che `_brand.yml` non è
+  solo documentazione come sembrava dall'audit precedente: Quarto lo
+  compila davvero in un tema Bootstrap reale
+  (`--bs-primary`/`--bs-link-color` nel CSS generato), ed è
+  esattamente il meccanismo che decide il colore dei link — toccare
+  solo `styles.css` avrebbe lasciato i link (il caso specifico
+  segnalato dalla review) al vecchio colore non conforme.
+
+- **Ricerca**: `search.json` di Quarto si genera dal markdown grezzo
+  di ogni `.qmd` (confermato ispezionando `.quarto/idx/*.qmd.json`:
+  contiene i fence ```` ```{ojs} ```` e i commenti interni verbatim),
+  non dall'HTML renderizzato — `//| echo: false` nasconde una cella
+  dal lettore ma non dalla ricerca. Nessuna opzione Quarto esiste per
+  questo (`search: false` esclude l'intera pagina, non la singola
+  cella). Nuovo script `post-render-fixups.mjs`, eseguito dopo
+  `quarto render` (in CI e in locale): ricostruisce il testo indicizzato
+  di ogni sezione direttamente dal sorgente `.qmd`, rimuovendo SOLO i
+  fence eseguibili con parentesi graffe (```` ```{ojs} ````,
+  ```` ```{.webgeods-python ...} ````, ```` ```{.webgeods-r ...} ````)
+  e lasciando intatti i blocchi ```` ```python ````/```` ```r ````
+  illustrativi (contenuto legittimo per il lettore, es. la sezione
+  "Same spatial question, two languages"). Tre bug reali trovati e
+  corretti scrivendo e verificando questo script (non assunti
+  funzionanti al primo tentativo): un `_valid`→`valid` (l'underscore
+  di un identificatore trattato come sintassi corsivo Markdown), i
+  blocchi ```` ```python ```` illustrativi mal gestiti (backtick tripli
+  confusi con backtick singoli), e — il più subdolo — le sezioni con
+  intestazioni numerate ("3. Shared map and summary") che restavano
+  silenziosamente NON corrette perché lo slug generato non replicava
+  la regola di Pandoc che elimina l'ordinale iniziale dall'anchor
+  (trovato solo ri-scansionando l'INTERO indice per firme di codice
+  residue, non fidandosi del primo controllo a campione).
+
+- **SEO**: nuovo filtro Lua `blog/seo-meta.lua` (nessuna opzione
+  `_quarto.yml` esiste per canonical/JSON-LD — verificato nello schema
+  installato) inietta `<link rel="canonical">` (con la forma pulita
+  `/tools/` invece di `/tools/index.html`), `og:url`, `og:type`
+  (`article` per i post, `website` altrove), `og:image`/
+  `twitter:card` (nuova immagine `blog/og-image.png`, 1200×630,
+  stile Field Atlas, generata con lo stesso metodo HTML→Playwright
+  del cheatsheet), e JSON-LD (`Article` per i post, `WebSite` per la
+  home). `logo-alt:` in `_quarto.yml` è un'opzione reale e documentata
+  ma non ha alcun effetto sull'HTML renderizzato in questa versione di
+  Quarto (1.7.29) — verificato rendendo e controllando l'output, non
+  assunto — quindi lasciata comunque nel config (innocua, gratuita se
+  una versione futura la implementa) e corretta davvero da
+  `post-render-fixups.mjs` (che gestisce anche il path relativo
+  diverso per le pagine annidate, `../webgeods-logo.svg` invece di
+  `./webgeods-logo.svg` — un secondo bug trovato ricontando le pagine
+  corrette invece di fidarsi del primo numero riportato).
+
+Verificato dal vivo (locale) con Playwright: colore dei link
+aggiornato (`rgb(171, 80, 43)`), canonical corretto sulla home
+(`https://webgeods.com/`), nessuna firma di codice/commento residua in
+tutto `search.json` dopo il fix. Nessuna regressione: 16/16 map-tests,
+51/51 smoke-test lessons.
+
+**Layout desktop — raccomandazione, non ancora applicata**: su
+richiesta esplicita, verificato che Quarto supporta nativamente
+margin note in stile Tufte (`::: {.column-margin} ... :::`) — CSS
+grid già presente nel bundle Bootstrap generato, **zero lavoro di
+ingegneria necessario**, solo scelta editoriale di quali contenuti
+spostare a margine. Testato dal vivo (temporaneamente, poi rimosso):
+una nota di prova renderizzata correttamente nella stessa colonna che
+oggi mostra solo "On this page". Raccomandazione dettagliata dei
+contenuti candidati per pagina lasciata alla risposta discorsiva
+all'utente, non a questo changelog.
+
+**Note alla Tufte implementate su tutti e quattro gli articoli, rebrand
+webGeoDs, illustrazioni statiche (2026-09-06)**, su richiesta esplicita
+dell'utente dopo l'approvazione della raccomandazione precedente.
+
+- **Note laterali**: non `.column-margin` ma **footnote Markdown
+  standard** (`[^id]`/`[^id]: testo`) — meccanismo Tufte vero e
+  proprio (riferimento numerato nel testo + nota alla stessa altezza
+  nel margine), richiede solo `reference-location: margin` in
+  `_quarto.yml` (non impostato prima, verificato con screenshot che
+  funziona esattamente come atteso). Sei note aggiunte in totale (1
+  per `geometry-validity.qmd`, 2 per `topology-errors.qmd`, 1 per
+  `crs-mismatch.qmd`, 2 per `geospatial-file-inspection.qmd`), tutte
+  spostando un'elaborazione tangenziale già esistente (differenze
+  Python/R nella formattazione del CRS, unità di misura, riferimenti
+  incrociati) — non contenuto nuovo per riempire, e non tutto quello
+  che poteva essere spostato: gli avvisi genuinamente importanti (es.
+  "convertire ha senso solo se il CRS è giusto", "perché
+  `sf_use_s2(FALSE)` prima di `st_make_valid()`") sono rimasti callout
+  a piena larghezza, deliberatamente — una nota a margine è facile da
+  saltare, un avviso di sicurezza non dovrebbe esserlo.
+
+- **Rebrand "webGeoDs"**: applicato ovunque il termine compare come
+  testo leggibile (non negli identificatori di codice `WebGeoDS.*` né
+  nel dominio `webgeods.com`, entrambi convenzioni distinte lasciate
+  intatte) — titolo del sito e delle pagine, meta tag, JSON-LD,
+  `_brand.yml`, le due menzioni in prosa di `about.qmd`, l'immagine
+  OG rigenerata. Il wordmark della navbar (testo semplice generato da
+  Quarto, nessun modo di scrivergli HTML dentro via YAML) è ristilizzato
+  con un piccolo script client-side — stesso pattern già usato per
+  l'intestazione "Spatial Data Quality" nei dropdown.
+
+- **Illustrazioni statiche**: 5 icone SVG inline in
+  `topology-errors.qmd` (sezione "What we look for", una per overlap/
+  gap/sliver/duplicates/dangle, affiancate al testo invece che sole
+  parole) e un diagramma a due pannelli in `crs-mismatch.qmd`
+  (gradi vs. metri, stesso punto). Stile SVG identico a quello già
+  esistente in `geometry-validity.qmd` (stessa palette, stessi
+  pattern fill/stroke) — non mermaid, nonostante suggerito
+  dall'utente: mermaid è per flowchart nodo-arco, questi sono forme
+  geometriche, l'SVG a mano già in uso nel sito è lo strumento giusto,
+  non quello suggerito nel dettaglio implementativo. **Screenshot/GIF
+  della mappa in homepage non implementato in questo giro** — richiede
+  una cattura dal vivo (più fragile, dipende dalla qualità del
+  risultato), rimandato a un passaggio dedicato invece di una
+  cattura affrettata in mezzo a tutto il resto.
+
+**Bug reale trovato e corretto durante la verifica visiva del
+diagramma CRS**: una riga vuota in mezzo al blocco `<svg>` (tra i due
+pannelli) ha rotto il parsing HTML di Pandoc — riconosce un "blocco
+HTML grezzo" solo fino alla prima riga vuota, quindi tutto ciò che
+veniva dopo (metà dell'SVG) è stato ri-interpretato come Markdown,
+producendo tag `<rect>`/`<line>`/`<circle>` annidati in modo scorretto
+e `viewBox` minuscolizzato in `viewbox`. Trovato solo guardando lo
+screenshot reale (l'SVG sembrava vuoto), non fidandosi del comando di
+render che non aveva restituito errori — stessa disciplina già
+applicata più volte in questa sessione. Risolto avvolgendo l'SVG in
+un fenced div `::: {} ... :::` (stesso pattern già usato con successo
+per le 5 icone di `topology-errors.qmd`) e rimuovendo la riga vuota
+interna.
+
+**Secondo bug reale trovato ri-controllando l'intero indice di
+ricerca** (non fidandosi che le note a margine "ovviamente"
+funzionassero con lo script già scritto): la sintassi delle footnote
+Markdown (`[^id]` e `[^id]: testo`) non era gestita da
+`post-render-fixups.mjs`, quindi l'identificatore grezzo finiva
+letteralmente nel testo indicizzato. Corretto rimuovendo prima il
+marcatore di definizione (`[^id]: `, mantenendo il testo della nota)
+e poi il riferimento nudo (`[^id]`, nessun testo da mantenere) —
+verificato con una scansione di TUTTO `search.json` per `"[^"`
+residui, non solo il primo punto controllato.
+
+Verificato con Playwright (screenshot inclusi per navbar, illustrazioni
+topologia, diagramma CRS, nota a margine): tutto renderizza come
+atteso. Nessuna regressione: 16/16 map-tests, 51/51 smoke-test lessons.

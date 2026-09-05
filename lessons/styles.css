@@ -19,11 +19,11 @@
   --carta-scura: #eee5d2;
   --inchiostro: #2a2117;
   --inchiostro-tenue: #5a4f3e;
-  --terracotta: #b0522c;
+  --terracotta: #ab502b; /* darkened from #b0522c (2026-09-06, WCAG audit) — see _brand.yml */
   --muschio: #42583c;
   --muschio-hover: #526b4a; /* not in _brand.yml — a hover shade derived from muschio, not a brand color in its own right */
   --hairline: #ddd1b8;
-  --etichetta: #8a7a5f;
+  --etichetta: #766851; /* darkened from #8a7a5f (2026-09-06, WCAG audit) — see _brand.yml */
   --info: #3d5a73;
   --attenzione: #c48a2e;
   --errore: #8b2f24;
@@ -50,6 +50,17 @@
   --dataviz-invalid: #e05252;
   --dataviz-valid: #2ea44f;
   --dataviz-selection: #ffeb3b; /* not in _brand.yml — map.js's row-selection/highlight() yellow, promoted from a literal repeated 6 times with no token at all (see roadmap-acquisizione.md's "Field Atlas" audit) */
+}
+
+/* The wordmark's "Geo" segment, wherever "webGeoDs" is written out by
+   hand in prose (the navbar's own instance is styled by a small
+   script instead — see blog/_quarto.yml's include-after-body — since
+   Quarto generates that text itself, with no markdown to write a
+   <span> into). One class instead of a repeated inline style, same
+   reasoning as every other token in this file. */
+.webgeods-wordmark-geo {
+  color: var(--terracotta);
+  font-weight: 600;
 }
 
 /* Code cell container — "Field Atlas" palette. Sharp corners

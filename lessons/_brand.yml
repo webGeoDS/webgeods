@@ -10,7 +10,7 @@
 # lessons/ by sync-shared-assets.sh.
 
 meta:
-  name: "webgeods"
+  name: "webGeoDs"
   # link: https://webgeods.com
 
 logo:
@@ -27,10 +27,10 @@ color:
     carta-scura: "#eee5d2"    # darker paper — toolbars, cards, callout fill
     inchiostro: "#2a2117"     # ink — body text, headings
     inchiostro-tenue: "#5a4f3e" # muted ink — secondary text
-    terracotta: "#b0522c"     # primary accent — CTAs, data points/lines on the map
+    terracotta: "#ab502b"     # primary accent — CTAs, data points/lines on the map, link color (site-wide, via typography.link.color below). Darkened from #b0522c (2026-09-06, WCAG audit): the original was 4.40:1 against carta, under the 4.5:1 AA floor for normal text — this clears it (4.60:1) while staying visually near-identical.
     muschio: "#42583c"        # moss — success state, area/region fills on the map
     hairline: "#ddd1b8"       # borders throughout, no rounded corners by design
-    etichetta: "#8a7a5f"      # muted label color (uppercase eyebrow text, tags)
+    etichetta: "#766851"      # muted label color (uppercase eyebrow text, tags). Darkened from #8a7a5f (2026-09-06, WCAG audit): the original was 3.58:1 against carta, clearly failing AA — this clears it (4.66:1).
     info: "#3d5a73"
     attenzione: "#c48a2e"
     errore: "#8b2f24"

@@ -5,7 +5,7 @@ description: "Spatial Data Science, learned and used directly in your browser �
 
 ## What it is
 
-webgeods brings spatial data analysis, interactive examples, and
+web<span class="webgeods-wordmark-geo">Geo</span>Ds brings spatial data analysis, interactive examples, and
 free tools together in one place — Python and R side by side, running
 entirely in your browser. Nothing to install, nothing uploaded
 anywhere.
@@ -23,7 +23,7 @@ spatial reasoning you can actually verify, not just read about.
 
 ## Why it's different
 
-Most spatial data resources pick a side: Python or R. webgeods treats
+Most spatial data resources pick a side: Python or R. web<span class="webgeods-wordmark-geo">Geo</span>Ds treats
 them as complementary — the same problem, shown in both, using the
 tools each ecosystem actually uses (GeoPandas, Shapely, sf). Seeing
 where they agree, and where they don't, teaches more than either one
