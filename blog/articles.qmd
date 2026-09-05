@@ -1,0 +1,19 @@
+---
+title: "webgeods — Articles"
+description: "Interactive articles on spatial data science, with runnable Python and R examples built in, not just diagrams. The standalone tools distill the same checks without the reading."
+listing:
+  contents: posts
+  sort: "date desc"
+  type: default
+  categories: false
+---
+
+## Spatial Data Quality
+
+Interactive articles that explain a spatial problem properly — the
+same map, the same runnable Python and R code, compared side by side.
+Need just the answer, not the full explanation? The
+[standalone tools](/tools/index.html) run the same checks directly.
+
+**Inspect** → **Validate** → **Check Topology** → *CRS Inspector
+(planned)*

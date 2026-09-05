@@ -2212,3 +2212,49 @@ articolo `geospatial-file-inspection.qmd` lato R (CRS nativo
 discusso nell'articolo — bounds nativi, mappa riproiettata), e il caso
 CRS-mancante (warning corretto, assunto WGS84, visibile nella UI).
 Nessuna regressione: 16/16 map-tests, 51/51 smoke-test lessons.
+
+**Navigazione del sito ristrutturata (2026-09-05)**, su richiesta
+dell'utente ("vorrei migliorare la navigabilità del sito"). Verifica
+sulla homepage LIVE (non solo sul sorgente) prima di proporre
+qualunque cosa: la sezione "## Spatial Data Quality" era solo testo
+decorativo sopra una listing "Latest articles" piatta, ordinata per
+data, senza alcun raggruppamento reale per categoria — un errore di
+valutazione iniziale corretto solo dopo che l'utente ha incollato
+l'output reale della pagina e chiesto "sicuro di aver guardato bene la
+homepage live?" (lezione: verificare il sito DEPLOYATO, non solo il
+`.qmd` sorgente, prima di descriverne la struttura).
+
+Decisioni prese insieme all'utente, tra alternative discusse
+esplicitamente (sidebar ovunque / solo articoli / solo homepage /
+elenco puntato / dropdown in navbar):
+- **Dropdown in navbar** invece di una sidebar sito-wide: con una sola
+  categoria ("Spatial Data Quality", 3 tool + 3 articoli) una sidebar
+  persistente sarebbe sovradimensionata rispetto ai contenuti reali —
+  rimandata a quando arriverà la Fase 2 (Spatial Analysis), quando 2+
+  categorie renderanno un dropdown scomodo.
+- **Nuova voce "Articles"** in navbar (non "Blog" — il sito si
+  descrive già come "interactive articles", mai come post cronologici
+  da diario), con dropdown parallelo a quello di "Tools" (All
+  articles/tools + le 3 voci Inspect/Validate/Check Topology).
+- **Nuova pagina `blog/articles.qmd`** (hub dedicato, stesso pattern
+  di `tools/index.qmd`: listing su `posts/` sotto l'intestazione
+  "## Spatial Data Quality"), aggiunta invece di rinominare
+  `blog/posts/` — il sito è già live e indicizzato, rinominare la
+  cartella avrebbe rotto gli URL esistenti per un problema di
+  navigazione, non di URL.
+- **Homepage semplificata**: intestazione "## Spatial Data Quality" e
+  la listing sotto ora sono la STESSA sezione (non più due sezioni
+  scollegate — "## Latest articles" rimossa), con link espliciti verso
+  `/articles.html` e `/tools/index.html` per chi vuole l'elenco
+  completo. `categories: true` (la sidebar di filtro per tag generici
+  tool/geometry/bilingual, inutile con soli 3 articoli che condividono
+  tutti gli stessi tag) rimossa a favore del raggruppamento manuale per
+  fase.
+
+Verificato con Playwright: i 4 item di navbar (Home/Tools/Articles/
+About) sono tutti presenti, i due dropdown contengono le 3 voci attese
+ciascuno, la homepage ha un'unica intestazione "Spatial Data Quality"
+(non più "Latest articles" scollegata) con tutti e 3 gli articoli
+ancora elencati, `/articles.html` esiste ed elenca gli stessi 3
+articoli. Nessuna regressione: 16/16 map-tests, 51/51 smoke-test
+lessons.

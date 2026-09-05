@@ -39,11 +39,32 @@ website:
     left:
       - href: index.qmd
         text: Home
-      - href: tools/index.qmd
-        text: Tools
+      - text: Tools
+        menu:
+          - href: tools/index.qmd
+            text: All tools
+          - text: "---"
+          - href: tools/geospatial-file-inspector.qmd
+            text: Inspect
+          - href: tools/geojson-shapefile-validator.qmd
+            text: Validate
+          - href: tools/topology-checker.qmd
+            text: Check Topology
+      - text: Articles
+        menu:
+          - href: articles.qmd
+            text: All articles
+          - text: "---"
+          - href: posts/geospatial-file-inspection.qmd
+            text: Inspect
+          - href: posts/geometry-validity.qmd
+            text: Validate
+          - href: posts/topology-errors.qmd
+            text: Check Topology
       - about.qmd
-    # "Blog" is not yet a separate entry: index.qmd already acts as the
-    # listing/home for now. Add it once a real, distinct landing page exists.
+    # Each dropdown groups the current "Spatial Data Quality" phase —
+    # add a second divider block per menu (or a second top-level entry,
+    # if it grows large enough) once Fase 2 (Spatial Analysis) ships.
   open-graph: true
   # sitemap.xml is not a key of its own: Quarto generates it automatically in
   # _site/ when site-url is set. Placeholder to be confirmed — change it if

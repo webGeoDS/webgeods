@@ -5,13 +5,13 @@ listing:
   contents: posts
   sort: "date desc"
   type: default
-  categories: true
+  categories: false
   feed: true
 ---
 
 [Explore the tools →](/tools/index.html)
 
-[Read the articles →](#latest-articles)
+[Read the articles →](#spatial-data-quality)
 
 **Read** — interactive articles that explain a spatial problem
 properly, with runnable Python and R examples built in, not just
@@ -24,8 +24,6 @@ need an answer, not the full explanation.
 
 **Inspect → Validate → Check Topology → CRS** — a small, focused
 toolkit for checking geospatial data before you trust it. Free, no
-account, nothing leaves your browser.
-
-[See all tools →](/tools/index.html)
-
-## Latest articles {#latest-articles}
+account, nothing leaves your browser. See the
+[full list of articles →](/articles.html) or the
+[standalone tools →](/tools/index.html).
