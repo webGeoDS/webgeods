@@ -56,6 +56,8 @@ website:
             text: Validate
           - href: tools/topology-checker.qmd
             text: Check Topology
+          - href: tools/crs-inspector.qmd
+            text: CRS
       - text: Articles
         menu:
           - href: articles.qmd
@@ -67,6 +69,8 @@ website:
             text: Validate
           - href: posts/topology-errors.qmd
             text: Check Topology
+          - href: posts/crs-mismatch.qmd
+            text: CRS
       - about.qmd
     # Each dropdown groups the current "Spatial Data Quality" phase —
     # add a second divider + label (see include-after-body's script)

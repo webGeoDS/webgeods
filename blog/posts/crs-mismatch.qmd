@@ -1,0 +1,423 @@
+---
+title: "Coordinate Reference Systems: Why Your Map Looks Wrong"
+date: 2026-09-06
+categories: [tool, geometry, bilingual]
+description: "An interactive lab with Python, R and MapLibre — upload a GeoJSON, find out what CRS it's actually in, spot a CRS that doesn't match its own coordinates, and convert it to a different one."
+---
+
+Before a geometry can be invalid, or two features can overlap, a file
+has to actually be *where it says it is*. A coordinate reference
+system (CRS) is what makes a pair of numbers mean a specific place on
+Earth — and it's easy to get wrong in a way that neither
+[geometry validity](geometry-validity.qmd) nor
+[topology checks](topology-errors.qmd) would ever catch, because both
+of those only look at the shape, never at where it actually sits.
+
+Just want to quickly check a file, without the rest of the reading?
+Use the [standalone tool](/tools/crs-inspector.html) — same engine,
+less prose.
+
+## 1. Upload your file
+
+A `.geojson`, or a shapefile: either as a single `.zip`, or as the
+individual `.shp`/`.dbf`/`.shx` files (and optionally `.prj`) selected
+together.
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+## 2. Why a CRS problem is different
+
+A geometry can be perfectly valid, and every feature can be perfectly
+consistent with every other, and the whole file can still land
+thousands of kilometers from where it should. GeoJSON — and MapLibre,
+the map library this whole site draws with — assume every coordinate
+is WGS84 (plain longitude/latitude). Neither reprojects anything on
+its own: whatever numbers you hand them, that's where they land.
+
+- **CRS** — the coordinate reference system a file *declares* it's
+  in, read from its own metadata (a `.prj` file for a shapefile, a
+  `crs` object for GeoPandas/`sf`). Some files declare none at all.
+- **Geographic vs. projected** — a geographic CRS (WGS84 is the
+  common one) uses degrees, roughly -180..180 longitude and -90..90
+  latitude. A projected CRS (UTM zones, Web Mercator, national grids)
+  uses linear units — usually meters — and the numbers involved are
+  routinely in the hundreds of thousands or millions.
+- **The mismatch** — a file can declare one kind of CRS while its
+  actual coordinate values look like the other. That disagreement is
+  the single most common reason a map "looks wrong" before you've
+  touched a single geometry.
+
+## 3. Shared map and detection
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #crs-diagnose-py}
+#| package: geopandas, shapely
+import geopandas as gpd
+from shapely.geometry import Polygon
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+if gdf is None:
+    # Deliberately mismatched: no CRS declared, so GeoPandas assumes
+    # WGS84 (per the GeoJSON spec) — but these coordinates are Web
+    # Mercator magnitude, not degrees. That disagreement IS the
+    # example.
+    poly = Polygon([(1390000, 5140000), (1391000, 5140000), (1391000, 5141000), (1390000, 5141000), (1390000, 5140000)])
+    gdf = gpd.GeoDataFrame({"name": ["mismatched-example"]}, geometry=[poly])
+
+if "name" not in gdf.columns:
+    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+crs_warning = None
+if gdf.crs is None:
+    gdf = gdf.set_crs("EPSG:4326")
+    crs_warning = "No CRS found in the file — assuming WGS84 (EPSG:4326)."
+
+original_crs = gdf.crs
+is_geographic = bool(original_crs.is_geographic)
+bounds = [round(float(b), 6) for b in gdf.total_bounds]
+
+# The actual check: does the CRS's OWN claim (geographic vs projected)
+# agree with the magnitude of the coordinates themselves?
+looks_geographic = (
+    -180 <= bounds[0] <= 180 and -180 <= bounds[2] <= 180 and
+    -90 <= bounds[1] <= 90 and -90 <= bounds[3] <= 90
+)
+mismatch_warning = None
+if is_geographic and not looks_geographic:
+    mismatch_warning = f"Declared as geographic ({original_crs.name}), but the coordinates are far outside -180..180 / -90..90 — likely actually projected."
+elif not is_geographic and looks_geographic:
+    mismatch_warning = f"Declared as projected ({original_crs.name}), but the coordinates already look like lon/lat — likely actually geographic."
+
+# MapLibre/GeoJSON require WGS84 — the summary keeps the file's own
+# native CRS on purpose (that mismatch is the whole point), so the map
+# gets its own throwaway reprojected copy.
+map_gdf = gdf if original_crs == "EPSG:4326" else gdf.to_crs("EPSG:4326")
+
+{
+    "features": map_gdf.__geo_interface__,
+    "summary": {
+        "crs": original_crs.to_string(),
+        "isGeographic": is_geographic,
+        "bounds": bounds,
+        "crsWarning": crs_warning,
+        "mismatchWarning": mismatch_warning
+    }
+}
+```
+
+## R
+
+```{.webgeods-r #crs-diagnose-r}
+#| package: sf, geojsonsf, jsonlite
+data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(sf::st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+
+if (is.null(data)) {
+  wkt <- "POLYGON((1390000 5140000, 1391000 5140000, 1391000 5141000, 1390000 5141000, 1390000 5140000))"
+  data <- sf::st_sf(name = "mismatched-example", geometry = sf::st_as_sfc(wkt))
+}
+
+if (!("name" %in% names(data))) {
+  data$name <- paste("geometry", seq_len(nrow(data)))
+}
+
+crs_warning <- NULL
+if (is.na(sf::st_crs(data))) {
+  sf::st_crs(data) <- 4326
+  crs_warning <- "No CRS found in the file — assuming WGS84 (EPSG:4326)."
+}
+
+original_crs <- sf::st_crs(data)
+is_geographic <- sf::st_is_longlat(data)
+bnd <- sf::st_bbox(data)
+bounds <- unname(round(as.numeric(bnd), 6))
+
+looks_geographic <- (
+  bounds[1] >= -180 && bounds[1] <= 180 && bounds[3] >= -180 && bounds[3] <= 180 &&
+  bounds[2] >= -90 && bounds[2] <= 90 && bounds[4] >= -90 && bounds[4] <= 90
+)
+mismatch_warning <- NULL
+if (isTRUE(is_geographic) && !looks_geographic) {
+  mismatch_warning <- paste0("Declared as geographic (", original_crs$input, "), but the coordinates are far outside -180..180 / -90..90 -- likely actually projected.")
+} else if (!isTRUE(is_geographic) && looks_geographic) {
+  mismatch_warning <- paste0("Declared as projected (", original_crs$input, "), but the coordinates already look like lon/lat -- likely actually geographic.")
+}
+
+map_data <- if (isTRUE(original_crs == sf::st_crs(4326))) data else sf::st_transform(data, 4326)
+
+# jsonlite::unbox() marks a value as a genuine scalar, explicitly,
+# field by field — see geospatial-file-inspection.qmd for why this is
+# preferred over a blanket auto_unbox flag.
+result <- list(
+  features = jsonlite::fromJSON(geojsonsf::sf_geojson(map_data), simplifyVector = FALSE),
+  summary = list(
+    crs = jsonlite::unbox(original_crs$input),
+    isGeographic = jsonlite::unbox(is_geographic),
+    bounds = bounds,
+    crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning),
+    mismatchWarning = if (is.null(mismatch_warning)) NULL else jsonlite::unbox(mismatch_warning)
+  )
+)
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+mutable pySummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable rSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyDiagnose = WebGeoDS.getCellValue("crs-diagnose-py", Generators)
+{
+  if (pyDiagnose) {
+    await sharedMap.setGeoJSON("crs-py", pyDiagnose.features);
+    // Zooms to whatever was just diagnosed — especially relevant here:
+    // the mismatched example's whole point is landing far from the
+    // map's fixed initial view. A no-op on an empty FeatureCollection.
+    await sharedMap.fitToData(pyDiagnose.features);
+    mutable pySummary = pyDiagnose.summary;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rDiagnose = WebGeoDS.getCellValue("crs-diagnose-r", Generators)
+{
+  if (rDiagnose) {
+    await sharedMap.setGeoJSON("crs-r", rDiagnose.features);
+    await sharedMap.fitToData(rDiagnose.features);
+    mutable rSummary = rDiagnose.summary;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+// Two summary cards side by side — Python's and R's — same reasoning
+// as geospatial-file-inspection.qmd's own statCard: merging two CRS
+// strings wouldn't mean anything, seeing them agree (or where they
+// diverge in formatting) is itself the point.
+statCard = (label, s) => {
+  const wrap = document.createElement("div");
+  wrap.style.flex = "1";
+  wrap.style.minWidth = "260px";
+
+  const heading = document.createElement("div");
+  heading.className = "webgeods-label";
+  heading.textContent = label;
+  wrap.appendChild(heading);
+
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  wrap.appendChild(box);
+
+  const row = (rowLabel, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = rowLabel;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("CRS", "—");
+    return wrap;
+  }
+
+  row("CRS", s.crsWarning ? `${s.crs} ⚠️ ${s.crsWarning}` : s.crs);
+  row("Type", s.isGeographic ? "Geographic (degrees)" : "Projected (usually meters)");
+  row("Bounds", s.bounds.join(", "));
+  row(s.mismatchWarning ? "⚠️ Mismatch" : "Mismatch check", s.mismatchWarning ?? "✓ CRS and coordinates agree");
+
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+statCardsRow = {
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "16px";
+  row.append(statCard("Python", pySummary), statCard("R", rSummary));
+  return row;
+}
+```
+
+${statCardsRow}
+
+```{ojs}
+//| echo: false
+resetCrs = async () => {
+  for (const id of ["crs-py", "crs-r"]) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
+  }
+  mutable pySummary = null;
+  mutable rSummary = null;
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and cards";
+  button.onclick = () => resetCrs();
+  return button;
+}
+```
+
+## 4. Same spatial question, two languages
+
+Python and R answer "is this CRS geographic or projected?" with one
+line each:
+
+**Python**
+
+```python
+gdf.crs.is_geographic
+```
+
+**R**
+
+```r
+sf::st_is_longlat(data)
+```
+
+Both ultimately ask PROJ (the library underneath both PyPROJ and
+`sf`'s CRS handling) the same question — but the accessor and the
+formatted CRS string differ: `original_crs.to_string()` in Python
+routinely returns `"EPSG:4326"`, while `st_crs(data)$input` in R
+returns whatever string the file's own CRS definition resolved to,
+sometimes a full human-readable name instead of an EPSG code. Same
+underlying CRS, not always the same displayed text — worth knowing
+before assuming a mismatch between the two cards above means an
+actual data problem, rather than a formatting one.
+
+## 5. Convert to a different CRS
+
+Once you know the CRS, changing it is one call — `to_crs()` in
+GeoPandas, `st_transform()` in `sf`. Reuses exactly the data just
+diagnosed above (`gdf` in Python, `data` in R stay in the session
+between one cell and the next), no new reading of the file.
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #crs-convert-py}
+# A common target: Web Mercator (EPSG:3857), the projection most
+# online basemap tiles use. Printed as text, not drawn on the shared
+# map above — MapLibre/GeoJSON require WGS84, so a genuinely converted
+# result (unless the target IS 4326) can't be shown there directly.
+converted = gdf.to_crs("EPSG:3857")
+f"{len(converted)} feature(s) now in {converted.crs.to_string()}, bounds {[round(b, 2) for b in converted.total_bounds]}"
+```
+
+## R
+
+```{.webgeods-r #crs-convert-r}
+converted <- sf::st_transform(data, 3857)
+sprintf("%d feature(s) now in %s, bounds %s", nrow(converted), sf::st_crs(converted)$input, paste(round(as.numeric(sf::st_bbox(converted)), 2), collapse = ", "))
+```
+
+:::
+
+::: {.callout-note}
+Converting *to* a CRS is only correct when the CRS you're converting
+*from* is right in the first place. If the mismatch check above found
+a problem, `to_crs()`/`st_transform()` would mathematically transform
+numbers that were never really in the declared CRS to begin with,
+producing a confident-looking but wrong result — fixing the file's own
+CRS label (something only you can determine, from where the data
+actually came from) has to come first.
+:::
+
+## 6. Where to next
+
+- **Geometry looks fine, dataset doesn't?** →
+  [Topology errors](topology-errors.qmd) covers overlaps, gaps,
+  slivers, duplicates and dangles — relationships *between* features,
+  a different problem from CRS entirely.
+- **Not sure where to start?** → The
+  [GeoSpatial File Inspector](geospatial-file-inspection.qmd) gives a
+  five-second summary of a file — feature count, geometry type, CRS,
+  bounds, attributes — before you dig into any one check.
+- **Just needed the check?** → The
+  [standalone CRS Inspector & Converter](/tools/crs-inspector.html)
+  runs the same detection and lets you convert and download directly.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

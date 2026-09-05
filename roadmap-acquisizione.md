@@ -714,7 +714,7 @@ con quello di Observable Inputs, dato che entrambi espongono
 |---|---|---|---|---|---|
 | 1.1 | **Geometry Validation & Repair** | ✅ Fatto | — | — | `blog/tools/geojson-shapefile-validator.qmd`, live in produzione, ridisegnato a pulsanti (vedi 2026-09-03 sotto), cross-linkato con l'articolo |
 | 1.2 | **GeoSpatial File Inspector** | ✅ Fatto (2026-09-05) | — | — | `blog/tools/geospatial-file-inspector.qmd`, live in produzione — card riassuntiva (Features/Geometry/CRS/Bounds/Attributes/Invalid/Empty/Duplicates) invece della tabella riga-per-riga del Validator, cross-linkato con l'articolo |
-| 1.3 | **CRS Inspector & Converter** | Da fare | Alta | Media | Vedi dettaglio sotto |
+| 1.3 | **CRS Inspector & Converter** | ✅ Fatto (2026-09-06) | — | — | `blog/tools/crs-inspector.qmd`, live in produzione — rileva il CRS dichiarato, l'euristica di mismatch magnitudine-coordinate ("dichiarato geografico ma i numeri sono milioni" e viceversa), converte e scarica in qualunque EPSG (shapefile ri-zippato se caricato come shapefile, GeoJSON altrimenti). Cross-linkato con l'articolo e con l'Inspector. Vedi dettaglio sotto |
 | 1.4 | **Topology Check & Report** (standalone) | ✅ Fatto (2026-09-03) | — | — | `blog/tools/topology-checker.qmd`, live in produzione — costruito fuori dall'ordine originale (dopo 1.1, prima di 1.2/1.3): costo marginale basso avendo appena costruito il pattern a pulsanti per 1.1, motore già scritto in `topology-errors.qmd`. Solo diagnosi, niente Fix (una topologia rotta richiede quasi sempre una decisione umana). **Soglie sliver/gap rese configurabili (2026-09-03)** — prima con slider nativi hand-rolled (niente libreria, per evitare il CDN esterno di Observable Inputs), **poi Observable Inputs vendorizzata su richiesta esplicita** (`shared/observable-inputs.min.js` + `shared/htl.min.js`, sua dipendenza runtime non ovvia — vedi sezione dedicata più sotto) e usata per gli stessi due slider. `#| inject` resta la prima vera applicazione del meccanismo nel progetto |
 
 **Input di upload migrato a Observable Inputs (2026-09-04)**:
@@ -2295,3 +2295,67 @@ Verificato con Playwright (screenshot incluso): entrambi i dropdown
 mostrano l'header "Spatial Data Quality" al posto giusto, la homepage
 linka direttamente le 3 pagine tool + le 3 pagine articolo per nome.
 Nessuna regressione: 16/16 map-tests, 51/51 smoke-test lessons.
+
+**1.3 — CRS Inspector & Converter costruito (2026-09-06)**, ultimo
+tool pianificato della Fase 1 QA. `blog/tools/crs-inspector.qmd`
+(Python-only, dashboard a pulsanti, stesso pattern di validator/
+checker/inspector) + `blog/posts/crs-mismatch.qmd` (articolo
+bilingue Python/R).
+
+**Differenziatore vero, non solo un convertitore** (dalla descrizione
+originale in questo stesso file): l'euristica di mismatch confronta
+cosa il CRS DICHIARA (geografico via `crs.is_geographic` in Python,
+`sf::st_is_longlat()` in R) con la MAGNITUDINE reale delle coordinate
+(dentro/fuori -180..180 / -90..90) — un CRS dichiarato geografico con
+bounds nell'ordine dei milioni è quasi certamente un file proiettato
+mal etichettato, e viceversa. Deliberatamente scelto di NON tentare
+una correzione automatica dell'etichetta CRS (richiederebbe indovinare
+quale fosse il CRS reale, cosa che solo l'origine del dato può dire
+con certezza) — l'euristica segnala, non corregge; la conversione
+resta un'operazione distinta e esplicita (l'utente sceglie il CRS di
+destinazione).
+
+**Esempio integrato deliberatamente mal etichettato**: nessun CRS
+dichiarato nel GeoJSON di esempio (coordinate in grandezza Web
+Mercator, milioni), letto da GeoPandas/sf che assumono WGS84 di
+default per un file senza CRS — il mismatch scatta automaticamente al
+caricamento, stessa logica già usata per l'esempio CRS-mismatch di
+`geospatial-file-inspection.qmd` (ora linkato da lì invece di restare
+"pianificato").
+
+**Bug reale trovato e corretto durante la verifica**: la cella Python
+di conversione (`crs-convert-py`) restituiva sempre `undefined` come
+valore della cella nonostante l'esecuzione senza errori — causa: un
+dizionario come ultima riga di ciascun ramo di un `if`/`else` NON
+diventa il valore di ritorno della cella (Pyodide cattura solo
+un'istruzione-espressione bare all'ultimo livello del codice, e un
+blocco `if`/`else` è un'unica istruzione composta, non
+un'espressione) — corretto assegnando a una variabile `result` in
+entrambi i rami e restituendola con una riga bare finale. Trovato
+grazie a un test end-to-end che verificava il download reale (non
+solo l'assenza di errori): la cella "funzionava" silenziosamente
+senza mai restituire nulla di utilizzabile.
+
+Verificato con Playwright, incluso un vero **round-trip end-to-end**:
+caricato un vero shapefile EPSG:32633 costruito al volo con GeoPandas
+nella pagina stessa, convertito a EPSG:4326 tramite il tool, il file
+`.zip` scaricato riletto con una sessione Python indipendente nella
+stessa pagina — confermato `crs.to_string() == "EPSG:4326"` e bounds
+in range gradi. Confermato anche: l'esempio mal etichettato mostra il
+warning corretto, la mappa non tenta di zoomare su coordinate
+"latitudine" invalide (l'hardening di `fitToData()` di questa stessa
+sessione degrada correttamente, non un crash), un caricamento reale
+con CRS proiettato corretto non genera falsi positivi di mismatch e
+la mappa si riproietta correttamente. Cross-link aggiornati ovunque:
+navbar (voce "CRS" in entrambi i dropdown), homepage, `tools/index.qmd`,
+`articles.qmd`, e `geospatial-file-inspection.qmd` (i tre riferimenti
+"pianificato come CRS Inspector & Converter" ora puntano al tool/
+articolo reali). Nessuna regressione: 16/16 map-tests, 51/51
+smoke-test lessons.
+
+**Fase 1 (Core Tools — QA & Ispezione geodati) chiusa al 100%**: tutti
+e quattro i tool pianificati (1.1 Validator, 1.2 Inspector, 1.3 CRS
+Inspector & Converter, 1.4 Topology Checker) sono live, ciascuno con
+il proprio articolo bilingue. Prossimo passo naturale secondo il piano:
+Fase 2 (Spatial Analysis) — ma condizionata, come sempre, ai dati reali
+di Search Console (Fase 0.7), non ancora maturi.

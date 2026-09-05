@@ -15,5 +15,4 @@ same map, the same runnable Python and R code, compared side by side.
 Need just the answer, not the full explanation? The
 [standalone tools](/tools/index.html) run the same checks directly.
 
-**Inspect** → **Validate** → **Check Topology** → *CRS Inspector
-(planned)*
+**Inspect** → **Validate** → **Check Topology** → **CRS**

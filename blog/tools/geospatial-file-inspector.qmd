@@ -457,8 +457,9 @@ Want the full picture instead of just a summary? The
 <a href="/posts/geospatial-file-inspection.html">full article</a>
 walks through what each of these stats means and why it matters, in
 Python and R. Once you know what's in your file, the
+<a href="/tools/crs-inspector.html">CRS Inspector</a>, the
 <a href="/tools/geojson-shapefile-validator.html">Geometry
-Validator</a> and the <a href="/tools/topology-checker.html">Topology
+Validator</a>, and the <a href="/tools/topology-checker.html">Topology
 Checker</a> are the natural next steps.
 </div>
 

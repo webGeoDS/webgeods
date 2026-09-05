@@ -15,8 +15,7 @@ listing:
 A small, focused suite for checking geospatial data before you trust
 it. Free, no account, nothing ever leaves your browser.
 
-**Inspect** → **Validate** → **Check Topology** → *CRS Inspector
-(planned)*
+**Inspect** → **Validate** → **Check Topology** → **CRS**
 
-Three are live so far — Inspect, Validate geometry, and Check
-Topology. The CRS Inspector & Converter is next.
+All four are live — Inspect, Validate geometry, Check Topology, and
+find/convert a CRS.

@@ -72,8 +72,9 @@ for:
   apply to one family; a "mixed" result is itself useful information.
 - **CRS** — the coordinate reference system the file claims to be in.
   Not verified against the actual coordinates here — that mismatch
-  detection is a distinct, more involved check, planned as its own
-  tool.
+  detection is a distinct, more involved check, covered in
+  [Coordinate Reference Systems](crs-mismatch.qmd) and the
+  [standalone CRS Inspector](/tools/crs-inspector.html).
 - **Bounds** — the bounding box, in the file's own CRS units. A
   bounding box in the thousands or millions instead of the -180..180 /
   -90..90 range is usually the first hint of a CRS problem, before any
@@ -578,15 +579,20 @@ loadCrsExampleButton = loadExampleButton("📋 Load a CRS-mismatch example", pyC
 Web Mercator coordinates plotted at the same zoom level as geographic
 coordinates land far outside any sensible map view — that's the
 "bounds in the hundreds of thousands" tell in practice, not just in
-the abstract. Actually correcting a CRS mismatch — reprojecting a file
-to match what you expect — is a separate, dedicated tool, planned as
-the CRS Inspector & Converter.
+the abstract. Detecting exactly this kind of mismatch, and converting
+a file to a different CRS, is what
+[Coordinate Reference Systems](crs-mismatch.qmd) and its
+[standalone tool](/tools/crs-inspector.html) do.
 :::
 
 ## 7. Where to next
 
 A summary is a starting point, not an endpoint:
 
+- **CRS looks off?** → [Coordinate Reference Systems](crs-mismatch.qmd)
+  covers the mismatch heuristic above in depth, with conversion — or
+  use the [standalone CRS Inspector](/tools/crs-inspector.html)
+  directly.
 - **Invalid geometries?** → [Geometry validity](geometry-validity.qmd)
   explains why, and how `make_valid()`/`st_make_valid()` fix it — or
   use the [standalone Validator](/tools/geojson-shapefile-validator.html)

@@ -28,9 +28,11 @@ it. Free, no account, nothing leaves your browser.
 **Tools** — [Inspect](/tools/geospatial-file-inspector.html) ·
 [Validate](/tools/geojson-shapefile-validator.html) ·
 [Check Topology](/tools/topology-checker.html) ·
+[CRS](/tools/crs-inspector.html) ·
 [all tools →](/tools/index.html)
 
 **Articles** — [Inspect](/posts/geospatial-file-inspection.html) ·
 [Validate](/posts/geometry-validity.html) ·
 [Check Topology](/posts/topology-errors.html) ·
+[CRS](/posts/crs-mismatch.html) ·
 [all articles →](/articles.html)

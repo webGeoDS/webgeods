@@ -1,0 +1,568 @@
+---
+title: "CRS Inspector & Converter"
+date: 2026-09-06
+categories: [tool, geometry]
+description: "Upload a GeoJSON or a Shapefile, find its coordinate reference system, spot a CRS that doesn't match its own coordinates, and convert to a different CRS. Free, runs entirely in your browser: the file never leaves your computer."
+page-layout: full
+---
+
+Upload a file — `.geojson`, or a shapefile as a single `.zip` or as
+`.shp`/`.dbf`/`.shx` selected together — and find out what coordinate
+reference system it's actually in, whether that CRS is consistent with
+its own coordinates, and convert it to a different one if you need to.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (Python via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+```{ojs}
+//| echo: false
+// Pulses the status text while true — set around both the actual
+// file write AND the automatic inspection that follows it, same
+// pattern as every other tool on this site.
+mutable uploadBusy = false
+```
+
+```{ojs}
+//| echo: false
+// The current file selection — a plain `mutable`, written by
+// uploadControl's onChange below. See WebGeoDS.Upload.createControl's
+// doc comment in shared/upload.js for why this is a native
+// <input type="file"> instead of a `viewof`-bound Observable Inputs
+// widget.
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+// Which kind of file is currently loaded ("geojson" | "zip" |
+// "shapefile" | null) — drives the download button below: a
+// shapefile in, a shapefile (zipped) out, instead of always GeoJSON.
+// Same pattern as geojson-shapefile-validator.qmd.
+mutable uploadKind = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The upload control itself — a native <input type="file"> wrapped
+// in a <label> styled as a .webgeods-panel-btn. output:false + only
+// ever consumed via controlPanelRow's row.append() below (same
+// reasoning as loadExampleButton/downloadButton there): folding it
+// into that one JS-built row, instead of giving it its own
+// `${uploadControl}` markdown interpolation, sidesteps a real bug
+// found on geojson-shapefile-validator.qmd — two `${...}`
+// interpolations on separate paragraphs each get wrapped in their own
+// <p> by Pandoc, and each <p> becomes an independent flex item,
+// breaking vertical alignment between them.
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "📁 Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  // Python-only tool: skip writing to R's filesystem entirely, so
+  // selecting a file doesn't also load webR in the background for no
+  // reason (see shared/upload.js's `languages` option doc).
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
+    if (result.ok) {
+      mutable uploadKind = result.kind;
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadKind = null;
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Only ever shown via ${uploadStatusEl} inside the panel — see
+// loadExampleButton's comment for why this needs output:false too.
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "crs-inspector" });
+  return map;
+}
+```
+
+The code itself isn't shown here — it's a fixed, non-editable check
+using GeoPandas/PyPROJ underneath; see the
+[full article](/posts/crs-mismatch.html) for the actual code, editable
+and explained line by line.
+
+```{ojs}
+//| echo: false
+//| output: false
+// No fallback on page load (same reasoning as every other tool's own
+// history) — the page starts genuinely empty until the user either
+// uploads a file or clicks "Load example" below. Deliberately
+// mismatched: no CRS is declared (GeoJSON has none), so it's read as
+// WGS84 by default (per spec) — but the coordinates themselves are in
+// the hundreds of thousands, Web Mercator magnitude. That mismatch IS
+// the example: this tool's whole point is catching exactly this.
+EXAMPLE_GEOJSON = JSON.stringify({
+  type: "FeatureCollection",
+  features: [{
+    type: "Feature",
+    properties: { name: "mismatched-example" },
+    geometry: {
+      type: "Polygon",
+      coordinates: [[[1390000, 5140000], [1391000, 5140000], [1391000, 5141000], [1390000, 5141000], [1390000, 5140000]]]
+    }
+  }]
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
+      await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
+      mutable uploadKind = "geojson";
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
+}
+```
+
+```{.webgeods-python #crs-inspect-py}
+#| package: geopandas, shapely
+import geopandas as gpd
+
+EMPTY_FC = {"type": "FeatureCollection", "features": []}
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+crs_warning = None
+mismatch_warning = None
+original_crs = None
+is_geographic = None
+bounds = None
+
+if gdf is not None:
+    if "name" not in gdf.columns:
+        gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+    # A missing CRS is corrected (assumed WGS84, flagged) — but the
+    # heuristic below cares about what the file DECLARES, so this has
+    # to happen before reading original_crs, not after.
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the file — assuming WGS84 (EPSG:4326)."
+
+    original_crs = gdf.crs
+    is_geographic = bool(original_crs.is_geographic)
+    bounds = [round(float(b), 6) for b in gdf.total_bounds] if len(gdf) > 0 else None
+
+    # The actual differentiator: not just "what CRS does this file
+    # claim", but "do the coordinates themselves agree with that
+    # claim". A geographic CRS (degrees) whose bounds fall miles
+    # outside -180..180 / -90..90 almost certainly isn't really
+    # geographic — probably a projected file with a wrong/default CRS
+    # label. The reverse (projected CRS, but the numbers already look
+    # like plain lon/lat) is the same mistake in the other direction.
+    if bounds is not None:
+        looks_geographic = (
+            -180 <= bounds[0] <= 180 and -180 <= bounds[2] <= 180 and
+            -90 <= bounds[1] <= 90 and -90 <= bounds[3] <= 90
+        )
+        if is_geographic and not looks_geographic:
+            mismatch_warning = (
+                f"The CRS is declared as geographic ({original_crs.name}), but "
+                f"the coordinates (roughly {bounds[0]:.1f} to {bounds[2]:.1f}, "
+                f"{bounds[1]:.1f} to {bounds[3]:.1f}) fall far outside the "
+                "range longitude/latitude allows (-180..180, -90..90). This "
+                "file is very likely actually in a projected CRS, mislabeled."
+            )
+        elif not is_geographic and looks_geographic:
+            mismatch_warning = (
+                f"The CRS is declared as projected ({original_crs.name}), but "
+                "the coordinates already look like plain longitude/latitude. "
+                "This file is very likely actually in a geographic CRS "
+                "(probably WGS84), mislabeled."
+            )
+
+    # MapLibre/GeoJSON require WGS84 — the summary above stays in the
+    # file's own native CRS on purpose (that mismatch IS the point of
+    # this tool), so the map gets its own throwaway reprojected copy
+    # instead of reusing gdf directly. original_crs is never None
+    # here (a missing CRS was already assumed WGS84 above).
+    map_gdf = gdf if original_crs == "EPSG:4326" else gdf.to_crs("EPSG:4326")
+
+    for col in gdf.columns:
+        if col != "geometry":
+            gdf[col] = gdf[col].fillna("")
+
+{
+    "mapFeatures": map_gdf.__geo_interface__ if gdf is not None else EMPTY_FC,
+    "summary": {
+        "total": len(gdf) if gdf is not None else 0,
+        "crs": original_crs.to_string() if original_crs is not None else None,
+        "crsName": original_crs.name if original_crs is not None else None,
+        "isGeographic": is_geographic,
+        "bounds": bounds,
+        "crsWarning": crs_warning,
+        "mismatchWarning": mismatch_warning
+    }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+autoInspect = async () => {
+  await window.WebGeoDS.CodeCell.find("crs-inspect-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+// The summary card's own state, separate from reading pyInspect
+// directly: pyInspect is the CodeCell's cached value, which Reset
+// below has no way to clear (there's nothing to re-run) — without
+// this, clicking Reset would empty the map but leave the summary card
+// showing stale numbers. Set alongside the map update below, cleared
+// alongside the map reset further down.
+mutable inspectSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyInspect = WebGeoDS.getCellValue("crs-inspect-py", Generators)
+{
+  if (pyInspect) {
+    await sharedMap.setGeoJSON("crs-py", pyInspect.mapFeatures);
+    // Zooms to whatever was just inspected — an upload or "Load
+    // example" — same as every other tool. Especially relevant here:
+    // the mismatched example's whole point is landing far from the
+    // map's fixed initial view. A no-op on an empty FeatureCollection.
+    await sharedMap.fitToData(pyInspect.mapFeatures);
+    mutable inspectSummary = pyInspect.summary;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+resetInspector = async () => {
+  if (sharedMap.getGeoJSON("crs-py")) {
+    await sharedMap.setGeoJSON("crs-py", { type: "FeatureCollection", features: [] });
+  }
+  mutable inspectSummary = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
+  button.onclick = () => resetInspector();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// A plain text input, not a dropdown of "common" CRSes: any EPSG code
+// is a valid target, and a free-text field with a sensible default
+// covers that without a list to maintain. Read imperatively by id in
+// convertButton's onclick below (same reasoning as
+// topology-checker.qmd's sliders — referencing this OJS variable
+// directly there would recreate convertButton on every keystroke).
+targetCrsControl = {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.id = "target-crs-input";
+  input.value = "4326";
+  input.placeholder = "EPSG code, e.g. 4326";
+  input.size = 10;
+  input.className = "webgeods-panel-status";
+  return input;
+}
+```
+
+```{.webgeods-python #crs-convert-py}
+#| inject: [targetCrs, uploadKindPy]
+# Only run on demand (see convertButton below). Reprojects the CURRENT
+# gdf (still in its own original CRS — crs-inspect-py above never
+# modifies gdf itself, only the throwaway map_gdf copy) to whatever
+# EPSG code the user typed, then returns it the same way
+# geometry-export-shp-py does in the Validator: as an actual shapefile
+# if the upload was one, zipped and base64-encoded, or as plain
+# GeoJSON otherwise.
+import base64
+import io
+import os
+import zipfile
+
+target = f"EPSG:{str(targetCrs).strip().replace('EPSG:', '').replace('epsg:', '')}"
+converted = gdf.to_crs(target)
+
+# Assigned to a variable, then returned as its own bare final line —
+# a dict literal as the last line of an if/else branch does NOT become
+# the cell's return value (Pyodide only auto-captures a bare top-level
+# expression statement, and an if/else is a single compound statement,
+# not one — verified empirically: the cell ran fine but its own
+# .value came back undefined).
+if uploadKindPy == "shapefile":
+    converted.to_file("/tmp/webgeods_crs_export.shp", driver="ESRI Shapefile")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for fname in sorted(os.listdir("/tmp")):
+            if fname.startswith("webgeods_crs_export."):
+                with open(f"/tmp/{fname}", "rb") as f:
+                    z.writestr(fname.replace("webgeods_crs_export", "result"), f.read())
+    result = {"kind": "shapefile", "data": base64.b64encode(buf.getvalue()).decode("ascii")}
+else:
+    result = {"kind": "geojson", "data": converted.__geo_interface__}
+
+result
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// base64 -> raw bytes, for the convert cell's shapefile branch
+// (binary data can only cross the Pyodide->JS bridge as a cell value
+// via a text encoding — same reasoning as
+// geojson-shapefile-validator.qmd's base64ToBytes).
+base64ToBytes = (base64Str) => {
+  const binary = atob(base64Str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// "shapefile", not "zip" too: unlike download in the Validator/other
+// tools (mirroring the ORIGINAL upload format), a CRS conversion's
+// output format is a free choice independent of how the file was
+// selected — a zip-selected shapefile and an shp/dbf/shx-selected one
+// both convert to the same thing here, a single re-zipped shapefile,
+// which is why crs-convert-py's own `uploadKindPy` check only tests
+// for "shapefile" contains both cases (see the assignment below).
+convertButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.textContent = "⇄ Convert & Download";
+  button.disabled = !inspectSummary || inspectSummary.total === 0;
+  button.onclick = async () => {
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "⌛ Converting...";
+    try {
+      window.targetCrs = document.getElementById("target-crs-input").value;
+      window.uploadKindPy = (uploadKind === "zip" || uploadKind === "shapefile") ? "shapefile" : "geojson";
+      await window.WebGeoDS.CodeCell.find("crs-convert-py").run();
+      const result = document.getElementById("crs-convert-py").value;
+      const base = WebGeoDS.Upload.baseName(uploadedFiles);
+      const epsg = window.targetCrs.replace(/[^0-9]/g, "") || "converted";
+      const options = { tool: "crs-inspector" };
+      if (result.kind === "shapefile") {
+        WebGeoDS.downloadBlob(base64ToBytes(result.data), base ? `${base}-epsg${epsg}.zip` : `converted-epsg${epsg}.zip`, "application/zip", options);
+      } else {
+        WebGeoDS.downloadBlob(JSON.stringify(result.data, null, 2), base ? `${base}-epsg${epsg}.geojson` : `converted-epsg${epsg}.geojson`, "application/geo+json", options);
+      }
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// output:false: this cell's own definition sits well before the
+// panel in the document — without it, the fully-grouped row would
+// flash into view there FIRST (Quarto's own auto-display), then
+// disappear and reappear down in the panel once ${controlPanelRow}
+// mounts the same node — same reasoning as every button cell above.
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(uploadControl, loadExampleButton, resetMapButton);
+  return row;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+convertRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  const label = document.createElement("span");
+  label.className = "webgeods-panel-status";
+  label.textContent = "Convert to CRS:";
+  row.append(label, targetCrsControl, convertButton);
+  return row;
+}
+```
+
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+:::: {.webgeods-panel}
+
+::: {.webgeods-panel-row}
+${controlPanelRow}
+:::
+
+::: {.webgeods-panel-row}
+${uploadStatusEl}
+:::
+
+::: {.webgeods-panel-row}
+${convertRow}
+:::
+
+::::
+
+```{ojs}
+//| echo: false
+// Physically positioned here, between the panel and the map, matching
+// the GeoSpatial File Inspector's own layout (a summary card is more
+// useful read before the map than after it). The mismatch warning, if
+// any, gets its own visually distinct row instead of being folded
+// into a regular stat — it's the reason this tool exists.
+statCard = {
+  const s = inspectSummary;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s || s.total === 0) {
+    row("Features", "0");
+    row("—", "Upload a file or load the example above");
+    return box;
+  }
+
+  row("Features", s.total.toLocaleString());
+  row("CRS", s.crsWarning ? `${s.crs} ⚠️ ${s.crsWarning}` : (s.crs ?? "Unknown"));
+  row("Type", s.isGeographic ? "Geographic (degrees)" : "Projected (usually meters)");
+  row("Bounds", s.bounds ? s.bounds.join(", ") : "—");
+  if (s.mismatchWarning) {
+    row("⚠️ Mismatch", s.mismatchWarning);
+  } else {
+    row("Mismatch check", "✓ CRS and coordinates agree");
+  }
+
+  return box;
+}
+```
+
+${statCard}
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+<style>
+/* crs-inspect-py/crs-convert-py are functional (the CodeCell engine
+   still runs them), just not shown — see geojson-shapefile-validator.qmd
+   for the full rationale and the display:none pitfall (breaks
+   maplibre-gl.js loading) already found and avoided here from the
+   start. Stays HERE, after the last {ojs} cell, and the closing note
+   below is raw HTML rather than a Pandoc fenced div — same two
+   Quarto/Pandoc bugs documented at length in
+   geojson-shapefile-validator.qmd's own equivalent block. */
+#crs-inspect-py, #crs-convert-py {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+Want to understand the magnitude heuristic, see the actual code, or
+compare against R's independent implementation? The
+<a href="/posts/crs-mismatch.html">full article</a> walks through why
+"where does this land on a map" is a CRS clue in its own right. Once
+the CRS is sorted out, the
+<a href="/tools/geojson-shapefile-validator.html">Geometry
+Validator</a> and the <a href="/tools/topology-checker.html">Topology
+Checker</a> are the natural next checks — and the
+<a href="/tools/geospatial-file-inspector.html">GeoSpatial File
+Inspector</a> is the fastest way to see everything about a file at
+once, CRS included.
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
