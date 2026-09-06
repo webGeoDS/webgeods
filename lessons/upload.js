@@ -75,6 +75,17 @@
     "uploaded.tif"
   ];
 
+  // Lazy-write queue — see load()/ensurePending() below. Keyed by
+  // language ("python"/"r"), holding at most one not-yet-written
+  // upload per language (a newer load() call simply replaces whatever
+  // an older, never-flushed one left here — same "last upload wins"
+  // outcome as writing immediately, just without the wasted work of
+  // ever performing the superseded write).
+  const pendingByLanguage = {
+    python: null,
+    r: null
+  };
+
 
   // ============================================================
   // loadObservableInputs() — lazy-loads window.Inputs (Observable
@@ -274,21 +285,39 @@
 
 
   // ============================================================
-  // load(value, { languages }) — writes the selected file(s) into
-  // the given runtimes' virtual filesystems (window.WebGeoDS.Python/
-  // R.writeFile, already existing) and returns { ok, kind, message },
-  // ready to assign straight to a page's `mutable uploadStatus`.
+  // load(value, { languages }) — validates the selected file(s) and
+  // QUEUES them to be written into the given runtimes' virtual
+  // filesystems, returning { ok, kind, message } ready to assign
+  // straight to a page's `mutable uploadStatus`.
   //
-  // `languages` defaults to ["python", "r"] (both, unchanged behavior
-  // for every existing caller — the bilingual articles need both).
-  // A Python-only tool should pass `{ languages: ["python"] }`:
-  // Python/R.writeFile() each lazily load their WHOLE runtime first
-  // (WebGeoDS.Runtime.python()/.r()) if not already running — verified
-  // empirically that without this, uploading a file on a Python-only
-  // tool page was silently loading webR in the background too (a
-  // Playwright test's console log showed "WebR is using `PostMessage`
-  // communication channel" on a page that never otherwise touches R),
-  // undermining the whole point of choosing Python-only for speed.
+  // Lazy by design (added 2026-09-06): the actual write (reading the
+  // File's bytes, deleting stale candidate paths, calling
+  // Python/R.writeFile) happens later, in ensurePending(language),
+  // called automatically by code-cell.js right before a cell of that
+  // language runs — not here. A bilingual article calls load() with
+  // no `languages` restriction (needs both eventually), which used to
+  // mean EVERY upload was written into BOTH Pyodide's and webR's
+  // filesystems immediately, even before the reader picked a language
+  // to try. For a large file that's a real cost, not a theoretical
+  // one: stress-testing the Raster Inspector article found R's own
+  // FS.writeFile() failing outright on files well under Python's
+  // ~2GB ceiling once `stars`/`sf` were also loaded — a big part of
+  // that gap was this exact "write it to a runtime nobody asked for
+  // yet" pattern doubling peak memory for no benefit. Deferring the
+  // write to whichever language the reader actually runs doesn't
+  // raise R's ceiling, but it removes the needless doubling for the
+  // common case (someone tries one language, not both at once).
+  //
+  // `languages` defaults to ["python", "r"] (both, unchanged from
+  // before — the bilingual articles still need both eventually, just
+  // not both immediately). A Python-only tool should still pass
+  // `{ languages: ["python"] }`: this is what stops such a tool's
+  // upload from ever queueing (and therefore ever booting) webR at
+  // all — verified empirically, before this change existed, that
+  // without it a Python-only tool's upload was silently loading webR
+  // in the background too (a Playwright test's console log showed
+  // "WebR is using `PostMessage` communication channel" on a page
+  // that never otherwise touches R).
   // ============================================================
 
   async function load(
@@ -393,51 +422,25 @@
 
     }
 
-    try {
+    // Every OTHER candidate path needs deleting eventually — a page's
+    // Python/R code tries a fixed list of paths in order (geojson,
+    // then shapefile, then zip), so a stale file from an EARLIER,
+    // different-kind upload (e.g. an old /uploaded.geojson still
+    // sitting there after switching to a shapefile) would otherwise
+    // silently shadow the new one. Computed now (cheap — just names,
+    // no I/O) but only actually deleted inside ensurePending(), right
+    // before that language's fresh targets are written — a language
+    // that never runs again never needs this to have happened at all.
+    const targetNames =
+      new Set(targets.map(([, name]) => name));
 
-      // Clean up every OTHER candidate path first: a page's Python/R
-      // code tries a fixed list of paths in order (geojson, then
-      // shapefile, then zip) — without this, a stale file from an
-      // EARLIER, different-kind upload (e.g. an old /uploaded.geojson
-      // still sitting there after the user switches to uploading a
-      // shapefile instead) would silently shadow the new one, since
-      // it's still the first path found to exist. Verified empirically
-      // this actually happens without the cleanup.
-      const targetNames =
-        new Set(targets.map(([, name]) => name));
+    const staleNames =
+      ALL_CANDIDATE_NAMES.filter((name) => !targetNames.has(name));
 
-      const staleNames =
-        ALL_CANDIDATE_NAMES.filter((name) => !targetNames.has(name));
+    for (const lang of languages) {
 
-      const runtimesFor =
-        (fn) =>
-          languages
-            .map((lang) => lang === "r" ? window.WebGeoDS.R : window.WebGeoDS.Python)
-            .map(fn);
-
-      await Promise.all(
-        staleNames.flatMap((name) =>
-          runtimesFor((runtime) => runtime.deleteFile("/" + name))
-        )
-      );
-
-      for (const [file, targetName] of targets) {
-
-        const bytes =
-          new Uint8Array(await file.arrayBuffer());
-
-        await Promise.all(
-          runtimesFor((runtime) => runtime.writeFile("/" + targetName, bytes.slice()))
-        );
-
-      }
-
-    } catch (err) {
-
-      return {
-        ok: false,
-        message: `✗ Error during upload: ${err.message || err}`
-      };
+      pendingByLanguage[lang] =
+        { targets, staleNames };
 
     }
 
@@ -451,6 +454,66 @@
       kind,
       message: `✓ ${names} uploaded — ready for all the cells below.`
     };
+
+  }
+
+
+  // ============================================================
+  // ensurePending(language) — performs whatever load() queued for
+  // this language (stale-path cleanup, then writing this upload's own
+  // targets), if anything is still queued. A no-op if nothing's
+  // pending — the overwhelmingly common call, since a cell can only
+  // run after its own language's queued upload (if any) has already
+  // been flushed by an earlier run.
+  //
+  // Called by code-cell.js right before a cell of this language
+  // executes, so page authors never call this directly — a page's own
+  // `.qmd` code just calls WebGeoDS.Upload.load(...) and later
+  // CodeCell.find(id).run() exactly as before; the deferred write is
+  // invisible from that side.
+  //
+  // Reads each target File's bytes here, not in load() — a language
+  // whose cell never runs (a reader who only tries Python on a
+  // bilingual page, say) never pays for a second in-memory copy of a
+  // large upload it will never use, and each language gets its own
+  // fresh Uint8Array from a fresh File.arrayBuffer() call (a File can
+  // be read more than once) instead of needing bytes.slice() to avoid
+  // two languages fighting over one shared buffer.
+  // ============================================================
+
+  async function ensurePending(language) {
+
+    const pending =
+      pendingByLanguage[language];
+
+    if (!pending) {
+
+      return;
+
+    }
+
+    // Cleared before awaiting anything below: a second run of the
+    // same language's cell that starts before this one finishes must
+    // see nothing pending (its file is already being written by this
+    // very call), not re-queue the same work.
+    pendingByLanguage[language] =
+      null;
+
+    const runtime =
+      language === "r" ? window.WebGeoDS.R : window.WebGeoDS.Python;
+
+    await Promise.all(
+      pending.staleNames.map((name) => runtime.deleteFile("/" + name))
+    );
+
+    for (const [file, targetName] of pending.targets) {
+
+      const bytes =
+        new Uint8Array(await file.arrayBuffer());
+
+      await runtime.writeFile("/" + targetName, bytes);
+
+    }
 
   }
 
@@ -498,6 +561,7 @@
 
   window.WebGeoDS.Upload = {
     load,
+    ensurePending,
     baseName,
     createControl,
     accept: ACCEPT,

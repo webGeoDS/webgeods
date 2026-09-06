@@ -30045,10 +30045,42 @@ window._ojs.runtime.interpretFromScriptTags();
   /**
    * Writes bytes into webR's virtual filesystem, so a later run()
    * call can read them back with a normal path — e.g.
-   * `sf::st_read(path)` on a user-uploaded GeoJSON. Unlike Python's
-   * worker-message-based writeFile (python.js), webR's own public API
-   * already proxies FS calls across its internal worker boundary, so
-   * this is a direct call, no message protocol needed here.
+   * `sf::st_read(path)` on a user-uploaded GeoJSON.
+   *
+   * NOT a direct `webr.FS.writeFile(path, data)` call — that own
+   * public API was found (2026-09-06, stress-testing the Raster
+   * Inspector article) to throw `RangeError: Invalid array length`
+   * for any payload somewhere between roughly 64MiB and 128MiB, on
+   * the webR version this project is pinned to (0.4.3). Verified this
+   * is a bug in webR's OWN internal FS.writeFile() implementation,
+   * not something caused by this project's code or by anything else
+   * loaded on the page: reproduced with synthetic bytes AND with a
+   * real uploaded File's bytes, with and without other R packages
+   * loaded, and independent of whether Python held a copy of the same
+   * bytes at the same time — same failure every time, deep inside
+   * webR's own bundled worker code. A newer webR (0.6.0) raises the
+   * threshold but doesn't remove it (~128-160MiB there); this bypass
+   * instead avoids the buggy call PATH entirely, on the CURRENT
+   * pinned version, verified working correctly (data integrity
+   * confirmed against a real multi-band GeoTIFF, re-read afterwards
+   * with stars::read_stars()) up to at least 512MiB.
+   *
+   * How: webR can construct an R object directly from a JS TypedArray
+   * (`new webr.RObject(data)` -> an R raw vector — no FS involved at
+   * all for this step) and bind it into an evaluation environment
+   * (`new webr.REnvironment({...})`). From there, R's OWN native
+   * `writeBin()` — compiled C, not webR's JS wrapper — writes it to
+   * webR's filesystem. Different code path end to end; the bug is
+   * specific to the JS-side wrapper, not to Emscripten's underlying
+   * FS write itself.
+   *
+   * The path is passed as an R object too, not string-interpolated
+   * into the R code, to avoid any quoting/escaping question — this
+   * project only ever calls writeFile() with its own fixed
+   * "/uploaded.*" paths, but there's no reason to rely on that here.
+   * The two binding names are prefixed with "." (a leading "_" is not
+   * a legal R identifier start) and namespaced to WebGeoDS to avoid
+   * colliding with anything a page's own R code might define.
    * @param {string} path Absolute path inside webR's filesystem (e.g.
    *   "/uploaded.geojson").
    * @param {Uint8Array} data
@@ -30056,7 +30088,21 @@ window._ojs.runtime.interpretFromScriptTags();
    */
   async function writeFile(path, data) {
     const webr = await window.WebGeoDS.Runtime.r();
-    await webr.FS.writeFile(path, data);
+    const dataObj = await new webr.RObject(data);
+    const pathObj = await new webr.RObject(path);
+    const env = await new webr.REnvironment({
+      ".webgeods_write_data": dataObj,
+      ".webgeods_write_path": pathObj
+    });
+    const shelter = await new webr.Shelter();
+    try {
+      await shelter.captureR(
+        "writeBin(.webgeods_write_data, .webgeods_write_path)",
+        { env }
+      );
+    } finally {
+      await shelter.purge();
+    }
   }
 
   // ============================================================
@@ -31052,6 +31098,15 @@ window._ojs.runtime.interpretFromScriptTags();
 
 
       try {
+
+        // If a page called WebGeoDS.Upload.load(...) for this cell's
+        // language, the actual write (reading the File's bytes,
+        // clearing stale paths, Python/R.writeFile) was deferred until
+        // now instead of happening at upload time — see upload.js's
+        // own comment on ensurePending() for why. A no-op when nothing
+        // is queued (the overwhelmingly common case, including every
+        // page that doesn't use Upload at all).
+        await window.WebGeoDS.Upload?.ensurePending?.(this._language);
 
         // The preamble (if any `inject` names are configured) is
         // built fresh on every run — it reads window[name] at THIS

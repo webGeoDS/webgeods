@@ -966,6 +966,15 @@
 
       try {
 
+        // If a page called WebGeoDS.Upload.load(...) for this cell's
+        // language, the actual write (reading the File's bytes,
+        // clearing stale paths, Python/R.writeFile) was deferred until
+        // now instead of happening at upload time — see upload.js's
+        // own comment on ensurePending() for why. A no-op when nothing
+        // is queued (the overwhelmingly common case, including every
+        // page that doesn't use Upload at all).
+        await window.WebGeoDS.Upload?.ensurePending?.(this._language);
+
         // The preamble (if any `inject` names are configured) is
         // built fresh on every run — it reads window[name] at THIS
         // moment, not once at construction — and prepended ahead of

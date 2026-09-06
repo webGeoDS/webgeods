@@ -4122,3 +4122,395 @@ era legittimo da verificare ma risulta infondato nella pratica: non è
 un limite che serva risolvere ora. Script di test temporanei
 rimossi al termine, nessuna modifica al codice del tool (nessun bug
 trovato che richieda una correzione).
+
+## 2026-09-06 — Stesso test sul lato R (`stars`) dell'articolo bilingue: limite pratico molto più basso di Python
+
+Su richiesta esplicita, ripetuto lo stress test precedente sul lato R
+(cella `raster-inspect-r` dell'articolo — il tool standalone è
+Python-only, quindi questo test riguarda solo l'articolo). Risultato:
+**il lato R non regge la stessa scala del lato Python, per due motivi
+distinti e indipendenti**, entrambi reali, non artefatti del test.
+
+**Metodologia**: Python e R vivono in due filesystem WASM separati
+(Pyodide e webR) senza storage condiviso — muovere lo stesso file da
+un lato all'altro richiede attraversare il bridge JS del thread
+principale. Spostare 1.14GB per intero via base64 avrebbe rischiato
+di superare da solo il tetto dei ~2GB già trovato lato Python (byte
+grezzi + testo base64 contemporaneamente in memoria). Adottato quindi
+un trasferimento a blocchi (40MB ciascuno, decodificati via il
+parser nativo del browser su un data: URL invece di un loop JS
+carattere-per-carattere — lo stesso errore già corretto in
+precedenza), con tempi misurati SEPARATAMENTE dal tempo di calcolo
+reale, stessa disciplina del test Python. Riscaldamento esplicito di
+webR + `stars`/`sf`/`jsonlite` (17 pacchetti, primo uso su pagina
+fresca) PRIMA di misurare, per non contare il boot una tantum nel
+tempo di calcolo — la pagina lo dichiara già come costo atteso
+("first run loads the R engine, 30-40s").
+
+**Risultato 1 — correttezza confermata, prestazioni molto più
+lente**: a 32MB/4 bande (dimensione alla quale il trasferimento e la
+scrittura riescono), i risultati numerici di R coincidono
+esattamente con quelli di Python. Ma il tempo di calcolo reale della
+cella (`stars::read_stars()` + statistiche per banda), a caldo,
+misurato due volte, è stato di **~41-51 secondi per 32MB**, contro
+**meno di 1 secondo** per lo stesso file lato Python — un rallentamento
+di circa 40-50×, non spiegabile da overhead di caricamento pacchetti
+(già escluso dal riscaldamento).
+
+**Risultato 2 — un tetto pratico reale, molto più basso di Python**:
+a 128MB, `WebGeoDS.R.writeFile()` (la funzione reale usata per
+scrivere un file nel filesystem di webR) fallisce in modo
+riproducibile (verificato due volte, stesso errore) con
+`RangeError: Invalid array length`, dentro il codice interno di webR
+stesso (non nel codice del sito). Isolando il problema con un
+micro-test su byte sintetici (non un vero GeoTIFF): la STESSA
+chiamata a 128MB riesce se webR non ha `stars`/`sf`/`jsonlite` già
+caricati, ma fallisce nello scenario reale (dove servono per forza,
+altrimenti l'articolo non fa nulla). Conclusione: il tetto pratico
+dipende da quanta memoria i pacchetti R già caricati occupano sullo
+heap WASM — nel caso d'uso reale di questo articolo, il tetto sta
+da qualche parte tra 32MB (funziona) e 128MB (fallisce), contro i
+~2GB del lato Python sulla stessa pagina/compito.
+
+**Conclusione**: la scala richiesta (1.14GB, 6 bande) non è
+raggiungibile lato R nell'implementazione attuale — fallirebbe già al
+passaggio di scrittura, ben prima del calcolo (che comunque, per
+estrapolazione lineare dal dato a 32MB, richiederebbe da solo
+~20-25 minuti a quella scala). Non è quindi un'asimmetria minore da
+nota a piè di pagina come le tre già documentate nell'articolo
+(formato CRS, dtype, NoData) — è un limite di scala reale e non
+piccolo, non ancora menzionato da nessuna parte sul sito. Nessuna
+modifica al codice fatta in questa sessione (solo test, come
+richiesto) — decisione su come/se intervenire (avviso nell'articolo,
+indagine sulla causa in `shared/r.js`, o accettazione del limite come
+è) rimandata a un'istruzione esplicita. Script di test temporanei e
+processi rimossi al termine.
+
+## 2026-09-06 — Indagine sulla causa del limite R: pressione di memoria, non un tetto di byte fisso
+
+Su richiesta esplicita ("indaga la causa per capire se è
+sistemabile"), isolate le variabili con test mirati (byte sintetici,
+non un vero GeoTIFF, per rimuovere quella variabile dall'equazione).
+
+**Risultato chiave, contro-intuitivo**: 128MB di byte sintetici,
+scritti con `webr.FS.writeFile()` SUBITO dopo aver caricato
+`stars`/`sf`/`jsonlite` e nient'altro, **riescono** (30.4s). Lo stesso
+identico limite di 128MB fallisce invece in modo riproducibile
+(verificato tre volte in totale) quando quella scrittura arriva DOPO
+che la pagina ha già generato, lo stesso file da 128MB anche lato
+Python (residente nell'heap WASM separato di Pyodide) e lo ha
+trasferito a blocchi (più stringhe base64 grandi, più ArrayBuffer
+transitori nel thread principale). **Non è quindi un tetto di byte
+fisso su `webr.FS.writeFile()` — è pressione di memoria complessiva
+sulla scheda del browser**, a cui contribuiscono insieme: webR forzato
+sul canale `PostMessage` (non `SharedArrayBuffer` — deciso
+deliberatamente in `shared/runtime.js` perché Teachable, che ospita
+`lessons/`, non permette gli header COOP/COEP necessari per
+`SharedArrayBuffer`; la stessa scelta si applica anche al blog perché
+`runtime.js` è condiviso tra i due, anche se il blog di per sé non ha
+quel vincolo — GitHub Pages però non supporta comunque header di
+risposta personalizzati senza un proxy/CDN davanti, quindi cambiare
+canale non è comunque a portata di mano per il blog da solo), il peso
+di `sf`/`stars` e delle loro ~17 dipendenze una volta caricate, e il
+canale `PostMessage` stesso che richiede più copie strutturate dei
+dati rispetto a `SharedArrayBuffer`.
+
+**Un tentativo di scrittura a blocchi** (`webr.FS.writeFile()`
+ripetuto con `{flags: "a"}` per accodare, invece di un'unica chiamata
+enorme) è fallito al SECONDO blocco con un errore diverso ("FS
+error") — non conclusivo: potrebbe essere che l'API dei flag di
+append non sia quella che ho usato io, non necessariamente che il
+chunking non aiuterebbe. Non approfondito oltre per restare dentro
+l'ambito della richiesta (indagare, non implementare).
+
+**Una causa concreta e realmente sistemabile, trovata durante
+l'indagine**: la cella di upload dell'articolo bilingue
+(`blog/posts/raster-file-inspection.qmd`, riga con
+`WebGeoDS.Upload.load(uploadedFiles)`) chiama `load()` **senza**
+restringere `languages` — a differenza del tool standalone
+Python-only, che passa esplicitamente `{ languages: ["python"] }`
+proprio per evitare di caricare webR quando non serve (documentato nel
+commento di `shared/upload.js`). Questo significa che OGNI file
+caricato nell'articolo — compreso un raster grande — viene scritto
+SUBITO in ENTRAMBI i filesystem virtuali (Pyodide e webR), anche prima
+che l'utente scelga quale cella eseguire. Per un file grande, questo
+raddoppia inutilmente la pressione di memoria complessiva rispetto a
+scrivere solo nel runtime che l'utente sceglierà di eseguire davvero.
+
+**Conclusione sulla "sistemabilità"**: parzialmente sì.
+- **Fattibile e a basso rischio**: rendere l'upload "pigro" per
+  runtime — scrivere il file in Python/R solo quando la cella di
+  quella lingua viene effettivamente eseguita, invece che su entrambi
+  subito al caricamento. Non elimina il tetto di R, ma lo alza
+  concretamente per l'uso reale più comune (un utente che prova prima
+  una lingua, non entrambe subito) rimuovendo la "doppia copia"
+  superflua. Non ancora implementato — decisione rimandata a
+  un'istruzione esplicita, dato che tocca `shared/upload.js` (file
+  condiviso da tutti e 5 i tool/articoli, non solo quello raster) e
+  cambierebbe un comportamento sottile (finora ogni articolo scrive
+  sempre su entrambi i runtime fin dal caricamento).
+- **Non fattibile a breve termine**: passare al canale
+  `SharedArrayBuffer` (richiederebbe header che GitHub Pages non
+  supporta senza infrastruttura aggiuntiva) o ridurre il peso di
+  `sf`/`stars` stesse (sono le librerie R idiomatiche per questo
+  compito, non c'è un'alternativa più leggera ovvia).
+
+Nessuna modifica al codice fatta in questa sessione (solo indagine,
+come richiesto). Script di test temporanei e processi rimossi al
+termine.
+
+## 2026-09-06 — Implementato "upload pigro" — funziona correttamente, ma NON risolve da solo il tetto di R su file grandi
+
+Su richiesta esplicita ("implementa l'upload pigro"), reso lazy lo
+scrivere il file caricato nei filesystem virtuali: `load()` non
+scrive più subito, mette in coda `{targets, staleNames}` per lingua;
+`ensurePending(language)` (nuova funzione pubblica) esegue la scrittura
+vera e propria — cancellazione percorsi obsoleti + lettura
+`file.arrayBuffer()` + `writeFile()` — solo quando arriva chiamata.
+Agganciata in `shared/code-cell.js`, dentro `CodeCell.run()`, subito
+prima di eseguire il codice della cella:
+`await window.WebGeoDS.Upload?.ensurePending?.(this._language)` — un
+no-op su qualunque pagina che non usa Upload, o quando non c'è nulla
+in coda per quella lingua (il caso comune dopo il primo flush).
+Nessuna pagina toccata individualmente: l'aggancio in un unico punto
+condiviso copre tutti e 5 i tool/articoli che usano
+`WebGeoDS.Upload.load()`.
+
+**Verificato correttamente funzionante, end-to-end, su
+`raster-file-inspection.qmd`** (l'articolo bilingue senza restrizione
+`languages`, il caso che motivava la richiesta): dopo un upload reale
+(via `<input type=file>`, non uno shortcut di test), **nessuna
+attività di webR finché non si esegue la cella R** (verificato via
+console log — zero righe "webr"/"WebR" dopo upload e dopo l'esecuzione
+della sola cella Python); la cella Python legge correttamente il file
+caricato reale (non il fallback sintetico); eseguendo poi la cella R,
+la sua scrittura differita si attiva correttamente e produce risultati
+numerici identici a Python. Nessuna regressione: 16/16 map-tests,
+51/51 smoke-test lessons.
+
+**Ma, testato onestamente fino in fondo: NON alza in modo significativo
+il tetto pratico di R su un file grande**. Ipotesi da verificare: se
+il vero problema fosse "il file finisce in ENTRAMBI i runtime subito",
+allora un utente che usa SOLO R (mai Python, nella stessa sessione)
+dovrebbe reggere una dimensione molto più vicina a quella che Python
+regge da solo. Testato con un file .tif reale (non byte sintetici,
+non un giro attraverso Pyodide) da 128MB caricato via `<input
+type=file>` reale, eseguendo SOLO la cella R: **fallisce comunque**,
+con lo stesso `RangeError: Invalid array length`, in meno di un
+secondo (fallisce alla scrittura, non al calcolo) — identico al
+comportamento PRIMA della correzione. Lo stesso file a 64MB invece
+riesce (72.8s, risultati corretti). Confronto con il micro-test
+isolato della sessione precedente (byte sintetici creati con `new
+Uint8Array(...)`, non da un File reale): quello riusciva a 128MB.
+**Conclusione**: il fattore dominante non è (solo) "quanti runtime
+tengono una copia contemporaneamente" come ipotizzato — sembra
+esserci un costo di memoria aggiuntivo specifico nel materializzare i
+byte di un File REALE via `file.arrayBuffer()` (probabilmente una
+copia transitoria oltre al buffer di origine del Blob) che una
+scrittura di byte sintetici non paga. Il tetto pratico per un upload
+reale lato R resta quindi nella stessa fascia stretta di prima
+(~64-128MB), con o senza questa correzione.
+
+**Valutazione finale**: la correzione va mantenuta — è corretta,
+verificata, senza regressioni, ed elimina un vero spreco (nessun
+motivo per cui un utente che usa solo Python debba pagare il boot di
+webR e una copia inutile del file). Ma non va presentata come "il"
+fix del tetto di R sui file grandi — quel problema resta aperto e più
+profondo di quanto ipotizzato (probabilmente nel canale `PostMessage`
+forzato di webR stesso, o in come i browser gestiscono `File.
+arrayBuffer()` su file grandi — non ulteriormente scomposto in questa
+sessione). Script di test temporanei e processi rimossi al termine.
+
+## 2026-09-06 — Causa radice trovata: bug interno di webR 0.4.3, corretto nella versione 0.6.0
+
+Su richiesta esplicita ("approfondisci ulteriormente"), isolata la
+causa in modo conclusivo con esperimenti mirati.
+
+**Esperimento decisivo**: scritti gli STESSI byte (presi da un file
+`.tif` reale via `file.arrayBuffer()`) sia in Python
+(`WebGeoDS.Python.writeFile`) sia in webR (`webr.FS.writeFile`), a
+128MB. **Python riesce** (8.7s) — stessi identici byte. **webR fallisce
+sempre**, con lo stesso `RangeError: Invalid array length` dentro il
+codice interno di webR (`Object.values` in un blob worker), sia con i
+byte del File così come sono, sia con una copia fresca forzata
+(`.slice()`), sia riassemblando da pezzi letti con `File.slice()`.
+**Conclusione**: non è pressione di memoria complessiva né un
+artefatto di come si ottengono i byte — è un bug/limite specifico
+dentro l'implementazione di `FS.writeFile()` di webR 0.4.3 stessa,
+indipendente da tutto il resto.
+
+**Verificato che è stato corretto (o comunque migliorato) in
+versioni successive di webR**: testato webR **0.6.0** (l'ultima
+release, dal CDN pubblico ufficiale r-wasm, un test isolato — nessuna
+modifica ai file di produzione/vendorizzati di questo progetto) sullo
+stesso identico test: **128MB ora riesce** (18.5s) — il nuovo limite
+sta tra 128MB e 160MB, non più tra 64MB e 128MB. Un miglioramento
+reale, anche se non equivalente ai ~2GB di Python.
+
+**Verificato che `sf`/`stars`/`jsonlite` — i pacchetti che questo
+progetto usa davvero — funzionano correttamente su webR 0.6.0**:
+installati (stars 0.7.2), eseguita la logica reale di
+`raster-inspect-r` su un GeoTIFF vero, risultati numerici identici
+a quelli già noti come corretti (width/height/min/max/mean/CRS).
+
+**Perché il progetto è fermo a webR 0.4.3**: un commento in
+`shared/runtime.js` documenta un'incompatibilità reale tra il
+pacchetto R `terra` (versione 1.9-27) e webR 0.5.4/0.6.0 (fallisce a
+caricare il proprio namespace) — ma **`terra` non è mai usato da
+nessuna parte in questo sito**: l'unico riscontro nel codice è dentro
+un commento che lo cita come ESEMPIO generico di nome di pacchetto,
+non una dipendenza reale (verificato via ricerca in tutto il
+repository). Il motivo che tiene fermo il pin alla versione 0.4.3 non
+si applica quindi a nulla che il sito faccia davvero oggi.
+
+**Conclusione**: il problema è sistemabile con un aggiornamento della
+versione di webR (verificato fino a 0.6.0) — non elimina del tutto
+l'asimmetria con Python, ma la riduce concretamente, ed è probabile
+che continui a migliorare in versioni ancora più recenti (non
+testate oltre 0.6.0). Questo però è un cambiamento più grande di
+quanto chiesto finora: il pin di versione vive in `shared/runtime.js`,
+condiviso da OGNI pagina che usa R sia nel blog sia nelle lezioni (non
+solo l'articolo raster) — un aggiornamento andrebbe testato a fondo su
+tutte quelle pagine (entrambe le suite di regressione più una verifica
+mirata delle lezioni R-pesanti), non deciso o applicato durante
+un'indagine. Nessuna modifica al codice fatta in questa sessione (solo
+test isolati contro il CDN pubblico di webR, mai toccata la versione
+vendorizzata in produzione). Script di test temporanei e processi
+rimossi al termine.
+
+**Verifica aggiuntiva su richiesta ("prova con terra prima")**: prima
+di considerare l'aggiornamento, riverificato empiricamente se
+l'incompatibilità di `terra` con webR 0.6.0 documentata nel commento
+di `shared/runtime.js` sia ancora reale oggi, invece di fidarsi del
+commento com'è scritto. **Confermato: `library(terra)` fallisce
+ancora su webR 0.6.0** (CDN pubblico, `terra` installato senza
+errori, ma caricarlo fallisce) — con un messaggio diverso da quello
+originale ("resolved is not a function" invece del vecchio errore sui
+simboli PROJ mancanti, segno che la causa esatta potrebbe essere
+cambiata nel tempo, ma l'esito pratico — `library(terra)` non
+funziona — resta lo stesso). `sf`/`stars`/`jsonlite`, verificati con
+lo stesso identico meccanismo di test, continuano invece a funzionare
+correttamente su 0.6.0 (già confermato sopra). **Conclusione
+invariata**: il motivo del pin a 0.4.3 è tecnicamente ancora vero
+oggi, ma resta irrilevante per questo sito perché `terra` non è mai
+usato — un aggiornamento di webR resterebbe sicuro per tutto ciò che
+il sito usa davvero (`sf`, `stars`, `geojsonsf`, `jsonlite`), pur
+lasciando `terra` non disponibile (invariato rispetto a oggi, visto
+che non lo era già). Nessuna modifica al codice; solo verifica contro
+il CDN pubblico.
+
+**Verifica del lato mancante, su richiesta ("prova il test con terra
+su webR 0.4.3")**: stesso identico test, stessa metodologia, contro
+webR 0.4.3 (CDN pubblico) invece di 0.6.0 — per completare il
+confronto empiricamente su entrambi i lati invece di dare per buona
+solo metà dell'affermazione del commento originale. Confermato anche
+questo lato: `terra` si installa e `library(terra)` funziona
+correttamente su webR 0.4.3, versione caricata 1.8.42 — esattamente
+come descritto nel commento di `shared/runtime.js`. Il quadro
+completo, ora verificato empiricamente su entrambe le versioni con lo
+stesso metodo:
+
+| | webR 0.4.3 (attuale) | webR 0.6.0 |
+|---|---|---|
+| terra | funziona (1.8.42) | library(terra) fallisce |
+| sf/stars/jsonlite | funziona | funziona |
+| FS.writeFile() su file reale ~128MB | fallisce sempre | funziona (limite spostato a 128-160MB) |
+
+Nessuna modifica al codice; solo verifica contro il CDN pubblico di
+webR, script di test temporanei rimossi al termine.
+
+## 2026-09-06 — Trovato un fix reale, senza upgrade di webR: bypassare del tutto `FS.writeFile()`
+
+Su richiesta esplicita ("si può evitare del tutto di portare il file
+nel filesystem?"), scoperto un meccanismo webR documentato ma non
+ancora usato in questo progetto: `new webR.RObject(uint8Array)`
+costruisce un vettore raw R DIRETTAMENTE da un TypedArray JS, senza
+passare da `FS.writeFile()`; `new webR.REnvironment({nome: robj})` lo
+lega in un ambiente; `shelter.captureR(codice, {env})` esegue codice R
+che può riferirsi a quell'oggetto per nome. Da dentro R,
+`writeBin(nome, "/percorso")` scrive il file su disco usando il
+meccanismo NATIVO di R (compilato in C, chiamato da R), non il
+wrapper JS di `webr.FS.writeFile()` — un percorso di codice
+completamente diverso.
+
+**Risultato: funziona, e va molto oltre il limite trovato**. Testato
+su webR **0.4.3** (la versione attualmente in produzione, NESSUN
+upgrade necessario): scrittura riuscita in modo pulito fino a
+**512MB** di byte sintetici (il test si è fermato lì, non perché
+fallisse, ma perché era la dimensione massima provata) — ben oltre il
+muro di 64-128MB di `FS.writeFile()` diretto sulla stessa identica
+versione di webR.
+
+**Integrità dei dati confermata end-to-end, non solo "non lancia
+errori"**: scritto un GeoTIFF reale a 3 bande da 64MB via questo
+bypass, poi letto RIBBACK con `stars::read_stars()` nella stessa
+sessione webR — risultati numerici (min/max/mean per banda)
+identici al ground truth calcolato in Python al momento della
+generazione.
+
+**Nessuna regressione sul caso comune (file piccoli)**: per un file
+di 2KB, il bypass è leggermente più lento del `FS.writeFile()`
+diretto (~25ms contro ~2ms) — una differenza reale ma trascurabile in
+termini assoluti, invisibile rispetto ai tempi di boot dei runtime
+(decine di secondi) già presenti su ogni pagina.
+
+**Perché questo fix è preferibile all'upgrade di webR**: stessa
+versione di produzione (0.4.3), zero rischio sulle altre pagine che
+usano R (l'aggiornamento a 0.6.0 avrebbe richiesto ritest completo di
+blog E lezioni), e arriva più lontano (512MB+ contro i ~128-160MB
+ottenuti con l'upgrade a 0.6.0).
+
+**Non ancora implementato in `shared/r.js`** — questa sessione ha
+verificato che il meccanismo funziona (in isolamento, contro il CDN
+pubblico di webR), non ha ancora modificato il codice di produzione.
+L'implementazione naturale sostituirebbe il corpo di `writeFile(path,
+data)` in `shared/r.js` (oggi: `await webr.FS.writeFile(path, data)`)
+con la sequenza RObject/REnvironment/writeBin, mantenendo la stessa
+firma pubblica — nessuna chiamata in `upload.js` o altrove
+dovrebbe cambiare. Decisione di procedere rimandata a un'istruzione
+esplicita. Script di test temporanei e processi rimossi al termine.
+
+## 2026-09-06 — Implementato in `shared/r.js`: `writeFile()` non usa più `FS.writeFile()` direttamente
+
+Su richiesta esplicita ("voglio che lo implementi"), sostituito il
+corpo di `writeFile(path, data)` con la sequenza
+RObject/REnvironment/writeBin — un'unica funzione condivisa, quindi
+il fix si applica automaticamente a TUTTI i chiamanti (i 5
+tool/articoli attuali, e qualunque pagina futura) senza toccare
+`upload.js` né nessuna pagina `.qmd`: nessun ramo per-dimensione,
+nessuna decisione di soglia da mantenere.
+
+**Domanda dell'utente sul percorso in memoria vs filesystem**:
+confermato che scrivere nel filesystem virtuale resta necessario —
+`sf`/`stars` (GDAL sotto) aprono file per percorso
+(`GDALOpen()`-style), non hanno un modo per leggere byte grezzi da un
+oggetto R in memoria direttamente. Il filesystem in questione è
+comunque già virtuale-in-WASM (Emscripten MEMFS), non disco reale —
+il bypass non aggiunge I/O vero, sposta solo la strada con cui i byte
+arrivano lì. Un'ulteriore ottimizzazione teoricamente possibile
+(scrivere direttamente nel `/vsimem/` di GDAL, saltando anche
+l'ultima copia verso MEMFS) non è stata esplorata — richiederebbe
+verificare se il binding GDAL di webR espone quel livello da R, non
+necessario per risolvere il problema riportato.
+
+**Dettaglio implementativo**: sia i dati sia il percorso sono passati
+come binding di un `REnvironment` (non interpolati come stringa nel
+codice R), con nomi `.webgeods_write_data`/`.webgeods_write_path` — un
+identificatore R valido non può iniziare con `_`, da cui il prefisso
+`.` (trovato un errore di parsing R durante la verifica, corretto
+prima di toccare il file di produzione).
+
+**Verificato**:
+- 16/16 map-tests, 51/51 smoke-test lessons (nessuna regressione —
+  `r.js` è condiviso da ogni pagina del sito che usa R).
+- Sulla pagina reale renderizzata (`raster-file-inspection.html`):
+  l'esempio di fallback piccolo funziona invariato; un file reale da
+  ~96MB caricato tramite il vero `<input type=file>` (una dimensione
+  che PRIMA falliva sempre) ora **riesce** — 118s totali (boot webR +
+  installazione pacchetti + scrittura + calcolo, lento ma funzionante,
+  contro un errore secco prima), risultati numerici identici al
+  ground truth Python (`min:1, max:19999, mean:10001.258`).
+
+Nessuna modifica ad altri file necessaria. Script di test temporanei
+e processi rimossi al termine. In attesa di istruzione esplicita per
+commit e push.
