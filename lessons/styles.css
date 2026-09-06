@@ -63,6 +63,32 @@
   font-weight: 600;
 }
 
+/* Navbar's active-page indicator ("Home" on the homepage, etc.):
+   Bootstrap auto-darkens the link/primary color for this state
+   (--bs-navbar-active-color, computed to ~70% of terracotta) instead
+   of reusing terracotta itself -- a third, unintended shade sitting
+   next to the real terracotta used everywhere else (body links, the
+   "Geo" wordmark). Found during a live color audit of the homepage
+   (2026-09-06): three different reds in one navbar. Forced back to
+   the one real accent color instead of Bootstrap's own derivation. */
+.navbar .nav-link.active {
+  color: var(--terracotta) !important;
+}
+
+/* Quarto's title-block description (any page with a `description:`
+   in its front matter, e.g. the homepage's one-line pitch under
+   "webGeoDs"): ships with zero spacing of its own -- it sits flush
+   against the H1 above it (0px gap, measured) while a full paragraph
+   gap (~60px) follows before the next real paragraph, making it read
+   as fused to the title rather than as its own line. Muted color and
+   italic distinguish it from body copy as a genuine subtitle, not
+   "the first sentence of the page". */
+#title-block-header.quarto-title-block.default .description {
+  margin-top: 0.5rem;
+  color: var(--etichetta);
+  font-style: italic;
+}
+
 /* Code cell container — "Field Atlas" palette. Sharp corners
    throughout (no border-radius) by design, matching the canvas. */
 .webgeods-editor-container {

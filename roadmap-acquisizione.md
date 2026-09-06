@@ -1053,32 +1053,36 @@ cosa sia una geometria invalida.
 
 ---
 
-## Fase 2 — Core Tools (Spatial Analysis)
+## Fase 2 — Core Tools a rotazione (Vettoriale, Raster, Network, GeoML, GeoStatistics)
 
-Seconda ondata, dopo che la Fase 1 ha generato i primi segnali reali.
+**Riscritta il 2026-09-06**, sostituisce la struttura lineare
+originale ("prima tutta la Fase 2, poi tutta la Fase 3") — vedi
+changelog 2026-09-05/06 per tutta la verifica tecnica che ha portato
+a questa ristrutturazione. Cinque famiglie di tool, sviluppate **a
+rotazione** (un tool alla volta, non un capitolo intero prima del
+successivo), ordinate per costo/rischio verificato invece che per un
+ordine deciso a tavolino. Ogni famiglia ha un proprio trigger di
+verifica prima di continuare oltre il primo tool.
 
-| Tool | Note |
-|---|---|
-| **Geometry Simplification & Generalization** | Slider di tolleranza, originale vs semplificato, riduzione vertici — introduce didatticamente Douglas-Peucker. Tool + articolo + esercizio nascono dallo stesso componente. |
-| **Spatial Join / Overlay Explorer** | Intersection/Union/Difference/Symmetric Difference tra due layer caricati, con visualizzazione immediata. Il più "Spatial Data Science" dei tre, non solo QA — ponte naturale verso `sf`/`geopandas` come librerie, non solo come motore interno. |
-| **Buffer / Distance / Proximity Tool** | Più semplice ma utile; può diventare un piccolo laboratorio ("quante feature entro 500m?"). |
-| **Network / Routing Analysis** (aggiunto 2026-09-02) | Terza famiglia accanto a Vector/Raster, non una vertical app a sé — chiude il buco tecnico già segnalato in Fase 4 (l'Accessibility Calculator urbanistico "richiede routing, non solo buffer"). Reti stradali, service area, shortest-path, connettività. **Rischio tecnico da verificare prima di investirci sviluppo**: lato R, `sfnetworks` (sf + tidygraph, pensato esattamente per reti geospaziali) mostra build wasm-release OK su R-universe, ma dipende da `igraph`, il cui stato di build risultava FAIL in una verifica separata — discrepanza non risolta, solo ricostruita per ipotesi (probabile binario da una build precedente riuscita). Prima mossa concreta: `webr::install.packages("sfnetworks")` reale + un'operazione di routing minima, stessa disciplina già usata per `mapgl`, non fiducia nella sola dashboard. Lato Python: `networkx` confermato disponibile in Pyodide (3.4.2), nessun rischio noto. |
+| # | Famiglia | Tool (ordine di sviluppo) | Tempo stimato | Trigger di verifica prima di procedere oltre il primo tool |
+|---|---|---|---|---|
+| 1 | **Vettoriale** | Buffer/Proximity → Simplification → Spatial Join/Overlay | 4-7 giorni totali (stima originale, nessuna ignota tecnica trovata) | Tool Utility Rate + query Search Console sul primo tool, 2+ settimane, prima di costruire il secondo |
+| 2 | **Raster** | Raster Inspector/Statistics → Raster Calculator/Band Math → NDVI Calculator → **Viewshed/Line-of-Sight** (bonus, zero dipendenze nuove, aggiunto 2026-09-06) | 4-6 giorni totali + ~2-3 giorni per il viewshed | Stesso pattern — motore (`stars`/`xarray`) già pre-pagato, quindi il rischio residuo è solo di contenuto/domanda, non tecnico |
+| 3 | **GeoML** | Spatial Clustering Explorer → ML su feature spaziali (Random Forest) → Cross-Validation spaziale fai-da-te → GWR (`spgwr`, modulo avanzato solo-R) | ~5-7 giorni totali (tutti i pacchetti testati sono economici, il più pesante — `spgwr` — attiva in 9,3s) | Verificare Tool Utility Rate sull'entry (clustering) prima di investire negli altri tre moduli |
+| 4 | **Network** | Shortest Path Finder (infrastruttura, non un prodotto a sé) → Service Area/Isochrone → Route Optimization | ~8 giorni totali (più sviluppo su misura del previsto — bridging manuale, snapping e ricostruzione del percorso non ancora testati) | Dopo Shortest Path Finder: verificare quale dei due mini-corsi a valle (Urban Accessibility, Delivery/Routing) mostra più segnale prima di costruire entrambi i tool successivi |
+| 5 | **GeoStatistics** | Autocorrelation Explorer (`spdep`) → Interpolation/Kriging (`gstat`) | ~4 giorni totali, **ultimo in coda deliberatamente** | Costruire SOLO per traffico/SEO, non aspettarsi che sblocchi un corso — monolingue R su entrambi i pilastri testati (vedi changelog 2026-09-05), rischio di coerenza col posizionamento bilingue del sito |
 
-## Fase 3 — Core Tools (Raster)
+**Perché questo ordine**: 1-2-3 sono a basso rischio (bilingui,
+economici, nessun blocco trovato) e si prestano a essere costruiti
+nella finestra di attesa di Fase 0.7 senza scommesse premature. 4 è a
+rischio medio (bilingue solo per la via essenziale, più sviluppo su
+misura). 5 è deliberatamente ultimo — non per pregiudizio, ma perché
+ogni verifica fatta lo ha confermato più caro e meno allineato al
+posizionamento bilingue del progetto rispetto agli altri quattro.
 
-Terza ondata — qui il progetto inizia davvero a differenziarsi dalla
-miriade di tool vector online gratuiti.
-
-| Tool | Note |
-|---|---|
-| **Raster Inspector & Statistics** | Dimensioni, risoluzione, bande, CRS, NoData, min/max/mean, istogramma. |
-| **Raster Calculator / Band Math** | Espressioni tipo `(B4 - B3) / (B4 + B3)`. |
-| **NDVI / Spectral Index Calculator** | Apre la porta al corso di Remote Sensing. |
-
-**Nota di contesto**: `stars`/`xarray` sono già vendorizzati e
-benchmarkati (`stars` ~2,5× più veloce di `terra`) ma senza nessun
-contenuto corrispondente — questa fase riattiva un investimento
-ingegneristico già fatto e finora senza ritorno.
+**Dettaglio pacchetti/pesi/tempi**: vedi le tabelle consolidate nel
+changelog 2026-09-05 ("Schema esteso a 5 capitoli" e "Tempi di
+attivazione misurati per tutti i pacchetti").
 
 ---
 
@@ -1149,26 +1153,29 @@ tavolino.
 
 ### Candidati emersi (da validare con dati reali, non decisi)
 
-- **Urbanistica / real estate**: Accessibility Calculator*, Service
-  Area Analysis, Site Suitability Analysis.
-- **Ambiente / ecologia**: habitat fragmentation, overlap con aree
-  protette, connettività ecologica, hotspot spaziali.
-- **Agricoltura**: analisi di parcella, statistiche zonali, NDVI time
-  series, change detection.
-- **Telecom**: copertura rete in fibra, service area, analisi di
-  prossimità a infrastruttura.
-- **Trasporti**: accessibilità, strutture più vicine, aree di
-  cattura, network analysis.
-- **Sanità / epidemiologia spaziale** (aggiunta 2026-09-02): diffusione
-  geografica di malattie, cluster spaziali di esiti sanitari,
-  disparità geografiche in indicatori di salute. Coerente col brand
-  (resta "geo", non biostatistica generica senza componente spaziale)
-  e si costruisce sugli stessi strumenti vettoriali già pianificati
-  (overlay, hotspot spaziali) — nessun nuovo Core Tool necessario nel
-  breve periodo, cambia solo il framing e il dataset d'esempio.
+**Catalogo aggiornato il 2026-09-06**, grounded nei tool/pacchetti
+effettivamente verificati in questa sessione (non più solo settori
+generici da esplorare — vedi la tabella con costo per ciascuno):
+
+| Famiglia | Vertical app candidata | Costo atteso |
+|---|---|---|
+| Vettoriale | QA Confini Catastali/Proprietà (overlap/gap su parcelle) | Minimo — riusa Validator+Overlay così come sono |
+| Vettoriale | Controllo Sovrapposizioni Ambientali (sviluppo vs aree protette/zone umide) | Minimo — riusa Overlay |
+| Raster | Monitor Salute Colture (NDVI, agricoltura di precisione) | Basso |
+| Raster | Mappatura Isola di Calore Urbana (band math termico) | Basso |
+| Raster | **Valutatore di Visibilità** (viewshed — impatto visivo tralicci/pale eoliche, vista panoramica immobiliare) | **Zero pacchetti nuovi** — verificato bilingue il 2026-09-06, stesso motore di Raster |
+| Network | **Accessibility Calculator*** (isocrone, urbanistica/real estate) | Medio — bilingue, via essenziale (`igraph`/`networkx`), converge col mini-corso "Urban Accessibility & Isochrones" |
+| Network | Ottimizzatore Percorsi Consegne (logistica) | Medio — converge col mini-corso "Delivery & Route Optimization" |
+| Network | Analizzatore Catchment Area (buffer+isocrona insieme — "quanti clienti a 15 min da questo punto vendita") | Medio — combina due capacità già validate |
+| GeoML | Modello Idoneità Habitat (Random Forest su feature spaziali — ecologia/conservazione) | Basso |
+| GeoML | Clustering Domanda & Punteggio Siti Retail | Basso |
+| GeoStatistics | Rilevatore Hotspot Inquinamento (interpolazione sensori) | Fattibile ma **solo R** — eredita il rischio di coerenza bilingue già segnalato |
+| Sanità/epidemiologia spaziale (aggiunta 2026-09-02) | Diffusione geografica di malattie, cluster spaziali di esiti sanitari | Basso — si costruisce sugli stessi strumenti vettoriali (overlay, hotspot), cambia solo framing e dataset |
 
 *(Accessibility Calculator marcato: richiede routing, non solo
-buffer — ora coperto da Network/Routing Analysis in Fase 2.)*
+buffer — ora coperto da Network in Fase 2, e riclassificato come uno
+dei due mini-corsi verticali di quella famiglia, non un corso
+generalista — vedi Fase 5.)*
 
 ---
 
@@ -1194,15 +1201,25 @@ vedi sotto).
   (vedi sotto) — non decisa ora, solo la direzione naturale una volta
   che la Fase 1–3 avrà dato segnali.
 
-### I 5 corsi originari (visione a lungo periodo dell'autore), riclassificati
+### I corsi/mini-corsi, riclassificati con i vincoli tecnici verificati (2026-09-06)
 
 | Corso | Tipo | Allineamento oggi | Note |
 |---|---|---|---|
-| 1. Spatial Workflows & GIS Automation | Generalista | **Forte** | Distillazione dei Core Tools Fase 1–2 |
-| 2. webgeods stack (Serverless Dashboards) | Mini-corso tecnico | Riclassificato | Pubblico sviluppatori, non praticanti GIS; le due lezioni bridge già scritte coprono metà del lavoro |
-| 3. Remote Sensing | Generalista | **Forte** | Distillazione dei Core Tools Fase 3 (raster) |
-| 4. Spatial Statistics & Geostatistics | Futuro, non pianificato | Assente | Serve prima una fase Core Tools dedicata (es. Autocorrelation Explorer, Interpolation/Kriging) |
-| 5. Spatial Machine Learning | Futuro, non pianificato | Assente | Stesso problema di #4, più marcato — attenzione all'asimmetria R/Python: l'ecosistema R per spatial ML (`tidymodels`/`spatialsample`/`CAST`) è più frammentato di quello Python (`scikit-learn`-centrico), verificare la parità bilingue prima di costruirci sopra, non darla per scontata (stesso tipo di rischio già incontrato con `mapgl` in R) |
+| 1. Spatial Workflows & GIS Automation | Generalista | **Forte** | Distillazione dei Core Tools Vettoriale (Fase 1–2) |
+| 2. webgeods stack (Serverless Dashboards) | Mini-corso tecnico | Riclassificato | Pubblico sviluppatori, non praticanti GIS; le due lezioni bridge già scritte coprono metà del lavoro; gate esplicito post-Fase 4 (vedi discussione 2026-09-05) |
+| 3. Remote Sensing | Generalista | **Forte** | Distillazione dei Core Tools Raster — include il viewshed come modulo bonus a costo zero |
+| 4. Urban Accessibility & Isochrones | Mini-corso verticale (**nuovo, 2026-09-06**) | Sbloccato | Su Network (Service Area/Isochrone) — converge con la vertical app Accessibility Calculator, due profondità dello stesso capitolo tecnico |
+| 5. Delivery & Route Optimization | Mini-corso verticale (**nuovo, 2026-09-06**) | Sbloccato | Su Network (Route Optimization), pubblico logistica/trasporti distinto dal #4 |
+| 6. Spatial ML | Mini-corso | Sbloccato | 4 moduli bilingui (clustering, ML su feature spaziali, CV spaziale fai-da-te) + GWR come modulo avanzato solo-R — vedi struttura dettagliata nel changelog 2026-09-05/06 |
+| 7. Spatial Statistics & Geostatistics | Futuro, **deprioritizzato** (non solo "non pianificato") | Assente | Verificato il 2026-09-05/06: entrambi i pilastri testati (`spdep`, `gstat`) sono monolingue R — non solo "manca un corso a monte", è un capitolo che oggi contraddice il posizionamento bilingue del sito. Costruibile per traffico/SEO, non per sbloccare questo corso |
+
+Il vecchio corso #5 "Spatial Machine Learning" e il rischio di
+frammentazione R (`tidymodels`/`spatialsample`/`CAST`) segnalato qui
+in origine sono stati **verificati per davvero** il 2026-09-05/06: il
+rischio non si è confermato per GeoML (percorso bilingue trovato, solo
+GWR resta solo-R), mentre si è confermato — più severo del previsto —
+per GeoStatistics (riga 7 sopra, monolingue su tutta la linea, non
+solo su un modulo avanzato).
 
 Il calendario originale ("un modulo ogni 6 mesi, 24–30 mesi totali")
 resta **visione**, non impegno preso: la sequenza reale dei corsi 4 e
@@ -2796,3 +2813,784 @@ supponendo un tempo fisso), `newsletter_view` confermato su
 lessons (entrambi puliti al primo giro isolato — nessun rerun
 concorrente questa volta, imparata la lezione della verifica
 precedente).
+
+## 2026-09-05 — Verificato per davvero il rischio tecnico di igraph/sfnetworks in webR
+
+Su richiesta esplicita ("puoi testare la funzionalità di igraph? e poi
+di sfnetwork?"), eseguita la "prima mossa concreta" che questo stesso
+documento indicava per la voce Network/Routing di Fase 2: un
+`webr::install.packages()` reale + un'operazione minima, non solo
+lettura di build status altrui. Test isolato (pagina HTML +
+Playwright, fuori dal sito, rimosso a fine verifica), webR **v0.4.3**
+(la stessa versione pinnata in produzione — vedi `shared/runtime.js`),
+canale `PostMessage` come nel codice reale.
+
+- **`igraph`: funziona, nessun problema**. Installato senza errori
+  (versione 2.0.2), operazione reale eseguita con successo (grafo ad
+  anello a 5 nodi, `vcount`/`ecount`/`distances()` — shortest path
+  1→3 = 2, corretto). Il sospetto originale in questo documento
+  ("stato di build FAIL in una verifica separata") non si conferma,
+  almeno sulla versione webR di produzione.
+
+- **`sfnetworks`: bloccato per davvero, ma non per il motivo temuto**.
+  `install.packages(c("sf", "tidygraph", "sfnetworks"))` scarica tutto
+  senza errori — MA con un warning silenzioso ("Requested package
+  lwgeom not found in webR binary repo"), e `library(sfnetworks)`
+  fallisce poi per davvero: il `NAMESPACE` di `sfnetworks` importa
+  `lwgeom` in modo incondizionato, e `lwgeom` non esiste affatto nel
+  repo binario di webR — non uno stato di build fallito, proprio
+  nessun pacchetto pubblicato. **Bug reale trovato nel MIO script di
+  verifica mentre lo scrivevo**: `installPackages()` non lancia un
+  errore per un pacchetto introvabile, solo un warning R — un primo
+  giro del test aveva quindi registrato "installato OK" per
+  `sfnetworks" nonostante il gap, perché il controllo si fermava lì
+  invece di verificare che `library()` avesse davvero funzionato;
+  corretto verificando il caricamento reale, non solo l'esito
+  dell'installazione (stessa disciplina "non fidarsi del primo
+  segnale positivo" già applicata più volte in questo documento).
+
+- **Il gap non si risolve aggiornando webR**: stesso identico warning
+  e `requireNamespace("lwgeom")` → `FALSE` anche sull'ultima versione
+  pubblica di webR, non solo sulla v0.4.3 di produzione — è un vuoto
+  nel repo binario di webR stesso (nessuno ha ancora pubblicato un
+  binario wasm di `lwgeom`), non un problema di versione che la
+  migrazione webR già pianificata per un motivo diverso (vedi
+  `shared/runtime.js`) risolverebbe di riflesso.
+
+**Conclusione pratica**: un tool di Network/Routing basato su
+`sfnetworks` lato R non è realizzabile allo stato attuale — non per
+mancanza di `igraph` (che va bene), ma per l'assenza di `lwgeom` nel
+repo webR, un vuoto upstream fuori dal controllo di questo progetto.
+Lato Python, `networkx` resta confermato disponibile e senza problemi
+noti (verificato in una sessione precedente) — se questa famiglia di
+Fase 2 venisse scelta, la via Python è oggi l'unica percorribile;
+un'eventuale versione R richiederebbe prima che `lwgeom` (o
+un'alternativa a `sfnetworks` che non ne dipenda) diventi disponibile
+su webR, cosa non verificata in questo giro.
+
+## 2026-09-05 — Aggiornamento: routing in R possibile senza sfnetworks
+
+Domanda diretta dell'utente ("non si può realizzare un network
+routing tool con igraph, senza sfnetwork?") ha portato a un test
+aggiuntivo che **rovescia parzialmente la conclusione precedente**.
+`sfnetworks` resta bloccato (vedi sopra, `lwgeom` assente da webR),
+ma `sfnetworks` è solo un livello di comodità: automatizza il
+bridge tra geometrie `sf` e struttura a grafo `igraph`, non è l'unico
+modo per farlo.
+
+Testato dal vivo (stesso metodo: pagina + Playwright, webR v0.4.3,
+rimosso a fine verifica) lo stesso identico problema di routing
+(rete triangolare di 3 linee, shortest path tra due nodi) costruendo
+il ponte sf→grafo **a mano**, senza `sfnetworks` né `tidygraph`:
+estrazione degli estremi di ogni linea via `st_coordinates()`,
+deduplicazione dei nodi per coordinata, pesi degli archi da
+`st_length()` (che con s2 attivo calcola correttamente la distanza
+geodetica reale, non planare — confermato dal risultato: ~157km per
+un arco di ~1° a queste coordinate, non 1.0), grafo costruito con
+`graph_from_edgelist()` e risolto con `igraph::distances()`/
+`shortest_paths()`. **Funziona**: solo `sf` + `igraph` installati,
+nessuna dipendenza da `lwgeom`.
+
+**Conclusione corretta**: la capacità di base per un Network/Routing
+tool esiste già in R (via `sf` + `igraph` diretti), non solo in
+Python — il rischio tecnico di piattaforma è chiuso su entrambi i
+linguaggi. Resta però VERO che questa via richiede scrivere da zero
+la logica di bridging che `sfnetworks` avrebbe dato gratis (snapping
+di punti alla rete più vicina, gestione di reti dirette/indirette,
+estrazione del percorso come geometria `sf` per disegnarlo sulla
+mappa — tutte cose non ancora testate in questo giro, solo il nucleo
+grafo↔distanza) — quindi più lavoro di sviluppo rispetto a un'ipotesi
+"sfnetworks avrebbe funzionato", ma un lavoro di ingegneria normale,
+non un blocco di piattaforma. Il costo di implementazione di questo
+tool (uno dei quattro fattori del framework di scelta della Fase 4,
+e più in generale un input alla prioritizzazione della Fase 2) va
+quindi rivisto **al rialzo rispetto a "sfnetworks pronto all'uso"**,
+ma non più trattato come rischio bloccante su nessuno dei due
+linguaggi.
+
+## 2026-09-05 — Simmetria Python confermata: networkx, python-igraph, momepy
+
+Due domande dirette dell'utente ("stesso lavoro necessario per
+networkx? c'è una versione python di igraph da usare invece di
+networkx?") hanno esteso la verifica al lato Python, in Pyodide
+v0.29.4 (la versione pinnata in produzione, stesso metodo: pagina +
+Playwright, rimosso a fine verifica).
+
+- **`networkx` + bridging manuale: funziona**, stesso identico test
+  di routing (triangolo, shortest path) risolto con un ponte
+  shapely→grafo scritto a mano. Leggermente PIÙ semplice che in R:
+  `networkx` accetta qualunque valore hashable come nodo, quindi le
+  tuple di coordinate `(0,0)`/`(1,1)` sono usabili direttamente come
+  identificativi — nessuna necessità della deduplicazione con mappa a
+  interi che `igraph` (sia R sia Python) richiede.
+
+- **Differenza di comportamento reale trovata, non ovvia**: il costo
+  calcolato da `networkx`/`shapely` per lo stesso identico problema è
+  1.414 (distanza euclidea piana sulle coordinate grezze), mentre il
+  test R con `sf::st_length()` aveva dato ~157km (distanza geodetica
+  reale, s2 attivo di default anche su coordinate EPSG:4326 non
+  proiettate). Non un bug — sono comportamenti di default diversi tra
+  i due ecosistemi — ma implica che un vero tool di routing in Python
+  dovrebbe riproiettare esplicitamente a un CRS metrico prima di
+  calcolare i pesi degli archi (stessa disciplina già applicata
+  ovunque nel sito, non un lavoro aggiuntivo imprevisto), mentre R lo
+  ottiene "gratis" anche in gradi.
+
+- **`python-igraph` (nome PyPI: `igraph`): disponibile e funziona**.
+  Installato via `micropip.install(["igraph"])` in ~1,5s, operazione
+  reale eseguita con successo (stesso grafo ad anello a 5 nodi del
+  test R, `distances()`, risultato corretto). Risposta diretta alla
+  domanda: sì, esiste una vera libreria Python igraph (stesso motore
+  C del pacchetto R), utilizzabile al posto di — o assieme a —
+  `networkx`.
+
+- **`momepy` (l'equivalente Python più vicino a `sfnetworks` — bridge
+  automatico geopandas↔networkx): bloccato, per un motivo diverso da
+  `sfnetworks`**. Richiede `shapely>=2.1`; Pyodide v0.29.4 include
+  solo `shapely` 2.0.7 come wheel binario curato, e non esiste una
+  wheel pura-Python di `shapely` a cui appoggiarsi (è un'estensione
+  C). **Verificato due volte** — un primo tentativo con `shapely` già
+  installato da un test precedente sembrava un conflitto di versione
+  risolvibile con `reinstall=True`; un secondo tentativo isolato
+  (momepy installato per primo, senza nessun'altra dipendenza già
+  pinnata) ha dato lo stesso identico errore, confermando che è un
+  limite reale della versione di Pyodide in uso, non un artefatto
+  dell'ordine dei miei test.
+
+**Quadro completo, simmetrico su entrambi i linguaggi**: il pacchetto
+di "comodità" (`sfnetworks` in R, `momepy` in Python) è bloccato in
+entrambi i casi, per ragioni diverse (dipendenza mancante del tutto
+vs. versione insufficiente), ma il percorso manuale (`sf`+`igraph` in
+R, `shapely`+`networkx` o `shapely`+`igraph` in Python) funziona in
+entrambi. Nessuna asimmetria reale tra i due linguaggi per questo
+tool — la scelta tra Python e R per un eventuale Network/Routing
+tool resta quindi una questione di preferenza/coerenza con gli altri
+tool del sito, non di fattibilità tecnica.
+
+## 2026-09-05 — Peso reale di igraph misurato: asimmetria forte tra R e Python
+
+Domanda diretta dell'utente ("quanto è pesante igraph in entrambi i
+linguaggi? l'installazione è abbastanza leggera da essere realmente
+possibile?") — misurati i byte VERI trasferiti in rete
+(intercettazione delle risposte HTTP via Playwright, non una stima),
+per `igraph` da solo e per il carico già in produzione oggi (per
+avere un termine di paragone reale, non un numero astratto):
+
+```
+R  (webR v0.4.3)     -- oggi (sf + geojsonsf): 20.725 KB  |  + igraph: 10.674 KB
+Py (Pyodide v0.29.4) -- oggi (geopandas):      24.866 KB  |  + igraph:  1.051 KB
+```
+
+- **R: pesante, +10,7 MB**. Dominato dal pacchetto `igraph` stesso
+  (3,6 MB) e da `Matrix` (2,8 MB, una dipendenza — supporto matrici
+  sparse/dense, molto codice C/Fortran compilato). Nessuna
+  sovrapposizione con le dipendenze già caricate da `sf` (nomi
+  completamente diversi: `cli`/`glue`/`rlang`/`lifecycle`/`vctrs`/
+  `lattice`/`Matrix`/`pkgconfig`/`magrittr` per igraph, contro
+  `proxy`/`e1071`/`classInt`/`DBI`/`Rcpp`/`wk`/`s2`/`units`/
+  `KernSmooth`/`MASS`/`class` per sf) — quindi è un costo
+  interamente aggiuntivo, non parzialmente già pagato: **+52% sul
+  peso attuale di un tool R** (da 20,7 a 31,4 MB).
+
+- **Python: leggerissimo, +1,05 MB** (di cui `micropip` 113 KB quasi
+  certamente già presente se `geopandas` è già caricato sulla stessa
+  pagina — il costo incrementale reale sarebbe quindi vicino a soli
+  ~940 KB). **+4% sul peso attuale di un tool Python** (da 24,9 a
+  25,9 MB circa).
+
+**Risposta diretta**: sì, l'installazione è leggera e realmente
+fattibile — ma **solo lato Python**. Lato R il costo è concreto e
+non trascurabile (più della metà del peso attuale di un tool R
+si aggiungerebbe di nuovo). Per un eventuale Network/Routing tool,
+questo dato pesa a favore di Python rispetto a R in modo netto — non
+solo per assenza di blocchi tecnici (vedi sopra), ma per il costo
+reale di caricamento nel browser, che è proprio il tipo di metrica
+("costo di implementazione") che il framework a 4 fattori già usato dalla
+Fase 4 per la scelta delle vertical app — vale la stessa
+logica anche qui per la scelta del linguaggio all'interno di un
+singolo tool.
+
+## 2026-09-05 — Proposta di ristrutturazione del piano: 5 capitoli a rotazione + verifica GeoStatistics/GeoML
+
+L'utente ha proposto di allineare tutti i capitoli di tool (non solo
+Fase 2) — Vettoriale, Raster, Network, **GeoStatistics**, **GeoML** —
+pianificare 3-5 tool per capitolo in ordine di complessità crescente,
+e costruire a rotazione un tool+articolo per capitolo (saltando un
+capitolo se risulta troppo più costoso degli altri), invece di finire
+un intero capitolo prima di passare al successivo. Le Vertical Apps
+(Fase 4) si innestano in questo schema come un gate PER CAPITOLO
+(non uno globale): usa lo stesso framework a 4 fattori già esistente
+(domanda × engagement × monetizzabilità × costo), ma applicato al
+tool pilota di ogni capitolo — un capitolo che non porta traffico/
+engagement semplicemente non riceve altri tool, senza bisogno di
+cancellare quanto già pubblicato.
+
+Prima di bloccare questo schema, verificata la fattibilità/peso reale
+di GeoStatistics e GeoML (finora solo nominati nel piano come "futuro,
+non pianificato", mai testati) — stesso metodo usato per Network:
+webR v0.4.3 e Pyodide v0.29.4 (versioni di produzione), un tool
+"entry" e uno "ceiling" per capitolo per linguaggio.
+
+### GeoStatistics — R funziona ma è pesante, Python bloccato su entrambi i candidati testati
+
+- **R**: `spdep` (Moran's I, entry) e `gstat` (kriging/IDW, ceiling)
+  **funzionano entrambi**, operazioni reali verificate (Moran's I
+  calcolato su una griglia di test, IDW con predizioni corrette). Ma
+  il peso è alto: **34,4 MB** per `spdep` (già più del baseline
+  attuale sf+geojsonsf da solo, 20,7 MB), **37,2 MB** per `gstat`
+  (porta con sé `stars`, `spacetime`, `sftime`, `xts`).
+- **Python**: **entrambi i candidati testati bloccati**. `esda` +
+  `libpysal` (l'equivalente PySAL di Moran's I) e `mgwr` falliscono
+  per lo STESSO motivo già trovato con `momepy`: richiedono
+  `shapely>=2.1`, mentre Pyodide v0.29.4 ha solo `shapely` 2.0.7 e
+  non esiste una wheel pura-Python a cui appoggiarsi — non un caso
+  isolato di `momepy`, ma un limite sistemico di questa versione di
+  Pyodide che blocca probabilmente diversi pacchetti dell'ecosistema
+  PySAL moderno. `pykrige` (kriging in Python) fallisce per un motivo
+  diverso e più definitivo: **nessuna wheel wasm esiste affatto** per
+  questo pacchetto (come `lwgeom` per R) — non un conflitto di
+  versione risolvibile aggiornando Pyodide, un vuoto upstream.
+- **Conclusione**: per questo capitolo, al contrario di Network/
+  Routing, **R è oggi l'unica via praticabile** per gli algoritmi
+  testati — ma con un costo di peso reale non trascurabile fin dal
+  tool più semplice.
+
+### GeoML — il tool più economico trovato finora, ma solo per il caso semplice
+
+- **Entry (clustering)**: **funziona ed è leggero in entrambi i
+  linguaggi** — `dbscan` in R: **4,7 MB** (il tool più leggero
+  testato finora in tutto questo confronto, meno della metà del
+  costo minimo osservato altrove), `scikit-learn` in Python: 8,6 MB.
+  Entrambi verificati con un'operazione di clustering reale (DBSCAN
+  su punti sintetici, risultato corretto).
+- **Ceiling (cross-validation spaziale)**: qui il quadro cambia.
+  `spatialsample` in R **funziona** (fold di cross-validation creati
+  correttamente) ma è **spropositatamente pesante: 61,1 MB** — trascina
+  dentro l'intero stack tidymodels-adiacente (`ggplot2`, `dplyr`,
+  `tidyr`, `rsample`, `mgcv`, `Matrix`...) solo per dividere dati in
+  fold. `mgwr` in Python (GWR) è bloccato dallo stesso vincolo
+  `shapely>=2.1` di `esda`.
+- **Non trattare il ceiling come bloccato in senso stretto**: a
+  differenza di `sfnetworks`/`lwgeom` (un vuoto upstream reale), qui
+  il problema è che il pacchetto di comodità scelto per il test è
+  sproporzionato — una cross-validation spaziale "a mano" (dividere i
+  punti in blocchi geografici con `sf`/`shapely` puro, senza
+  `spatialsample`/`mgwr`) è quasi certamente fattibile e leggera,
+  sullo stesso principio già dimostrato per Network (bypassare
+  `sfnetworks`/`momepy` con `sf`+`igraph` diretti) — non ancora
+  testata in questo giro, quindi non ancora una conclusione, solo
+  un'ipotesi da verificare se questo capitolo arriva al suo turno.
+
+### Riepilogo per lo schema a rotazione
+
+| Capitolo | Tool entry: fattibilità/peso | Tool ceiling: fattibilità/peso |
+|---|---|---|
+| Vettoriale | Fase 1 già fatta | — |
+| Raster | Costo pre-pagato (stars/xarray vendorizzati, non ri-misurato qui) | — |
+| Network | R: funziona, +10,7 MB (igraph) — Python: funziona, +1,05 MB | Bridging manuale necessario in entrambi (sfnetworks/momepy bloccati) |
+| **GeoStatistics** | R: funziona, 34,4 MB (spdep) — Python: **bloccato** (esda/libpysal) | R: funziona, 37,2 MB (gstat) — Python: **bloccato**, nessuna wheel (pykrige) |
+| **GeoML** | R: funziona, **4,7 MB** (dbscan) — Python: funziona, 8,6 MB (scikit-learn) | R: funziona ma **61,1 MB** (spatialsample, sproporzionato) — Python: bloccato (mgwr) — via manuale non ancora testata |
+
+**Implicazione pratica per l'ordine di rotazione**: il tool entry di
+GeoML (clustering) è oggi il bet più economico di tutto il confronto
+fatto finora, in entrambi i linguaggi — candidato forte per un posto
+alto nella rotazione. Il capitolo GeoStatistics, anche nella sua
+versione più semplice, costa più del doppio del Network/Routing
+entry-level in R, e non ha affatto una via Python praticabile con i
+pacchetti provati — va sequenziato con questo in mente, non trattato
+come "equivalente" agli altri capitoli solo perché esiste sulla carta.
+
+## 2026-09-05 — GeoML ridimensionato a mini-corso: livello intermedio trovato, economico in entrambi i linguaggi
+
+Discussione con l'utente su se GeoML meriti ancora un capitolo, dato
+che il suo tool ceiling originale (cross-validation spaziale via
+`spatialsample`/`mgwr`) era risultato o sproporzionato (61 MB in R) o
+bloccato (`shapely>=2.1` in Python). Identificato un **livello
+intermedio non ancora considerato**: modelli ML standard (Random
+Forest) applicati a feature spaziali — non richiede NESSUN pacchetto
+"spaziale" dedicato, quindi non tocca il vincolo `shapely` che ha
+bloccato `esda`/`mgwr`/`momepy`. Verificato dal vivo (webR v0.4.3,
+Pyodide v0.29.4):
+
+- **Random Forest su feature spaziali: funziona in entrambi i
+  linguaggi, leggerissimo**. R: `randomForest`, **135,5 KB** (una
+  sola dipendenza, nessuna catena di pacchetti) — il pacchetto più
+  leggero misurato in tutta questa serie di verifiche, di gran lunga.
+  Python: `RandomForestClassifier` di `scikit-learn` — nessun
+  pacchetto nuovo, già incluso negli 8,6 MB di `scikit-learn` misurati
+  in precedenza per il clustering. Operazione reale verificata
+  (addestramento e predizione su punti sintetici con classi separate
+  spazialmente, accuratezza 100% in-sample in entrambi i casi).
+
+- **Cross-validation spaziale fai-da-te: funziona in entrambi i
+  linguaggi, senza bisogno di `spatialsample`/`mgwr`**. Idea: riusare
+  il clustering già confermato leggero (K-means/DBSCAN sulle sole
+  coordinate) per assegnare blocchi geografici, poi usare quei
+  blocchi come fold con gli strumenti standard di validazione — base
+  `kmeans()` in R (incluso in R, zero pacchetti da installare),
+  `sklearn.cluster.KMeans` + `sklearn.model_selection.GroupKFold` in
+  Python (già installati con `scikit-learn`). Verificato con
+  un'operazione reale end-to-end: 3 fold spaziali creati, un modello
+  Random Forest addestrato e valutato per fold, accuratezze
+  ragionevoli e diverse tra i fold (segno che i blocchi spaziali
+  fanno davvero il loro lavoro, non un test banale) — in entrambi i
+  linguaggi, **zero costo aggiuntivo** rispetto a quanto già
+  installato per l'entry tool.
+
+**Conclusione**: GeoML NON è limitato al solo clustering. Esiste un
+percorso completo — clustering → classificazione/regressione ML su
+feature spaziali → cross-validation spaziale fai-da-te — interamente
+economico e bilingue, senza toccare nessuno dei pacchetti bloccati da
+`shapely>=2.1`. Resta isolata come incerta solo la Geographically
+Weighted Regression (GWR): `mgwr` bloccato in Python, l'alternativa R
+(`spgwr`/`GWmodel`) non ancora testata. Non più trattato come "il
+capitolo si ferma al clustering" — ridimensionato a **mini-corso**
+(non il corso generalista in origine immaginato, coerente con lo
+stato "Futuro, non pianificato, nessuna scala di riferimento ancora
+promessa" già nel piano), con GWR relegato a modulo avanzato
+eventualmente solo-R, non a pilastro del corso.
+
+## 2026-09-05 — GWR testata in R: funziona, due vie con pesi molto diversi
+
+Su richiesta esplicita ("testa la gwr in r"), verificate entrambe le
+alternative R per la Geographically Weighted Regression (l'unico
+pezzo di GeoML rimasto incerto), stesso metodo/versione webR v0.4.3:
+
+- **`spgwr` (via snella)**: **funziona**, operazione reale completa
+  (selezione automatica della banda + fit GWR su una relazione
+  sinteticamente non-stazionaria — il coefficiente locale varia
+  correttamente con la posizione, range 0,648-1,31, coerente con la
+  relazione vera generata nel test). Peso: **11,8 MB** (solo 4
+  pacchetti: `sp`, `spData`, `lattice`, `spgwr`) — stesso ordine di
+  grandezza del costo R di Network/Routing (+10,7 MB per `igraph`),
+  non un'anomalia.
+- **`GWmodel` (via completa)**: **funziona anch'essa**, stesso
+  risultato nella sostanza (bandwidth 2,382 vs 2,218 di `spgwr`,
+  range di coefficiente locale quasi identico — le due implementazioni
+  si confermano a vicenda). Ma il peso è **70,1 MB, 38 pacchetti** —
+  il valore più alto misurato in assoluto in tutta questa serie di
+  verifiche (più di `spatialsample`, più di `gstat`) — trascina dentro
+  un intero arsenale statistico (`sf`, `spdep`, `spatialreg`, `Matrix`,
+  `survival`, `TH.data`, `sandwich`, `multcomp`, `robustbase`,
+  `coda`...) pensato per varianti robuste/bayesiane di GWR non
+  necessarie per un tool esplorativo di base.
+
+**Conclusione**: GWR è **pienamente fattibile in R**, chiudendo
+l'ultimo punto interrogativo di GeoML — ma solo se si sceglie
+`spgwr`, non `GWmodel`. La differenza tra le due non è fattibilità,
+è disciplina nella scelta del pacchetto — esattamente la stessa
+lezione di `sfnetworks`/`spatialsample`: la libreria più completa non
+è quasi mai quella giusta per un tool didattico snello. Lato Python
+resta bloccato (`mgwr` richiede `shapely>=2.1`) — GWR entra quindi nel
+mini-corso GeoML come modulo avanzato **solo-R** (`spgwr`), l'unica
+eccezione monolingue in tutto lo schema a 5 capitoli verificato in
+questa sessione.
+
+## 2026-09-05 — Peso reale di terra/stars/xarray/rasterio misurato
+
+La sessione precedente aveva misurato solo il **tempo** di
+attivazione di questi quattro pacchetti raster ([[project-webgeods-raster-libraries]]:
+`terra` 84,3s, `stars` 34,1s, `rasterio` 20,2s, `xarray` 32,8s), mai
+il peso in KB/MB — metrica diversa, non ancora confrontabile con il
+resto di questa serie di verifiche. Misurato ora, stesso metodo
+(webR v0.4.3, Pyodide v0.29.4):
+
+| Pacchetto | Peso isolato | Peso incrementale reale* |
+|---|---|---|
+| `terra` (R) | 11,4 MB (2 file: `terra` 9,4 MB + `Rcpp` 2,0 MB) | **~9,4 MB** (Rcpp già pagato da `sf`) |
+| `stars` (R) | 24,3 MB (16 file — trascina l'intera chiusura di `sf`) | **~5,1 MB** (`stars`+`rlang`+`abind`; il resto già pagato da `sf`) |
+| `rasterio` (Py) | 14,5 MB (9 file) | **~11,3 MB** (`rasterio`+`affine`; il resto già in `geopandas`) |
+| `xarray` (Py) | 8,9 MB (8 file) | **~0,8 MB** (solo `xarray` stesso — confermato quantitativamente quanto la sessione precedente aveva solo detto qualitativamente: "zero dipendenze nuove") |
+
+*Peso incrementale reale = quanto pesa IN PIÙ assumendo che `sf`
+(R) o `geopandas` (Python) siano già caricati — condizione vera su
+ogni pagina tool esistente di questo sito, non un'ipotesi.
+
+**Il numero isolato inganna**: guardato da solo, `stars` (24,3 MB)
+sembra più pesante di `terra` (11,4 MB) — il contrario di quanto
+raccontava il confronto sulla velocità. Ma `stars` dipende da `sf`
+(che ogni pagina R del sito carica comunque per il motore geometrico
+di base), mentre `terra` ha un proprio motore compilato indipendente
+e non condivide nulla con `sf` — la stessa causa già identificata
+nella sessione precedente per il costo di attivazione (linking
+dinamico di GDAL). Guardato al netto di ciò che è già pagato,
+`stars` resta il più economico dei due (~5,1 MB contro ~9,4 MB),
+coerente in direzione con il ~2,5× di velocità già misurato, solo
+espresso ora in peso invece che in tempo.
+
+**Lato Python, l'asimmetria è più netta**: `xarray` aggiunge
+sostanzialmente nulla (~0,8 MB) se `geopandas` è già caricato,
+`rasterio` aggiunge ~11,3 MB — quasi 14× più pesante in termini
+incrementali. Conferma numerica di una scelta già presa nella
+sessione precedente (vendorizzare `xarray`, non `rasterio`), non
+solo una preferenza qualitativa.
+
+## 2026-09-05 — Schema esteso a 5 capitoli, con librerie e pesi consolidati
+
+Versione aggiornata dello schema discusso con l'utente, con tutte le
+librerie R/Python e i pesi reali misurati in questa sessione
+raccolti in un solo posto. "Peso isolato" = misurato installando
+solo quel pacchetto da zero; "peso incrementale" = quanto pesa IN
+PIÙ assumendo che `sf` (R) o `geopandas` (Python) siano già
+caricati — condizione vera su ogni pagina tool esistente del sito.
+Dove non specificato, isolato e incrementale coincidono (nessuna
+sovrapposizione con `sf`/`geopandas`).
+
+| Capitolo | Tool | Libreria R | Peso R | Libreria Python | Peso Python |
+|---|---|---|---|---|---|
+| **Vettoriale** | Fase 1 (già in produzione) | `sf`+`geojsonsf` | 20,7 MB (baseline) | `geopandas` | 24,9 MB (baseline) |
+| | Buffer/Proximity | `sf` (incluso) | — | `geopandas` (incluso) | — |
+| | Simplification | `sf` (incluso) | — | `geopandas` (incluso) | — |
+| | Spatial Join/Overlay | `sf` (incluso) | — | `geopandas` (incluso) | — |
+| **Raster** | Inspector/Calculator/NDVI — **scelta consigliata** | `stars` | 24,3 MB isolato / **~5,1 MB incr.** | `xarray` | 8,9 MB isolato / **~0,8 MB incr.** |
+| | stessi tool — alternativa scartata (più pesante) | `terra` | 11,4 MB isolato / ~9,4 MB incr. | `rasterio` | 14,5 MB isolato / ~11,3 MB incr. |
+| **Network/Routing** | Shortest Path / Service Area / Route Optimization | `sf`+`igraph` (bridging manuale) | +10,7 MB (`igraph`) | `networkx` o `igraph` (bridging manuale) | +1,05 MB (`igraph`, ~0,9 MB incr.) |
+| | *(pacchetto di comodità, scartato)* | `sfnetworks` | **BLOCCATO** (`lwgeom` assente da webR) | `momepy` | **BLOCCATO** (`shapely>=2.1`) |
+| **GeoStatistics** | Autocorrelation Explorer (entry) | `spdep` | 34,4 MB isolato (con `sf`) / **~14,8 MB incr.** | `esda`+`libpysal` | **BLOCCATO** (`shapely>=2.1`) |
+| | Interpolation/Kriging (ceiling) | `gstat` | 37,2 MB isolato (con `sf`) / **~17,6 MB incr.** | `pykrige` | **BLOCCATO** (nessuna wheel wasm) |
+| **GeoML** | Spatial Clustering Explorer (entry) | `dbscan` | 4,7 MB | `scikit-learn` | 8,6 MB isolato / ~5,7 MB incr. (numpy già in `geopandas`) |
+| | ML su feature spaziali (Random Forest, nuovo) | `randomForest` | **135,5 KB** (il più leggero misurato) | `scikit-learn` (incluso) | — |
+| | Cross-validation spaziale fai-da-te (nuovo) | `kmeans` base (incluso in R) | — | `KMeans`+`GroupKFold` (incluso in scikit-learn) | — |
+| | *(pacchetto di comodità, scartato)* | `spatialsample` | 61,1 MB isolato (con `sf`) / ~41,0 MB incr. — **sproporzionato** | `mgwr` | **BLOCCATO** (`shapely>=2.1`) |
+| | GWR (modulo avanzato, **solo R**) | `spgwr` — **scelta consigliata** | 11,8 MB (nessuna sovrapposizione con `sf`) | `mgwr` | **BLOCCATO** (`shapely>=2.1`) |
+| | *(alternativa GWR, scartata)* | `GWmodel` | 70,1 MB isolato / ~49,7 MB incr. — **il più pesante misurato in assoluto** | — | — |
+
+Righe in grassetto "BLOCCATO" = nessuna via di comodità testata
+funziona; non significa che il tool sia impossibile, solo che il
+pacchetto testato non è la strada (vedi le note di dettaglio più
+sopra in questo stesso changelog per ciascun caso, incluse le vie
+manuali già dimostrate per Network e GeoML).
+
+## 2026-09-05 — Tempi di attivazione misurati per tutti i pacchetti (sf/geopandas già caricati)
+
+Su richiesta esplicita, sostituita/affiancata la tabella dei pesi con
+i **tempi reali di attivazione** — install + `library()`/`import()` —
+misurati con `sf`/`geopandas` già caricati nella stessa istanza
+(condizione vera su ogni pagina tool del sito), non isolati come nel
+confronto precedente. Questo risolve anche il dubbio sollevato
+sull'apparente contraddizione di `rasterio`/`terra`/`stars`/`xarray`
+(la sessione precedente li aveva misurati isolati, in condizioni di
+rete non controllate/confrontabili tra loro — vedi sotto).
+
+| Capitolo | Tool | Libreria R | Tempo R (install+attiva) | Libreria Python | Tempo Python (install+import) |
+|---|---|---|---|---|---|
+| **Network** | Shortest Path / Routing | `igraph` | 7,7s | `networkx` | 6,8s |
+| | | — | — | `igraph` (Python) | **1,4s** (il più veloce misurato) |
+| | *comodità, scartata* | `sfnetworks` | BLOCCATO | `momepy` | BLOCCATO |
+| **GeoStatistics** | Autocorrelation (entry) | `spdep` | 13,0s | `esda`+`libpysal` | BLOCCATO |
+| | Kriging (ceiling) | `gstat` | 18,5s | `pykrige` | BLOCCATO |
+| **GeoML** | Clustering (entry) | `dbscan` | 2,6s | `scikit-learn` | 26,4s |
+| | ML su feature spaziali | `randomForest` | **3,8s** | `scikit-learn` (incluso) | — |
+| | *comodità, scartata* | `spatialsample` | 28,0s | `mgwr` | BLOCCATO |
+| | GWR — consigliata | `spgwr` | 9,3s | `mgwr` | BLOCCATO |
+| | *alternativa scartata* | `GWmodel` | **63,6s** (46,7s solo `library()`) | — | — |
+| **Raster** | Inspector/Calculator/NDVI — consigliata | `stars` | **5,6s** | `xarray` | **3,1s** |
+| | alternativa scartata | `terra` | **85,9s** (81,8s solo `library()`) | `rasterio` | 9,4s |
+
+**Il dubbio su `rasterio` è risolto**: nel confronto controllato (con
+`geopandas` già caricato per entrambi), `xarray` (3,1s) è più veloce
+di `rasterio` (9,4s) — coerente con il peso, nessuna contraddizione.
+L'apparente anomalia della sessione precedente (rasterio 20,2s,
+xarray 32,8s, misurati isolati) nasceva dal confrontare due sessioni
+di test diverse, su condizioni di rete non controllate — non un
+errore nei dati, un confronto non valido tra misure non comparabili.
+
+**Conferma indipendente della storia `terra`/GDAL**: `terra` resta
+di gran lunga il più lento in assoluto anche con `sf` già caricato —
+85,9s totali, di cui **81,8s SOLO per `library()`** (il costo di
+collegamento dinamico di GDAL già identificato nella sessione
+precedente, qui confermato di nuovo con un numero quasi identico,
+81,8s contro i 63,4s misurati allora — stesso ordine di grandezza,
+stessa causa). `stars` (5,6s) resta nettamente preferibile su
+entrambi gli assi, peso e tempo.
+
+**Nuova osservazione**: `GWmodel` non è solo pesante (70 MB), è anche
+lento ad attivarsi allo stesso modo — 46,7s solo per `library()`,
+probabilmente per la stessa classe di costo (molte definizioni di
+classi S4/metodi da registrare a caricamento, dato il suo enorme
+albero di dipendenze). Rafforza ulteriormente la scelta di `spgwr`
+(9,3s totali) già raccomandata sul solo criterio del peso.
+
+## 2026-09-06 — Correzione: `spatialsample` non è lento, solo pesante; terzo pilastro GeoStatistics testato e confermato bloccato in Python
+
+**Correzione a un giudizio precedente**: l'utente ha notato che
+`spatialsample` (28,0s) non è quasi più lento di `scikit-learn`
+(26,4s) — la differenza enorme è sul peso (61 MB contro 8,6 MB), non
+sul tempo percepito. Il giudizio "sproporzionato" dato in precedenza
+pesava troppo l'asse del peso. Corretto: peso e tempo sono due assi
+distinti (il peso conta per costo dati/affidabilità su connessioni
+lente, il tempo per la sensazione di attesa su una connessione
+normale) — su `spatialsample` il tempo non è un problema, resta vero
+solo che l'alternativa manuale (`kmeans`+`GroupKFold`) costa zero su
+entrambi gli assi, quindi resta preferita, ma non perché
+`spatialsample` sia "da scartare".
+
+**Terzo pilastro per un mini-corso GeoStatistics più completo**:
+oltre a autocorrelazione (`spdep`) e kriging (`gstat`), verificati
+anche Point Pattern Analysis e Spatial Regression, stesso metodo
+(webR v0.4.3 / Pyodide v0.29.4, `sf`/`geopandas` già caricati):
+
+- **R: entrambi funzionano**. `spatstat` (Point Pattern Analysis):
+  installato + un'operazione reale completa (K-function di Ripley +
+  stima di densità kernel su un pattern di punti sintetico), 59,4s
+  totali (20,9s install + 38,5s calcolo — non solo attivazione,
+  include il calcolo statistico vero, quindi non direttamente
+  confrontabile con le tabelle di "solo `library()`" precedenti).
+  `spatialreg` (Spatial Regression): installato + un modello
+  `lagsarlm` (spatial lag, stima ML) stimato con successo, 54,5s
+  totali (14,0s install + 40,5s stima del modello).
+
+- **Python: entrambi bloccati**, come previsto. `pointpats` e
+  `spreg` sono entrambi parte dell'ecosistema PySAL — dipendono da
+  `libpysal`, lo stesso pacchetto già bloccato da `shapely>=2.1` per
+  `esda`. Non un nuovo blocco, la stessa causa che si ripresenta:
+  **l'intero ecosistema PySAL moderno (esda, libpysal, pointpats,
+  spreg) è oggi inutilizzabile su Pyodide v0.29.4**, non solo il
+  singolo pacchetto testato la prima volta.
+
+**Conclusione aggiornata sul mini-corso GeoStatistics**: a differenza
+di GeoML (dove un terzo pilastro — ML su feature spaziali — esisteva
+con una via di fuga pulita e bilingue via `scikit-learn`, indipendente
+da PySAL), qui **ogni argomento naturale per allargare il corso oltre
+i primi due pilastri finisce dentro PySAL lato Python** e quindi
+rischia lo stesso blocco. Il mini-corso resta onestamente costruibile
+con **due pilastri bilingui solidi** (autocorrelazione, kriging) più,
+se si vuole un terzo, **Point Pattern Analysis o Spatial Regression
+come moduli avanzati solo-R** (`spatstat`/`spatialreg`, entrambi
+confermati funzionanti) — stessa struttura già adottata per GWR in
+GeoML. Non ancora testata una via manuale Python per bypassare PySAL
+su questi due argomenti specifici (es. `scipy.stats.gaussian_kde` per
+una densità kernel di base, senza Ripley's K) — lasciata come
+possibile verifica futura, non necessaria per chiudere questa
+sessione di analisi.
+
+## 2026-09-06 — Sintesi strategica: mappa corsi/mini-corsi vincolata dalle verifiche tecniche, Network riclassificato, Fase 4 aggiornata
+
+Sintesi finale di tutta la verifica tecnica di questa sessione
+(igraph/sfnetworks, GeoStatistics, GeoML, GWR, pesi/tempi di
+attivazione, `shapely`/`lwgeom`), tradotta in vincoli di
+pianificazione concreti — discussa e approvata con l'utente.
+
+### Mappa corsi/mini-corsi, vincolata dai risultati tecnici
+
+| Destinazione | Famiglia | Stato | Nota |
+|---|---|---|---|
+| **Corso generalista: GIS Workflow Automation** | Vettoriale | Sbloccato | Fase 1 già in produzione, Fase 2 nessuna ignota |
+| **Corso generalista: Remote Sensing** | Raster | Sbloccato | Motore (`stars`/`xarray`) già vendorizzato/benchmarkato |
+| **Mini-corso: Spatial ML** | GeoML | Sbloccato | 4 moduli bilingui (clustering, ML su feature spaziali, CV spaziale fai-da-te) + GWR come modulo avanzato solo-R |
+| **Mini-corso: Urban Accessibility & Isochrones** | Network (Service Area/Isochrone) | Sbloccato, riclassificato | Vedi sotto — converge con la vertical app "Accessibility Calculator" già in Fase 4 |
+| **Mini-corso: Delivery & Route Optimization** | Network (Route Optimization) | Sbloccato, riclassificato | Pubblico logistica/consegne, distinto dal precedente |
+| *(nessuna destinazione corso)* | GeoStatistics | **Deprioritizzato** | Vedi sotto — monolingue su tutta la linea, non solo "senza corso" |
+
+### GeoStatistics: non solo "senza corso", monolingue su tutta la linea
+
+Sia il pilastro autocorrelazione (`spdep` R / `esda`+`libpysal`
+Python) sia il pilastro kriging (`gstat` R / `pykrige` Python) hanno
+il candidato Python **bloccato** — non uno dei due, entrambi. Per un
+progetto la cui identità è esplicitamente "bilingue Python/R", questo
+è un problema più serio della sola assenza di un corso a valle: è un
+capitolo che oggi contraddice il posizionamento del sito. Resta
+legittimo costruire tool GeoStatistics per traffico/SEO (stessa
+logica già discussa per il volume di contenuti), ma va **sequenziato
+per ultimo**, non solo per assenza di corso ma per questa
+contraddizione di fondo — e senza aspettarsi che sblocchi nulla a
+valle nell'Academy.
+
+### Network riclassificato: non un corso generalista, due mini-corsi verticali
+
+Osservazione dell'utente, confermata: Network "ha il sapore di
+vertical app" pur poggiando su strumenti propri (`igraph`/
+`networkx`) — a differenza di Vettoriale/Raster (competenze
+trasversali, tutti i praticanti GIS ne hanno bisogno), i tre tool di
+Network pianificati parlano a pubblici professionali diversi tra
+loro:
+
+- **Shortest Path Finder** (entry) — resta infrastruttura tecnica di
+  base, non un corso a sé (stesso ruolo che il clustering ha per
+  Spatial ML: fondamentale, non vendibile isolatamente).
+- **Service Area/Isochrone** (middle) → **Mini-corso "Urban
+  Accessibility & Isochrones"** — e non solo un mini-corso: è
+  **la stessa capacità già nominata come vertical app
+  "Accessibility Calculator"** in Fase 4 ("richiede routing, non solo
+  buffer"). Stesso capitolo tecnico, due profondità di prodotto: il
+  mini-corso insegna a costruirlo, la vertical app lo vende già
+  pronto a chi non vuole costruirlo (es. urbanisti, real estate).
+- **Route Optimization** (ceiling) → **Mini-corso "Delivery & Route
+  Optimization"** — pubblico logistica/trasporti, distinto dal
+  precedente.
+
+La sequenza di sviluppo tecnico (i tre tool, in ordine di
+complessità) non cambia — cambia solo il confezionamento commerciale
+a valle: non un corso Network unico, ma due mini-corsi verticali più
+un ponte diretto verso una vertical app già pianificata.
+
+### Fase 4 — il fattore "costo di implementazione" eredita il profilo di rischio già mappato
+
+Il framework a 4 fattori di Fase 4 (domanda × engagement ×
+monetizzabilità × costo di implementazione — vedi sezione Fase 4 più
+sopra) va applicato d'ora in poi con il fattore "costo di
+implementazione" già informato da questa sessione, non ricalcolato
+da zero per ogni idea:
+
+| Famiglia | Profilo bilingue | Costo di implementazione atteso |
+|---|---|---|
+| Vettoriale, Raster | Bilingue solido | Basso |
+| Network | Bilingue, solo via essenziale (no `sfnetworks`/`momepy`) | Medio |
+| GeoML (tranne GWR) | Bilingue solido | Basso |
+| GWR, GeoStatistics | Monolingue R | Alto + rischio di coerenza col brand bilingue |
+
+Una vertical app che si appoggia a point pattern analysis o spatial
+regression (GeoStatistics) erediterebbe lo stesso muro PySAL/
+`shapely` — utile saperlo prima di proporla, non scoprirlo a metà
+sviluppo. La vertical app "Accessibility Calculator" eredita invece
+il profilo "medio" di Network, già verificato fattibile in entrambi i
+linguaggi.
+
+### Nota: questi limiti sono dello stato attuale, non permanenti
+
+`shapely>=2.1` (blocca `esda`/`mgwr`/`momepy`/`pointpats`/`spreg` in
+Pyodide v0.29.4) e `lwgeom` assente da webR (blocca `sfnetworks`)
+sono limiti della versione attualmente vendorizzata, non limiti
+strutturali del web/WASM. Non richiedono un controllo attivo
+ricorrente — solo una riverifica quando (se) questo progetto
+aggiornerà Pyodide o webR a una versione più recente, invece di
+assumere che i blocchi restino permanenti.
+
+## 2026-09-06 — DuckDB valutato per GIS Workflow Automation: fattibile, ma solo come infrastruttura JS condivisa
+
+Domanda dell'utente: DuckDB (con estensione spaziale) sarebbe lo
+strumento ideale per il capitolo/corso GIS Workflow Automation?
+Rischia di rendere R e Python inutili per quel capitolo? Verificato
+dal vivo prima di rispondere (webR v0.4.3, Pyodide v0.29.4, e
+`duckdb-wasm` standalone via CDN):
+
+- **`duckdb` come libreria R: funziona** in webR — installato e una
+  query reale eseguita con successo (`dbConnect`/`dbGetQuery`), 10,2s
+  install.
+- **`duckdb` come libreria Python: bloccato** in Pyodide — nessuna
+  wheel compatibile trovata. Asimmetria opposta a quella già vista
+  per `igraph` (lì Python era il lato leggero, qui è il lato assente).
+- **`duckdb-wasm` standalone (JS, non dentro Pyodide/webR): funziona
+  molto bene**. Core caricato in 3,9s, estensione spaziale installata
+  in altri 4,2s (~8,1s totali — più veloce del boot di un interprete
+  Python/R completo). Operazioni reali verificate: buffer + area +
+  validità su un poligono via SQL (`ST_Buffer`/`ST_Area`/`ST_IsValid`,
+  116ms), lettura diretta di GeoJSON via `ST_Read()` (168ms) —
+  correttamente rilevata come non valida la geometria a farfalla
+  (`valid: false`), coerente con quanto il sito insegna già altrove.
+
+**Risposta alla domanda sul rischio**: l'asimmetria appena trovata
+(R sì, Python no per il binding nativo) rende la strada "richiamabile
+da entrambi i linguaggi come libreria" NON praticabile in modo pulito
+— esattamente il rischio segnalato dall'utente, se si fosse insistito
+su quella via. La soluzione è la stessa già in uso per `map.js`/
+`table.js`: **DuckDB entra come infrastruttura JS condivisa**,
+richiamabile allo stesso modo indipendentemente dal linguaggio
+dell'articolo circostante (Python o R), non come "terzo linguaggio"
+in competizione con `sf`/`geopandas` per lo stesso lavoro. Il ruolo
+resta quello proposto in origine — automazione/scala su molti file,
+non esplorazione interattiva di un file singolo — ma il posto
+nell'architettura è quello di uno strumento condiviso (come la
+mappa), non quello di un terzo binario Python/R da insegnare in
+parallelo. R mantiene comunque, come bonus, la possibilità di
+mostrare `duckdb` anche come libreria nativa se un giorno servisse.
+
+**Non ancora deciso**: se/quando introdurlo nel capitolo GIS
+Automation — questa è solo la verifica di fattibilità richiesta,
+non un impegno a costruirlo.
+
+**Correzione della propria proposta, 2026-09-06 (stesso giorno)**:
+la proposta "cella SQL visibile come terzo soggetto" sopra era
+sbagliata — l'utente ha fatto notare che il corso nasce per insegnare
+scripting R/Python, non un terzo linguaggio, e ha proposto la cornice
+giusta: DuckDB richiamato DA DENTRO Python/R (SQL come stringa passata
+a una funzione), restando sullo sfondo — non una cella a sé.
+
+Il problema pratico era che questa cornice, testata alla lettera,
+funziona solo in R (`duckdb` nativo) e non in Python (bloccato in
+Pyodide, vedi sopra) — la stessa asimmetria bilingue di sempre.
+**Risolto** verificando un'alternativa non ancora provata: il ponte
+nativo di Pyodide verso JavaScript (`import js`). Testato dal vivo:
+`duckdb-wasm` caricato una sola volta a livello di pagina (esattamente
+come `map.js` — infrastruttura condivisa, non un pacchetto Python), poi
+richiamato da una cella Python con `await js.duckdbConn.query(sql)`,
+dove `sql` è una stringa Python normale scritta nella cella. Query
+reale eseguita in 197ms, stesso risultato del test diretto in JS.
+
+**Quadro finale, bilingue su entrambi i lati**:
+- R: `library(duckdb); dbGetQuery(con, sql)` — libreria nativa.
+- Python: `import js; await js.duckdbConn.query(sql)` — ponte verso
+  l'istanza JS condivisa, non un pacchetto Python nativo (che resta
+  bloccato).
+
+Meccanismi diversi sotto, stessa esperienza sopra: lo studente scrive
+SQL come stringa dentro una cella Python o R normale, non una terza
+cella. Risolve insieme il vincolo tecnico (Python bloccato), la
+preoccupazione pedagogica dell'utente (niente terzo soggetto) e la
+richiesta di restare bilingue — tutte e tre insieme, non un
+compromesso su una delle tre.
+
+## 2026-09-06 — Revisione homepage: colori, spaziatura, struttura contenuto
+
+Audit richiesto dall'utente sulla homepage, verificato dal vivo
+(colori calcolati via Playwright, screenshot, misure di spaziatura
+reali — non letti solo dal CSS) prima di correggere.
+
+**Trovate 3 sfumature di rosso/terracotta diverse nella navbar**, non
+2 come sembrava a occhio:
+- `#2a2117` (inchiostro) — voci dropdown ("Tools", "All tools"):
+  normale, Bootstrap stila sempre i dropdown col colore del testo,
+  non quello dei link — non un bug.
+- `#78381e` — **solo** "Home" (voce di navbar attiva). Non è
+  "secondario" (muschio è `#42583c`, un verde) — è terracotta
+  scurito automaticamente da Bootstrap per lo stato attivo
+  (`--bs-navbar-active-color`, ~70% del valore base), un artefatto
+  non voluto, non un colore di brand.
+- `#ab502b` (terracotta attuale) — link nel corpo pagina, TOC,
+  wordmark "Geo".
+
+**Corretto**: forzato lo stato attivo della navbar sullo stesso
+terracotta (`.navbar .nav-link.active { color: var(--terracotta)
+!important; }` in `shared/styles.css`) — elimina la terza sfumatura.
+
+**Bug trovato**: `webgeods-logo.svg` aveva ancora il pallino colorato
+col vecchio terracotta pre-correzione WCAG (`#b0522c` invece di
+`#ab502b`) — sincronizzato.
+
+**Sottotitolo attaccato al titolo**: confermato con misure reali —
+0px di distanza dall'H1 contro ~60px prima del paragrafo successivo,
+nessuna differenziazione visiva dal corpo testo. Corretto in
+`shared/styles.css` con margine, colore etichetta e corsivo — **bug
+di specificità CSS reale trovato durante la correzione**: la prima
+versione della regola (`#title-block-header .description`) non
+aveva effetto sulla spaziatura nonostante colore/corsivo
+funzionassero, perché una regola generata da Quarto/Bootstrap
+(`#title-block-header.quarto-title-block.default .description
+{margin-top:0}`) aveva specificità più alta (1 id + 3 classi contro
+1 id + 1 classe) — trovato grepando il CSS Bootstrap compilato
+invece di indovinare, risolto eguagliando il selettore completo.
+
+**Contenuto homepage ristrutturato** (`blog/index.qmd`):
+- Uniti i link "Explore the tools →"/"Read the articles →" (prima
+  separati in cima) dentro i paragrafi "Read —"/"Use —" stessi,
+  eliminando la ripetizione dello stesso concetto due volte.
+- Rimossi "all tools →"/"all articles →" dalle righe rapide
+  Tools—/Articles— della sezione Spatial Data Quality — ridondanti
+  sia con i link in cima sia con i menu a tendina della navbar.
+- **Elenco articoli+tool affiancati in un tabset**, invece di un
+  singolo listing automatico di soli articoli: due `listing:` YAML
+  con `id` distinti (`home-articles` — invariato, con `feed: true` —
+  e `home-tools`, nuovo, `contents: tools`, escluso `tools/index.qmd`
+  con lo stesso pattern già usato da `tools/index.qmd` per
+  escludere se stesso), posizionati in due pannelli di un
+  `.panel-tabset` ("Articles"/"Tools"). **Verificato che Quarto
+  supporta più `listing:` sulla stessa pagina** (non documentato
+  esplicitamente in nessun punto controllato prima, confermato
+  renderizzando: entrambi generano il proprio JS di ricerca/ordinamento
+  indipendente) — nessun template di listing personalizzato
+  necessario, il feed RSS di Articles resta intatto e verificato
+  (`index.xml` genera ancora solo i post, non i tool).
+
+Verificato dal vivo con Playwright (colori, spaziatura, contenuto di
+entrambe le tab) e con screenshot. Nessuna regressione: 16/16
+map-tests, 51/51 smoke-test lessons.

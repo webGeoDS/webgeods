@@ -2,23 +2,27 @@
 title: "webGeoDs"
 description: "Spatial Data Science, directly in your browser — interactive articles and free tools for Python and R, with no local setup and nothing ever uploaded."
 listing:
-  contents: posts
-  sort: "date desc"
-  type: default
-  categories: false
-  feed: true
+  - id: home-articles
+    contents: posts
+    sort: "date desc"
+    type: default
+    categories: false
+    feed: true
+  - id: home-tools
+    contents: tools
+    sort: "date desc"
+    type: default
+    categories: false
+    exclude:
+      filename: "index.qmd"
 ---
-
-[Explore the tools →](/tools/index.html)
-
-[Read the articles →](#spatial-data-quality)
 
 **Read** — interactive articles that explain a spatial problem
 properly, with runnable Python and R examples built in, not just
-diagrams.
+diagrams. [Explore the articles →](#spatial-data-quality)
 
 **Use** — free standalone tools for the same checks, when you just
-need an answer, not the full explanation.
+need an answer, not the full explanation. [Explore the tools →](/tools/index.html)
 
 ## Spatial Data Quality
 
@@ -28,11 +32,21 @@ it. Free, no account, nothing leaves your browser.
 **Tools** — [Inspect](/tools/geospatial-file-inspector.html) ·
 [Validate](/tools/geojson-shapefile-validator.html) ·
 [Check Topology](/tools/topology-checker.html) ·
-[CRS](/tools/crs-inspector.html) ·
-[all tools →](/tools/index.html)
+[CRS](/tools/crs-inspector.html)
 
 **Articles** — [Inspect](/posts/geospatial-file-inspection.html) ·
 [Validate](/posts/geometry-validity.html) ·
 [Check Topology](/posts/topology-errors.html) ·
-[CRS](/posts/crs-mismatch.html) ·
-[all articles →](/articles.html)
+[CRS](/posts/crs-mismatch.html)
+
+::: {.panel-tabset}
+## Articles
+
+:::{#home-articles}
+:::
+
+## Tools
+
+:::{#home-tools}
+:::
+:::
