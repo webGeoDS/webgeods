@@ -19,3 +19,11 @@ it. Free, no account, nothing ever leaves your browser.
 
 All four are live — Inspect, Validate geometry, Check Topology, and
 find/convert a CRS.
+
+## Raster Toolkit
+
+The next family: reading a GeoTIFF before trusting anything computed
+from it. Started with the
+[Raster Inspector](raster-inspector.qmd) — dimensions, bands,
+resolution, CRS, NoData, and per-band value ranges. A Calculator/Band
+Math tool is planned as the next one.

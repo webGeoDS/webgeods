@@ -1206,7 +1206,7 @@ vedi sotto).
 | Corso | Tipo | Allineamento oggi | Note |
 |---|---|---|---|
 | 1. Spatial Workflows & GIS Automation | Generalista | **Forte** | Distillazione dei Core Tools Vettoriale (Fase 1–2) |
-| 2. webgeods stack (Serverless Dashboards) | Mini-corso tecnico | Riclassificato | Pubblico sviluppatori, non praticanti GIS; le due lezioni bridge già scritte coprono metà del lavoro; gate esplicito post-Fase 4 (vedi discussione 2026-09-05) |
+| 2. webgeods stack (Serverless Dashboards) | **Riclassificato da mini-corso a corso generalista il 2026-09-06** (vedi dettaglio sotto) | Pubblico e gate allargati il 2026-09-06 | Pubblico: il GIS analyst che ha già imparato ad automatizzare il workflow con Python/R in **uno qualunque** dei corsi generalisti (GIS Automation O Remote Sensing — il contenuto, dashboard da script Python/R, non è specifico al Vettoriale) e ora vuole costruire report/dashboard interattivi standalone da distribuire facilmente — NON sviluppatori. JavaScript ridotto al minimo indispensabile. **Gate: appena UNO dei due corsi generalisti mostra trazione reale, non più "post-Fase 4" né legato a GIS Automation specificamente** — non è una scommessa su quale verticale vincerà, è un secondo passo per chi ha già scelto un corso generalista qualsiasi |
 | 3. Remote Sensing | Generalista | **Forte** | Distillazione dei Core Tools Raster — include il viewshed come modulo bonus a costo zero |
 | 4. Urban Accessibility & Isochrones | Mini-corso verticale (**nuovo, 2026-09-06**) | Sbloccato | Su Network (Service Area/Isochrone) — converge con la vertical app Accessibility Calculator, due profondità dello stesso capitolo tecnico |
 | 5. Delivery & Route Optimization | Mini-corso verticale (**nuovo, 2026-09-06**) | Sbloccato | Su Network (Route Optimization), pubblico logistica/trasporti distinto dal #4 |
@@ -1243,8 +1243,9 @@ vedi [[project-webgeods-raster-libraries]] — non "non supportato").
 un mercato a pagamento — nessun marketplace, distribuzione gratuita
 via `quarto add`. Sponsorizzazioni (GitHub Sponsors) irrilevanti a
 questa scala. **Ritorno indiretto plausibile**: credibilità e lead-gen
-per il mini-corso "webgeods stack" (sviluppatori, non praticanti GIS)
-— "l'ho costruita io, funziona, eccola" è un pitch forte. Contro: il
+per il mini-corso "webgeods stack" (pubblico: GIS analyst che
+automatizza già con Python/R, non sviluppatori — vedi correzione
+2026-09-06) — "l'ho costruita io, funziona, eccola" è un pitch forte. Contro: il
 costo di manutenzione continua compete con un progetto già
 affermato/finanziato (r-wasm/webR), ed è **fuori dal framework Core
 Tools/Vertical Apps attuale** — stessa logica di gate già usata per
@@ -1266,9 +1267,19 @@ veda (contro il ciclo attuale: modifica `shared/*.js` → script →
 solo quando esiste un pubblico esterno — cioè nel momento stesso in
 cui si decidesse di pubblicarla, non prima.
 
-**Conclusione**: rimandata, non abbandonata. Riconsiderare quando la
-Fase 1 avrà dati reali E si starà pianificando concretamente il
-mini-corso "webgeods stack" — a quel punto, prima di impegnarsi,
+**Conclusione, precisata il 2026-09-06**: il packaging come estensione
+Quarto PUBBLICA resta rimandato, non abbandonato — questo ragionamento
+(nessun mercato, competere con un progetto già finanziato) vale solo
+se/quando si decide di distribuirla fuori dal sito, e resta valido
+indipendentemente dalla correzione di pubblico sopra. **Ma il CORSO
+non deve aspettare questo pacchetto**: con un pubblico già sul sito
+(GIS analyst, non sviluppatori esterni che installano via `quarto
+add`), il corso si può insegnare usando l'architettura interna
+com'è oggi (`shared/*.js` + `sync-shared-assets.sh`), senza bisogno
+di una versione pubblica rifinita prima. Riconsiderare il packaging
+pubblico quando la Fase 1 avrà dati reali E si starà pianificando
+concretamente il mini-corso "webgeods stack" — a quel punto, prima di
+impegnarsi nel packaging (non nel corso stesso, che può partire prima),
 verificare empiricamente il confronto con quarto-live (pagina
 quarto-live minima, provare `terra`, controllare l'interop OJS e il
 network waterfall al caricamento) invece di assumerlo.
@@ -1409,6 +1420,19 @@ quale leva conta, non produrre un numero da centrare.
   (1) tasso di iscrizione newsletter reale; (2) conversione lista →
   acquisto, dal mese 9; (3) conversione reale se e quando si testano
   gli ads dal mese 18.
+- **Buco strutturale nel modello, trovato il 2026-09-06**: ogni
+  acquisto (mini-corso O generalista) è modellato come
+  un'estrazione indipendente dallo stesso bacino di iscritti — **non
+  esiste un meccanismo per "lo stesso cliente compra un secondo
+  prodotto"**. Non è specifico a un singolo prodotto (l'ipotesi
+  iniziale era che riguardasse solo webGeoDs stack come upsell di
+  GIS Automation — corretto: riguarda qualunque coppia di prodotti,
+  inclusi i due corsi generalisti tra loro). Il modello quindi
+  probabilmente **sottostima** i ricavi reali una volta che esiste
+  più di un prodotto, ma senza un tasso di riacquisto reale non c'è
+  un numero onesto da inserire — aggiungere questa voce
+  all'"Assunzioni" (tasso di riacquisto da cliente esistente) solo
+  quando almeno due prodotti avranno vendite reali da misurare.
 
 ---
 
@@ -3594,3 +3618,507 @@ invece di indovinare, risolto eguagliando il selettore completo.
 Verificato dal vivo con Playwright (colori, spaziatura, contenuto di
 entrambe le tab) e con screenshot. Nessuna regressione: 16/16
 map-tests, 51/51 smoke-test lessons.
+
+## 2026-09-06 — Correzione: il pubblico del mini-corso "webgeods stack" non è sviluppatori
+
+L'utente ha corretto un'assunzione ripetuta più volte in questo
+documento fin dal 2026-09-02: il mini-corso "webgeods stack
+(Serverless Dashboards)" **non** è pensato per sviluppatori esterni
+al mondo GIS — è pensato per **lo stesso GIS analyst del corso GIS
+Automation**, che ha già imparato ad automatizzare il proprio workflow
+con script Python/R e ora vuole un passo in più: costruire report/
+dashboard interattivi standalone, facili da distribuire, senza dover
+imparare JavaScript per farlo. Il JavaScript nello stack va **ridotto
+al minimo indispensabile** — l'interfaccia che lo studente scrive deve
+restare Python/R, non un framework JS da imparare.
+
+**Perché questo non è un dettaglio cosmetico**: cambia il senso stesso
+del corso. Non è un prodotto per un pubblico diverso (sviluppatori)
+che capita di condividere l'infrastruttura tecnica del sito — è
+**l'estensione naturale di GIS Automation**: prima impari ad
+automatizzare (script Python/R), poi impari a impacchettare lo stesso
+lavoro in qualcosa che un collega può aprire in un browser senza
+installare nulla. Stesso pubblico, competenza aggiuntiva, non un
+secondo pubblico.
+
+**Conferma di una scelta architetturale già discussa**: questo è
+esattamente il principio già emerso nella discussione sull'API JS
+più snella (2026-09-05, approccio incrementale "sviluppare
+l'architettura durante lo sviluppo di tool secondo necessità") e su
+DuckDB (2026-09-06, "DuckDB come infrastruttura JS condivisa,
+richiamabile da dentro Python/R, non un terzo soggetto visibile") —
+il pattern già in uso in OGNI tool del sito oggi (celle Python/R
+visibili, `map.js`/`table.js`/motore OJS invisibili) non era solo la
+scelta giusta per quei casi specifici: **è letteralmente il modello
+pedagogico dell'intero corso "webgeods stack"**, non un dettaglio di
+implementazione a parte. Il corso insegnerebbe, in sostanza, "lo
+stesso pattern che hai già visto funzionare su questo sito, applicato
+ai tuoi dati" — non un nuovo framework da studiare.
+
+**Implicazione pratica**: nel valutare qualunque futuro miglioramento
+dell'architettura JS/OJS in vista di questo corso, il criterio di
+successo è "un GIS analyst che conosce Python/R ma non JavaScript
+riesce a usarlo", non "quanto è potente/flessibile per uno
+sviluppatore" — un vincolo di design concreto, non un'aspirazione
+vaga.
+
+## 2026-09-06 — Rivalutazione di webgeods stack dopo la correzione di pubblico
+
+Chiesto esplicitamente dall'utente se la correzione di pubblico sopra
+cambi il giudizio su fattibilità, potenziale e tempistiche di
+"webgeods stack" rispetto al resto del piano. Sì, su tutti e tre gli
+assi:
+
+**Fattibilità: da "da dimostrare" a "già dimostrata ogni giorno"**.
+Con l'inquadramento sviluppatori, la domanda tecnica era "questo
+motore regge il confronto con `quarto-live`?" — mai verificata
+empiricamente, segnalata come rischio aperto. Con l'inquadramento
+corretto, la domanda diventa "un GIS analyst che conosce Python/R ma
+non JavaScript riesce a usarlo?" — già verificata, non una volta ma
+in ogni singolo tool costruito in questa sessione (Validator,
+Inspector, e i futuri tool GeoML/Raster/Network): stesso pattern,
+celle Python/R visibili, motore JS invisibile. Non è una promessa da
+testare, è il modo in cui il sito è già costruito.
+
+**Potenziale: da scommessa debole a upsell naturale**. Il giudizio
+precedente ("ritorno economico diretto: debole... fuori dal
+framework Core Tools/Vertical Apps") aveva senso per un pubblico
+sviluppatori — mercato affollato (Shiny, Streamlit, Dash, Panel,
+`quarto-live` stesso), nessuna leva di differenziazione se non
+tecnica. Per un GIS analyst già cliente di GIS Automation, la storia
+cambia: nessuno di quei concorrenti serve lo stesso pubblico bilingue
+con lo stesso arco pedagogico (Shiny è per chi già sa R, Streamlit
+per chi già sa Python — nessuno dei due parla a entrambi). Cambia la
+natura dell'investimento: da acquisizione di un pubblico freddo a
+ritenzione/upsell su un funnel già esistente.
+
+**Tempistiche: il gate era troppo severo, corretto sopra — e ristretto
+inutilmente a un solo corso**. Il gate "post-Fase 4" ha senso per una
+scommessa su QUALE famiglia vincerà (i mini-corsi verticali, che
+devono aspettare settimane di dati comparativi tra famiglie).
+webgeods stack non è quella scommessa — è un secondo passo per chi ha
+già scelto un corso generalista. **Corretto ulteriormente il
+2026-09-06**: legarlo solo a GIS Automation era troppo stretto — il
+contenuto (dashboard da script Python/R) non è specifico al
+Vettoriale, chi finisce Remote Sensing (script su dati raster) vuole
+esattamente la stessa cosa. Il gate corretto (vedi tabella corsi
+sopra) è "appena UNO dei due corsi generalisti mostra trazione
+reale", una condizione più vicina nel calendario stimato di quanto
+non lo fosse "l'intero processo di selezione della verticale si è
+risolto" — e con un bacino di clienti potenzialmente doppio (chi
+finisce l'uno O l'altro corso) rispetto al legarlo a un solo corso.
+Alleggerito anche un secondo vincolo: non serve più costruire prima
+un pacchetto Quarto pubblico rifinito — con un
+pubblico già sul sito, il corso si insegna con l'architettura interna
+così com'è, il packaging pubblico resta una domanda separata e
+successiva (vedi correzione sopra).
+
+**Non cambiato**: resta vero che serve prima che GIS Automation
+stesso abbia clienti reali — non si fa upsell su un corso senza
+acquirenti. La rivalutazione sposta webgeods stack più vicino nel
+tempo rispetto a prima, non lo rende immediatamente prioritario
+rispetto ai corsi generalisti stessi, che restano il prerequisito
+diretto (uno dei due, non necessariamente GIS Automation
+specificamente — vedi correzione successiva).
+
+## 2026-09-06 — Seconda correzione: il "buco upsell" è generale, il pubblico di webgeods stack si allarga a entrambi i generalisti
+
+Due domande dell'utente hanno corretto la rivalutazione appena scritta:
+
+**"Resterebbe comunque un mini-corso? Remote Sensing non è anch'esso
+un upsell di GIS Automation?"** — Sì, e la mia risposta precedente
+sbagliava a presentare il meccanismo come specifico di webGeoDs
+stack. Il modello di ricavi tratta OGNI acquisto (non solo questo
+mini-corso) come un'estrazione indipendente dallo stesso bacino di
+iscritti — nessun meccanismo per "lo stesso cliente compra un secondo
+prodotto", che si tratti di webGeoDs stack dopo GIS Automation o di
+Remote Sensing dopo GIS Automation o viceversa. Il buco è strutturale
+al modello, non una proprietà di questo prodotto specifico (dettaglio
+aggiunto alla sezione "Previsione di ricavi" sopra). La fascia di
+prezzo (mini-corso, non generalista) resta comunque invariata — è un
+asse diverso da "chi lo compra": dipende dalla profondità del
+contenuto pianificato ("le due lezioni bridge coprono metà del
+lavoro"), non da quanto è grande il pubblico raggiungibile.
+
+**"Non potrebbe essere un canale di acquisizione anche verso webGeoDs
+stack [da Remote Sensing]?"** — Sì, e questo cambia il gate per
+davvero, non solo il calendario. Il contenuto di webGeoDs stack
+(impacchettare uno script Python/R in una dashboard condivisibile)
+**non è specifico al Vettoriale/GIS Automation** — chi finisce Remote
+Sensing ha imparato script Python/R applicati al raster (NDVI, band
+math) e vorrebbe esattamente la stessa cosa per il proprio lavoro.
+L'architettura sottostante (`map.js`/`table.js`/celle Python-R) non
+distingue da quale famiglia di Core Tools arrivano i dati. Il gate è
+quindi corretto da "appena GIS Automation ha trazione" ad **"appena
+UNO dei due corsi generalisti ha trazione"** — bacino di clienti
+potenzialmente doppio, non legato a quale dei due arriva prima.
+Aggiornato ovunque nel documento (tabella corsi, sezione Quarto
+extension, infografica pubblicata).
+
+## 2026-09-06 — webgeods stack riclassificato a corso generalista: curriculum, distribuzione, limite offline
+
+L'utente ha proposto un curriculum molto più ampio delle "due lezioni
+bridge" originarie: introduzione a Quarto, installazione
+dell'estensione, sintassi propria dello stack (`#| inject`,
+`getCellValue()`), interfaccia mappe, Vega-Lite, tabelle, input,
+cross-linking tra componenti, più un'appendice sulle API Pyodide/webR
+sottostanti e le librerie usate (MapLibre GL JS, Vega-Lite,
+Observable).
+
+**Riclassificato da mini-corso a corso generalista**: l'ampiezza (8
+aree di contenuto distinte), la progressione naturale (setup →
+sintassi → componenti → composizione → interne opzionali) e il
+differenziatore bilingue reale (lo stack funziona identico da Python
+e R) corrispondono alla definizione di corso generalista già nel
+piano ("ampiezza, progressione, differenziatore bilingue reale"), non
+a quella di mini-corso ("deve restare un acquisto mirato"). La stima
+precedente ("le due lezioni bridge coprono metà del lavoro") si
+riferiva a uno scope molto più stretto, superato da questa proposta.
+
+**Due correzioni organizzative** perché resti un corso ben
+strutturato per il pubblico giusto:
+1. **Separare "usare" da "come è fatto"**: mappe/tabelle/input/
+   Vega-Lite/cross-linking sono esattamente il contenuto per un GIS
+   analyst senza JS. Le API Pyodide/webR e le librerie sottostanti
+   sono un contenuto diverso — curiosità sull'architettura, non
+   necessario per costruire una dashboard — da tenere come **modulo
+   bonus esplicitamente opzionale**, non integrato nel percorso
+   core, per non scoraggiare il pubblico target.
+2. **Vega-Lite non è ancora integrato nello stack** — il curriculum
+   presuppone una capacità non ancora costruita (coerente col timing
+   già segnalato per GeoStatistics/GeoML, ma resta un prerequisito
+   tecnico reale da chiudere prima di scrivere questo modulo).
+
+**Distribuzione: CDN invece di estensione Quarto formale**. Invece di
+costruire e pubblicare un'estensione (`_extensions/`, `quarto add`),
+i file dello stack possono essere referenziati direttamente via
+`<script src="https://webgeods.com/.../map.js">` in un blocco
+`include-after-body` di `_quarto.yml` — stesso pattern già usato da
+`blog/_quarto.yml`, solo con URL assoluti invece che relativi. Risolve
+la tensione precedente (il curriculum non deve più aspettare un
+pacchetto pubblico da costruire) — il contenuto del corso passa da
+"installa l'estensione" a "incolla questo blocco YAML". Il progetto
+ha già un punto di configurazione pensato per questo
+(`window.WEBGEODS_ASSET_BASE` in `blog/_quarto.yml`, oggi `"/"`) — da
+verificare che sia usato in modo coerente per ogni asset (stile mappa
+`alidade_smooth.json` incluso) prima di documentarlo per uso esterno.
+
+**Path versionato necessario** (es. `https://webgeods.com/v1/map.js`
+invece di senza versione): senza, una futura modifica interna a
+`map.js` (fatta per le esigenze del sito stesso) romperebbe
+silenziosamente le dashboard esterne degli studenti, senza nessun
+meccanismo di protezione tipo tag Git/`quarto update`. Deciso: sì,
+necessario, non opzionale — non ancora implementato.
+
+**Chiarimento importante: "standalone" non significa "offline"**.
+Nessuna dashboard costruita con questo stack potrà funzionare senza
+connessione internet, per tre motivi indipendenti, di cui solo il
+terzo è toccato dalla discussione di oggi:
+1. Pyodide/webR — decine di MB di runtime scaricati da CDN al primo
+   uso, strutturale all'architettura del progetto fin dall'inizio.
+2. Le tile della mappa — MapLibre scarica le tile da un server ad
+   ogni pan/zoom su un'area non ancora vista, stesso motivo.
+3. I file dello stack stesso (`map.js` ecc.), se referenziati via
+   CDN invece che copiati localmente.
+
+Anche eliminando il terzo punto, i primi due resterebbero — quindi il
+verdetto "nessuna dashboard offline" era già vero prima di questa
+discussione sulla distribuzione, non ne è una conseguenza. Una via
+per l'offline vero esisterebbe (incorporare Pyodide/webR interamente
+in locale, tile pre-renderizzate per un'area fissa) ma produce un
+prodotto diverso — file da centinaia di MB, mappa non più
+pannabile/zoomabile ovunque — che contraddice l'obiettivo "facile da
+distribuire" dello stack stesso; non considerata un'opzione reale.
+**"Standalone" nel nome/marketing del corso deve essere inteso e
+comunicato come "un file solo da condividere", non "funziona senza
+rete"** — un limite del prodotto da dichiarare esplicitamente nel
+materiale del corso, non da far scoprire agli studenti in corsa.
+
+## 2026-09-06 — Prima stima del tempo di scrittura dei corsi, e Gantt illustrativo
+
+Chiesto dall'utente se fosse possibile stimare anche il tempo di
+**scrittura** dei corsi (non solo di sviluppo dei tool) e visualizzare
+la sequenza come un Gantt, pur restando le fasi dipendenti tra loro.
+
+**Metodo di stima**: nessun dato reale esiste ancora — nessun corso è
+mai stato scritto su questo progetto. Punto di riferimento usato:
+"le due lezioni bridge già scritte coprono metà del lavoro" per
+webGeoDs stack. Da lì, stima per analogia: **corso generalista
+(distillazione di tool+articoli già scritti, più esercizi/sequenza
+pedagogica nuovi) — 3-5 settimane**; **mini-corso (scope più
+stretto) — 1,5-3 settimane**. Dichiarata esplicitamente come la voce
+più incerta di tutto il documento, non una misura.
+
+**Gantt costruito** (pubblicato nell'artifact "Sintesi webGeoDs",
+non riprodotto qui in dettaglio — vedi link nella sessione) con tre
+tipi di traccia: sviluppo tool (pieno), scrittura corso (pieno,
+colore diverso), attesa/trigger (tratteggiato, non consuma tempo del
+founder). Include un limite dichiarato esplicitamente: essendo un
+solo founder, il lavoro reale resta serializzato giorno per giorno —
+dove più tracce piene si sovrappongono nello stesso periodo, il
+grafico mostra la finestra realistica in cui quel lavoro può
+iniziare/finire, non un calendario minuto-per-minuto; l'ordine
+giorno-per-giorno dentro la stessa finestra segue comunque la
+priorità già stabilita (Raster → GeoML → Vettoriale → Network →
+GeoStatistics).
+
+**Stime risultanti, riviste al rialzo rispetto alla sessione
+precedente** proprio perché ora includono la scrittura del corso, non
+solo il tool:
+
+| Traguardo | Stima precedente (solo tool) | Stima aggiornata (tool + scrittura corso) |
+|---|---|---|
+| Remote Sensing | ~metà nov. 2026 | ~fine ott. – inizio nov. 2026 |
+| GIS Workflow Automation | ~fine nov. 2026 | ~fine dic. 2026 – inizio gen. 2027 |
+| webGeoDs stack | poco dopo un generalista | ~metà–fine gen. 2027 |
+| Primo mini-corso (Spatial ML probabile) | ~gen. 2027 o oltre | ~metà–fine gen. 2027 |
+
+GeoStatistics resta fuori da ogni stima — deliberatamente ultimo,
+nessuna data impegnata.
+
+## 2026-09-06 — Correzione critica: `xarray` da solo non legge un GeoTIFF vero, serve `rasterio`
+
+All'atto di iniziare a costruire il primo tool della rotazione
+(Raster Inspector), verificato con un GeoTIFF sintetico reale (non
+ipotizzato) se il motore Python scelto in precedenza (`xarray`,
+preferito a `rasterio` per peso/tempo) fosse davvero sufficiente a
+**leggere** un file raster caricato dall'utente — non solo a
+manipolare array in memoria.
+
+- **`rioxarray` (il vero lettore GeoTIFF per xarray) non si installa
+  in Pyodide** — fallisce.
+- **`xarray` da solo non legge correttamente un GeoTIFF** (nessun
+  motore GDAL/rasterio integrato — confermato, non solo sospettato).
+- **`rasterio` da solo legge tutto correttamente**: dimensioni, bande,
+  CRS, nodata (mascherato correttamente da min/max/mean), risoluzione,
+  bounds, dtype — verificato con un file sintetico a 2 bande con un
+  pixel NoData reale.
+- **Lato R, nessun problema**: `stars::read_stars()` legge il GeoTIFF
+  nativamente (dimensioni, CRS, range dei valori tutti corretti) senza
+  bisogno di `terra` — conferma, con un file vero, quanto già
+  misurato sull'attivazione del pacchetto.
+
+**Conseguenza pratica**: per la capacità minima "leggi un GeoTIFF
+caricato dall'utente", il motore Python di questo tool è `rasterio`
+(~11,3 MB incrementale, misurato in precedenza), non `xarray` (~0,8 MB
+incrementale) come la scelta precedente indicava — quella scelta
+restava corretta per la sola manipolazione di array già in memoria,
+non per la lettura di un file reale da disco, distinzione non fatta
+abbastanza esplicitamente prima d'ora. `stars` resta la scelta giusta
+lato R, invariata. L'asimmetria di peso tra R e Python per questo
+tool si riduce quindi rispetto a quanto stimato (~5,1 MB R contro
+~11,3 MB Python, non più ~5,1 MB contro ~0,8 MB) — verificato prima di
+scrivere una sola riga del tool, non scoperto a metà sviluppo.
+
+## 2026-09-06 — Primo tool della rotazione Fase 2 costruito: Raster Inspector & Statistics
+
+Costruito `blog/tools/raster-inspector.qmd` — Python-only (motore
+`rasterio`, non `xarray`, vedi correzione sopra), stesso schema
+esatto dei 4 tool di Fase 1 (`geospatial-file-inspector.qmd` come
+modello più vicino: pannello Upload/Load example/Download/Reset,
+auto-inspect su upload, stat card, impronta del raster sulla mappa
+via `fitToData`).
+
+**Estensione infrastrutturale necessaria**: `shared/upload.js`
+accettava solo GeoJSON/Shapefile — esteso per riconoscere `.tif`/
+`.tiff` come un quarto tipo di upload (`kind: "raster"`), scrivendo a
+`uploaded.tif`. Modifica puramente additiva, verificata via diff: i
+rami geojson/zip/shapefile esistenti non toccati.
+
+**Contenuto del tool**: dimensioni, bande, CRS (stessa convenzione di
+avviso su CRS mancante già usata ovunque — assunto WGS84 con
+warning), NoData, risoluzione, tipo dato, bounds, min/max/mean per
+banda (NoData correttamente escluso via `masked=True`). L'esempio
+sintetico non è una stringa GeoJSON pre-fatta come nei tool
+vettoriali (impossibile per un formato binario) — è generato al volo
+da una cella Python dedicata (`raster-generate-example-py`) che
+scrive un GeoTIFF vero con `rasterio` (una collinetta gaussiana, un
+pixel NoData deliberato in un angolo). Download: esporta le
+statistiche calcolate come JSON (non un raster modificato — non
+esiste un equivalente naturale di "arricchisci e riscarica" per dati
+raster, a differenza dei tool vettoriali).
+
+**Verificato in due fasi separate**, stessa disciplina di tutta la
+sessione:
+1. Logica Python pura, isolata (stesso identico codice delle celle),
+   contro il CDN pubblico di Pyodide — dimensioni corrette, pixel
+   NoData escluso dal min (100,10 non -9999), impronta GeoJSON con le
+   coordinate giuste.
+2. Pagina reale renderizzata e servita, con le richieste verso il CDN
+   Pyodide di produzione (dove `rasterio` non è ancora vendorizzato)
+   **intercettate e reindirizzate verso il CDN pubblico** solo per questo
+   test locale (nessuna modifica alla produzione) — confermato l'intero
+   percorso: `tool_loaded` → upload esempio → `code_run_started`/
+   `code_run_completed` su entrambe le celle → `validation_completed`
+   → stat card e mappa corrette, verificate anche via screenshot.
+
+Nessuna regressione: 16/16 map-tests, 51/51 smoke-test lessons.
+
+**Correzione (2026-09-06, stesso giorno): il presunto bloccante non
+esisteva**. Avevo dichiarato `rasterio` "non vendorizzato in
+produzione" senza controllarlo direttamente — sbagliato. Verificato
+clonando `DSwing/webgeods-assets`: `rasterio` (+ `affine`) erano già
+vendorizzati in una sessione precedente a questa stessa conversazione
+(commit `2bebd7a`, "Vendor rasterio + affine..."), sia nel repository
+sia sul CDN live (`pyodide-lock.json` in produzione contiene già
+l'entry corretta). Riverificato l'intero tool contro il **vero** CDN
+di produzione, senza nessun reindirizzamento di test: stesso
+risultato identico del test con il CDN pubblico — `tool_loaded` →
+upload esempio → entrambe le celle → `validation_completed` → stat
+card corretta. **Il tool funziona già in produzione, nessuna
+vendorizzazione necessaria.** Repository clonato rimosso dopo la
+verifica, nessuna modifica fatta o richiesta.
+
+**Non ancora fatto** (a questo punto della sessione): cross-link nella
+navbar/homepage/tools index (il tool esiste ma non è ancora collegato
+da nessun'altra pagina), l'articolo bilingue di accompagnamento
+(menzionato nella pagina come "planned as the next steps").
+
+## 2026-09-06 — Cross-link del Raster Inspector + articolo bilingue `raster-file-inspection.qmd`
+
+Completate entrambe le richieste rimaste in sospeso dalla voce
+precedente.
+
+**Cross-link**:
+- `blog/_quarto.yml` — aggiunto un secondo gruppo "Raster" (voce
+  `Raster` + divider `"---"`) sia al dropdown Tools sia al dropdown
+  Articles, dopo il gruppo esistente "Spatial Data Quality". Lo script
+  `include-after-body` che inietta l'header `<h6>` di gruppo (Quarto
+  non supporta un item di menu non cliccabile né `menu:` annidati)
+  gestiva solo il PRIMO divider di ogni dropdown — riscritto per
+  etichettare i divider per posizione (`GROUP_LABELS[i]`), non solo il
+  primo. Verificato via Playwright: entrambi i dropdown mostrano ora
+  "SPATIAL DATA QUALITY" e "RASTER" come header separati, con i link
+  Raster funzionanti.
+- `blog/index.qmd` — nuova sezione `## Raster` (stesso schema di `##
+  Spatial Data Quality`: paragrafo + righe rapide Tools/Articles),
+  oltre al tabset Articles/Tools che già mostrava il tool/articolo
+  automaticamente (entrambi i listing scansionano l'intera cartella
+  `posts`/`tools`, nessuna modifica necessaria lì).
+- `blog/tools/index.qmd` — nuova sezione `## Raster Toolkit` che
+  introduce la famiglia (stesso motivo: il listing stesso già include
+  il tool automaticamente, mancava solo la sezione discorsiva).
+- `blog/tools/raster-inspector.qmd` — il paragrafo/nota di chiusura
+  che prima diceva "un articolo è pianificato" ora linkano
+  effettivamente a `/posts/raster-file-inspection.html` (correzione
+  del placeholder lasciato quando l'articolo non esisteva ancora).
+
+**Articolo bilingue** (`blog/posts/raster-file-inspection.qmd`),
+stesso schema narrativo di `geospatial-file-inspection.qmd` ("stessa
+domanda, due linguaggi"): upload → perché iniziare da un riepilogo →
+mappa+due stat card condivise (Python/R affiancate, non fuse — stesso
+motivo dell'articolo vettoriale) → celle `raster-inspect-py`/`-r`
+visibili in un panel-tabset (▶ Run manuale, non auto-eseguite) →
+sezione di confronto degli accessori → un secondo esempio via
+pulsante (CRS mancante, invece del CRS-mismatch usato nell'articolo
+vettoriale — più naturale per un raster) → dove andare dopo.
+
+**Motore R scelto e verificato empiricamente PRIMA di scrivere
+l'articolo** (stessa disciplina della sessione): `stars::read_stars()`
+legge un GeoTIFF nativamente (nessun pacchetto aggiuntivo). Tre
+divergenze reali tra i due motori, verificate una per una via
+Playwright contro un GeoTIFF sintetico (stesso générateur della
+collinetta gaussiana con un pixel NoData, prima scritto con
+`rasterio` poi copiato nel filesystem virtuale di webR via
+`WebGeoDS.R.writeFile` — i due runtime hanno filesystem separati,
+`upload.js` lo fa già per un tool bilingue reale, qui riprodotto a
+mano per il test):
+1. **CRS**: `st_crs(r)$input` a volte restituisce un nome leggibile
+   (`"WGS 84"`, letto dai metadati GDAL) invece del codice EPSG che
+   invece si ottiene assegnando esplicitamente `st_set_crs(r, 4326)`
+   — stessa famiglia del footnote CRS già presente nell'articolo
+   vettoriale.
+2. **Tipo dato**: `stars` converte sempre i pixel in `double` R
+   internamente — non espone MAI il tipo GDAL dichiarato dal file
+   (`float32` nell'esempio). La card R riporta quindi sempre
+   `"double"`, indipendentemente da cosa c'è realmente su disco — una
+   vera limitazione, documentata come tale nell'articolo, non
+   nascosta.
+3. **NoData**: `read_stars()` converte automaticamente il valore
+   NoData dichiarato in `NA` in lettura (confermato: il pixel
+   `-9999` non inquina mai `min()`/`max()`), ma non conserva il
+   valore sentinella da nessuna parte accessibile dopo la lettura.
+   `rasterio` fa l'opposto: `masked=True` esclude i pixel NoData dai
+   calcoli MA `src.nodata` restituisce comunque il numero grezzo. La
+   card R mostra quindi sempre "None declared" nella riga NoData,
+   anche su un file che ne dichiara uno — comportamento corretto, non
+   un bug, spiegato in una nota a piè di pagina.
+
+**Verifica finale**: `quarto render blog` (nessun errore, 14/14
+pagine), `post-render-fixups.mjs`, servito via `static-server.mjs`,
+poi Playwright end-to-end sulla pagina reale renderizzata — navbar
+(entrambi i gruppi visibili, link funzionanti), homepage, tools index,
+e l'articolo stesso: cella Python (▶ Run) e cella R (▶ Run) producono
+numeri coerenti tra loro (stessi bounds/risoluzione/value-range,
+differenze attese solo su CRS-string/dtype/NoData come previsto sopra),
+mappa aggiornata, pulsante "Load a no-CRS example" mostra
+correttamente il warning. Nessuna regressione: 16/16 map-tests, 51/51
+smoke-test lessons (eseguiti separatamente, come da prassi). Tutti gli
+script temporanei `_tmp-*` e i processi di test rimossi al termine.
+
+**Non ancora fatto/richiesto**: commit e push (in attesa di
+istruzione esplicita, come da prassi di questa sessione); un tool
+Calculator/Band Math come seconda voce della famiglia Raster
+(menzionato solo come prossimo passo previsto, non iniziato);
+aggiornamento dei due Artifact pubblicati ("Rotta webGeoDs", "Sintesi
+webGeoDs") per riflettere il completamento di questa fase (non
+richiesto).
+
+## 2026-09-06 — Stress test del Raster Inspector su GeoTIFF multi-banda di dimensioni reali
+
+Su richiesta esplicita, verificato il rischio tecnico più grande
+rimasto aperto dopo l'auto-valutazione di qualità/utilità del tool:
+mai testato con un file grande o multi-banda vero. Metodologia: file
+GeoTIFF reali (scritti da `rasterio`, formato valido, non finti)
+generati direttamente nel filesystem virtuale di Pyodide dentro il
+browser — nessun accesso a dati satellitari reali disponibile in
+questo ambiente, quindi dati sintetici ma struttura/dimensioni/dtype
+realistici (multi-banda uint16 stile Sentinel-2, bordo NoData) — poi
+passati al vero percorso di codice del tool (`raster-inspect-py`
+tramite `CodeCell.run()`), con verifica numerica contro un ground
+truth calcolato nello stesso contesto Python prima della scrittura su
+disco.
+
+**Risultati, per dimensione crescente**:
+- 32MB, 4 bande (2048×2048 uint16): calcolo <1s, valori esatti.
+- 128MB, 4 bande (4096×4096): ~4.4s, valori esatti, scaling
+  approssimativamente lineare.
+- **512MB, 4 bande (8192×8192): ~16s, valori esatti — nessun crash.**
+- **1.14GB, 6 bande (10000×10000): ~27s, valori esatti — nessun
+  crash.** (Un primo tentativo a questa stessa dimensione era fallito
+  con `numpy._core._exceptions._ArrayMemoryError` — causa isolata e
+  confermata: il MIO generatore di dati sintetici di quel tentativo
+  costruiva un array intermedio `float64` grande quanto l'intera
+  banda per un effetto testura a onde sinusoidali, non il codice del
+  prodotto. Riscritto il generatore per restare in `uint16` dall'inizio
+  alla fine — stessa dimensione di file, stavolta riuscito. Il codice
+  reale di `raster-inspect-py` legge una banda alla volta con
+  `masked=True`, non ha mai bisogno di un buffer `float64` grande
+  quanto l'intero raster multi-banda.)
+- **~2.35GB, 6 bande (14000×14000): fallito, ma con un errore chiaro e
+  gestito, non un crash silenzioso** —
+  `rasterio.errors.RasterioIOError: Free disk space available is
+  2048000000 bytes, whereas 2352000000 are at least necessary`. È un
+  limite del filesystem virtuale (~2.048GB, il controllo
+  "disk space" di GDAL sul MEMFS di Pyodide), non un OOM generico —
+  file sotto questa soglia funzionano, file sopra vengono rifiutati
+  con un messaggio comprensibile invece di bloccare la scheda del
+  browser.
+
+**Verificato separatamente, e scagionato**: il passo di upload vero
+e proprio (`Python.writeFile()`, chiamato da `shared/upload.js` via
+`postMessage` — non un problema, misurato a 325ms per 32MB. Un
+ritardo di 15-17s osservato in un primo tentativo era interamente un
+artefatto del MIO script di verifica (decodifica base64 carattere per
+carattere via `atob`+`charCodeAt` in loop) — un upload reale nel
+browser usa `file.arrayBuffer()`, che non passa mai per il base64.
+
+**Conclusione pratica**: il tool gestisce correttamente file ben oltre
+la scala di un caso d'uso reale tipico (una scena Landsat/Sentinel-2
+ritagliata, un ortofoto da drone — tipicamente sotto 500MB-1GB) fino
+a poco sotto i 2GB, con un fallimento pulito (non un crash) oltre
+quella soglia. Il rischio segnalato nell'auto-valutazione precedente
+era legittimo da verificare ma risulta infondato nella pratica: non è
+un limite che serva risolvere ora. Script di test temporanei
+rimossi al termine, nessuna modifica al codice del tool (nessun bug
+trovato che richieda una correzione).

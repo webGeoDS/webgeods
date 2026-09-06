@@ -1,0 +1,434 @@
+---
+title: "Raster Inspector & Statistics"
+date: 2026-09-06
+categories: [tool, raster]
+description: "Upload a GeoTIFF and get an instant summary — dimensions, resolution, band count, CRS, NoData, and per-band min/max/mean. Free, runs entirely in your browser: the file never leaves your computer."
+page-layout: full
+---
+
+Upload a `.tif`/`.tiff` file and get an instant summary of what's
+actually in it — size, resolution, bands, coordinate reference
+system, and the value range of each band.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (Python via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+```{ojs}
+//| echo: false
+mutable uploadBusy = false
+```
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "📁 Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  // Python-only tool, same reasoning as every other tool here: skip
+  // writing to R's filesystem entirely so selecting a file doesn't
+  // also boot webR in the background for nothing.
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
+    if (result.ok) {
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "raster-inspector" });
+  return map;
+}
+```
+
+The code itself isn't shown here — it's a fixed, non-editable summary
+using `rasterio` underneath. Want to see the same statistics built up
+step by step, in Python *and* R? Read
+[First Look at a Raster File](/posts/raster-file-inspection.html).
+
+```{ojs}
+//| echo: false
+//| output: false
+// "Load example" writes a small synthetic raster directly, instead of
+// decoding a pre-made GeoJSON string the way every vector tool's
+// example does (see geospatial-file-inspector.qmd) — a GeoTIFF is a
+// binary format, so the natural equivalent is a dedicated Python cell
+// that builds one with `rasterio` on demand, not a string constant.
+generateExample = async () => {
+  await window.WebGeoDS.CodeCell.find("raster-generate-example-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      await generateExample();
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
+}
+```
+
+```{.webgeods-python #raster-generate-example-py}
+#| package: rasterio, numpy
+import rasterio
+from rasterio.transform import from_origin
+import numpy as np
+
+# A small synthetic hill (Gaussian bump), same shape already used
+# elsewhere on this site for terrain-like examples (see the viewshed
+# feasibility check) — one deliberately-NoData corner pixel, so the
+# NoData row in the summary below has something real to show.
+n = 20
+xs = np.arange(n)
+ys = np.arange(n)
+X, Y = np.meshgrid(xs, ys)
+elevation = (100 + 40 * np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)).astype("float32")
+elevation[0, 0] = -9999
+
+transform = from_origin(12.40, 41.95, 0.005, 0.005)
+
+with rasterio.open(
+    "/uploaded.tif", "w", driver="GTiff", height=n, width=n, count=1,
+    dtype="float32", crs="EPSG:4326", transform=transform, nodata=-9999
+) as dst:
+    dst.write(elevation, 1)
+
+"example raster written"
+```
+
+```{.webgeods-python #raster-inspect-py}
+#| package: rasterio, numpy
+import rasterio
+from rasterio.warp import transform_bounds
+
+path = None
+for candidate in ["/uploaded.tif"]:
+    try:
+        with rasterio.open(candidate):
+            path = candidate
+            break
+    except Exception:
+        pass
+
+summary = None
+footprint = {"type": "FeatureCollection", "features": []}
+
+if path is not None:
+    with rasterio.open(path) as src:
+        # Same convention as every vector tool: a missing CRS is
+        # assumed WGS84 with an explicit warning, never silently
+        # treated as "no CRS" (which would make the footprint below
+        # impossible to place on the map at all).
+        crs_warning = None
+        if src.crs is not None:
+            crs_for_transform = src.crs
+            crs_label = str(src.crs)
+        else:
+            crs_for_transform = "EPSG:4326"
+            crs_label = "EPSG:4326"
+            crs_warning = "No CRS found in the file — assuming WGS84 (EPSG:4326)."
+
+        # Per-band min/max/mean, NoData pixels excluded via masked=True
+        # — a band with every pixel masked (all-NoData) reports nulls
+        # instead of a bogus min/max from an empty array.
+        band_stats = []
+        for i in range(1, src.count + 1):
+            band = src.read(i, masked=True)
+            has_valid = band.count() > 0
+            band_stats.append({
+                "band": i,
+                "min": round(float(band.min()), 4) if has_valid else None,
+                "max": round(float(band.max()), 4) if has_valid else None,
+                "mean": round(float(band.mean()), 4) if has_valid else None,
+            })
+
+        bounds = [round(float(b), 6) for b in src.bounds]
+        try:
+            wgs84_bounds = transform_bounds(crs_for_transform, "EPSG:4326", *src.bounds)
+        except Exception:
+            # Same fallback already used elsewhere on this site when a
+            # declared CRS turns out not to be a real, resolvable one —
+            # the footprint just won't place correctly on the map, but
+            # the summary card (native units) is unaffected.
+            wgs84_bounds = src.bounds
+
+        minx, miny, maxx, maxy = wgs84_bounds
+        footprint = {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "properties": {"name": "raster footprint"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]
+                }
+            }]
+        }
+
+        summary = {
+            "width": src.width,
+            "height": src.height,
+            "bandCount": src.count,
+            "crs": crs_label,
+            "crsWarning": crs_warning,
+            "nodata": src.nodata,
+            "resolution": [round(float(r), 6) for r in src.res],
+            "dtype": src.dtypes[0],
+            "bounds": bounds,
+            "bandStats": band_stats,
+        }
+
+{
+    "summary": summary,
+    "footprint": footprint
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+autoInspect = async () => {
+  await window.WebGeoDS.CodeCell.find("raster-inspect-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+FOOTPRINT_PAINT = ({
+  "fill-color": "#42583c",
+  "fill-opacity": 0.35,
+  "fill-outline-color": "#2a2117"
+})
+```
+
+```{ojs}
+//| echo: false
+mutable inspectSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyInspect = WebGeoDS.getCellValue("raster-inspect-py", Generators)
+{
+  if (pyInspect && pyInspect.summary) {
+    await sharedMap.setGeoJSON("raster-inspect-py", pyInspect.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(pyInspect.footprint);
+    mutable inspectSummary = pyInspect.summary;
+    window.WebGeoDS.track?.("validation_completed", { tool: "raster-inspector" });
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+resetInspector = async () => {
+  if (sharedMap.getGeoJSON("raster-inspect-py")) {
+    await sharedMap.setGeoJSON("raster-inspect-py", { type: "FeatureCollection", features: [] });
+  }
+  mutable inspectSummary = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
+  button.onclick = () => resetInspector();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Downloads the computed summary itself (JSON) rather than a
+// modified copy of the raster — unlike the vector tools, there's no
+// natural "enriched" raster to hand back (the stats are page-level
+// scalars, not a per-pixel value to overlay), so a machine-readable
+// report of what's on screen is the closest equivalent.
+downloadButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "⬇ Download";
+  button.onclick = () => {
+    const data = pyInspect?.summary;
+    if (!data) return;
+    const base = WebGeoDS.Upload.baseName(uploadedFiles);
+    WebGeoDS.downloadBlob(
+      JSON.stringify(data, null, 2),
+      base ? `${base}-stats.json` : "raster-stats.json",
+      "application/json",
+      { tool: "raster-inspector" }
+    );
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
+  return row;
+}
+```
+
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+:::: {.webgeods-panel}
+
+::: {.webgeods-panel-row}
+${controlPanelRow}
+:::
+
+::: {.webgeods-panel-row}
+${uploadStatusEl}
+:::
+
+::::
+
+```{ojs}
+//| echo: false
+// Same reactive-on-a-dedicated-mutable pattern as
+// geospatial-file-inspector.qmd's statCard, for the same reason:
+// Reset has nothing to re-run, so reading straight from pyInspect
+// would leave stale numbers on screen after clicking it.
+statCard = {
+  const s = inspectSummary;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Dimensions", "—");
+    row("—", "Upload a .tif/.tiff file or load the example above");
+    return box;
+  }
+
+  const MAX_BANDS_SHOWN = 6;
+  const bandLines = s.bandStats.slice(0, MAX_BANDS_SHOWN).map((b) =>
+    b.min === null
+      ? `Band ${b.band}: all NoData`
+      : `Band ${b.band}: ${b.min} to ${b.max} (mean ${b.mean})`
+  );
+  if (s.bandStats.length > MAX_BANDS_SHOWN) {
+    bandLines.push(`… and ${s.bandStats.length - MAX_BANDS_SHOWN} more band(s)`);
+  }
+
+  row("Dimensions", `${s.width} × ${s.height} px`);
+  row("Bands", String(s.bandCount));
+  row("CRS", s.crsWarning ? `${s.crs} ⚠️ ${s.crsWarning}` : s.crs);
+  row("Resolution", s.resolution.join(" × "));
+  row("Data type", s.dtype);
+  row("NoData", s.nodata === null || s.nodata === undefined ? "None declared" : String(s.nodata));
+  row("Bounds", s.bounds.join(", "));
+  row("Value range", bandLines.join(" · "));
+
+  return box;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+<style>
+#raster-generate-example-py, #raster-inspect-py {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+This is the first tool in the Raster family. Read the
+<a href="/posts/raster-file-inspection.html">companion article</a> for
+the same statistics in Python and R, one cell at a time — a
+Calculator/Band Math tool is planned as the next step.
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

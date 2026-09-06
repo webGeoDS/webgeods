@@ -39,6 +39,15 @@ it. Free, no account, nothing leaves your browser.
 [Check Topology](/posts/topology-errors.html) ·
 [CRS](/posts/crs-mismatch.html)
 
+## Raster
+
+The newest family, started 2026-09-06: reading a GeoTIFF's dimensions,
+bands, CRS, and NoData before trusting anything computed from it.
+
+**Tools** — [Raster Inspector](/tools/raster-inspector.html)
+
+**Articles** — [First Look at a Raster File](/posts/raster-file-inspection.html)
+
 ::: {.panel-tabset}
 ## Articles
 

@@ -1,7 +1,7 @@
 /**
  * WebGeoDS.Upload
  *
- * Shared "upload a vector file into both runtimes' virtual
+ * Shared "upload a vector or raster file into both runtimes' virtual
  * filesystems" helper, plus createControl() (the upload button
  * itself — a native <input type="file"> wrapped in a <label>, see
  * below) and loadObservableInputs() (see further below — lives here
@@ -9,14 +9,22 @@
  * control, but it's shared more broadly: topology-checker.qmd's
  * threshold sliders still use window.Inputs.range()). What's shared
  * and non-trivial is load()/baseName(): they accept a shapefile
- * (several sidecar files, or a single .zip bundling them) in
- * addition to a single GeoJSON.
+ * (several sidecar files, or a single .zip bundling them) or a single
+ * raster file, in addition to a single GeoJSON.
  *
  * A shapefile isn't one file: .shp (geometry) + .dbf (attributes) +
  * .shx (index), often .prj (CRS) — GDAL/OGR (used by both
  * geopandas.read_file() and sf::st_read(), already vendored, no new
  * package needed for either language — Shapefile is a base OGR
  * driver) needs them co-located in the same virtual directory.
+ *
+ * .tif/.tiff (added 2026-09-06 for the Raster Inspector) is the one
+ * genuinely single-file kind — no sidecars, straight to
+ * "uploaded.tif". Reading it back needs `rasterio` in Python, not
+ * `xarray` alone (verified empirically: `xarray` has no built-in
+ * GDAL-backed reader, and `rioxarray` — the package that would give
+ * it one — fails to install in Pyodide); `stars` reads it natively in
+ * R, no extra package.
  *
  * No ES module syntax so this can be included directly by Quarto.
  */
@@ -31,7 +39,7 @@
 
 
   const ACCEPT =
-    ".geojson,.json,.shp,.shx,.dbf,.prj,.cpg,.zip";
+    ".geojson,.json,.shp,.shx,.dbf,.prj,.cpg,.zip,.tif,.tiff";
 
   // Same `window.WEBGEODS_ASSET_BASE` convention as map.js's
   // MAPLIBRE_JS_URL/table.js's GRIDJS_JS_URL — see the comment in
@@ -63,7 +71,8 @@
     "uploaded.dbf",
     "uploaded.prj",
     "uploaded.cpg",
-    "uploaded.zip"
+    "uploaded.zip",
+    "uploaded.tif"
   ];
 
 
@@ -316,6 +325,14 @@
     const shpFiles =
       byExt(".shp");
 
+    // .tif/.tiff both write to the same "uploaded.tif" target name —
+    // GDAL (rasterio/stars underneath) doesn't care about the actual
+    // extension on disk, only the bytes, and every reader try-loop
+    // only needs to look for one fixed path either way (same reason
+    // geojson/json collapse to one target above).
+    const tiffFiles =
+      byExt(".tif").concat(byExt(".tiff"));
+
 
     let kind;
     let targets;
@@ -340,6 +357,16 @@
 
     }
 
+    else if (
+      tiffFiles.length === 1 &&
+      files.length === 1
+    ) {
+
+      kind = "raster";
+      targets = [[tiffFiles[0], "uploaded.tif"]];
+
+    }
+
     else if (shpFiles.length === 1) {
 
       // Every selected file (.shp/.dbf/.shx/.prj/.cpg, ...) written
@@ -359,9 +386,9 @@
         ok: false,
         message:
           "✗ Selection not recognized: upload a .geojson/.json, " +
-          "a .zip containing a shapefile, or the " +
-          ".shp/.dbf/.shx (and optionally .prj) files of a shapefile, " +
-          "selected together."
+          "a .zip containing a shapefile, the " +
+          ".shp/.dbf/.shx (and optionally .prj) files of a shapefile " +
+          "selected together, or a single .tif/.tiff raster."
       };
 
     }
