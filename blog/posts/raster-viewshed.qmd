@@ -1,0 +1,531 @@
+---
+title: "Viewshed: What's Visible from Here"
+date: 2026-09-07
+categories: [tool, raster, bilingual]
+description: "Given a DEM and an observer point, compute which cells are visible — accounting for terrain occlusion — and see it as a colored map. Runs on R; Python shown as reference only."
+---
+
+Elevation alone answers "how high." A viewshed answers a different
+question: from one point on the terrain, looking outward, which other
+points can you actually see? A hill in between blocks the view behind
+it the same way a building would — this is exactly the computation
+behind cell-tower placement, wind-turbine visual-impact studies, and
+"does this property really have the panoramic view listed."
+
+Every other article in this Raster family shows the same computation
+running live in Python *and* R, side by side, agreeing on the answer.
+This one doesn't — not because the idea changed, but because the
+tooling did. Read on for why, and what it means for how this page is
+built.
+
+Just want the map, without the rest of the reading? Use the
+[standalone tool](/tools/viewshed-calculator.html) — same engine,
+click a point directly.
+
+## 1. Upload your file
+
+A `.tif`/`.tiff` digital elevation model (DEM) — one band of elevation
+values.
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["r"] });
+  mutable uploadStatus = result.message;
+}
+```
+
+## 2. Why viewshed, and what "visible" actually means here
+
+Four things worth knowing before the first computed map:
+
+- **It's occlusion, not distance.** A cell right next to the observer
+  can be invisible (hidden behind a ridge two cells away) while a cell
+  much farther off is perfectly visible across open ground. The
+  algorithm traces the line of sight to every other cell and checks
+  whether the terrain in between rises above that line anywhere along
+  the way.
+- **A working projection, not a correction.** `terra::viewshed()`
+  requires projected (linear-unit) coordinates — it refuses geographic
+  lon/lat data outright, and rightly so: the algorithm reasons in real
+  distances and angles, which degrees can't give it directly. A
+  geographic DEM (SRTM tiles, for instance, ship this way) is
+  reprojected internally for the calculation, to a UTM zone picked
+  from the raster's own centre. The **original file is never
+  modified** — this is a working projection for the computation, not
+  a claim that webGeoDS found "the correct CRS." A DEM spanning
+  multiple UTM zones, sitting near the poles, or covering a very large
+  area would need a deliberate projection choice instead — the
+  automatic pick here is a reasonable default for a single local DEM,
+  not a universal answer.
+- **"Visible" means visible *under this terrain model*, not "a human
+  would see it."** The result accounts for terrain height, observer
+  and target height above ground, and a curvature/refraction
+  coefficient (`terra::viewshed()`'s `curvcoef`, default ≈0.857) — it
+  does not account for vegetation, buildings, or atmospheric haze. It
+  answers "is the ground itself in the way," a real and useful
+  question, just not the complete one.
+- **The output is boolean, not a gradient.** Every other computed map
+  in this Raster family (Band Math, NDVI) is a continuous value shown
+  on a color ramp. A viewshed is yes/no per cell — visible cells are
+  highlighted, everything else is left transparent so the base map
+  shows through underneath.
+
+## 3. Shared map and result
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.45, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+FOOTPRINT_PAINT = ({
+  "fill-color": "#42583c",
+  "fill-opacity": 0.35,
+  "fill-outline-color": "#2a2117"
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Both stops the same warm color -- a boolean result, not a gradient:
+// any finite value (only ever 1, "visible") paints solid, NaN ("not
+// visible") stays transparent via shared/map.js's existing NaN
+// handling in _renderRasterCanvas — no changes needed there.
+VIEWSHED_RAMP = [
+  [0.00, 255, 213, 79],
+  [1.00, 255, 213, 79]
+]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+base64ToBytes = (base64Str) => {
+  const binary = atob(base64Str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+```
+
+```{ojs}
+//| echo: false
+mutable rResult = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rCompute = WebGeoDS.getCellValue("viewshed-r", Generators)
+{
+  if (rCompute && rCompute.summary) {
+    const s = rCompute.summary;
+    await sharedMap.setGeoJSON("viewshed-r-footprint", rCompute.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(rCompute.footprint);
+    await sharedMap.setRasterImage("viewshed-r-result", {
+      bounds: s.wgs84Bounds,
+      width: s.width,
+      height: s.height,
+      values: new Float32Array(base64ToBytes(s.data).buffer),
+      min: 0,
+      max: 1,
+      colorRamp: VIEWSHED_RAMP
+    });
+    mutable rResult = s;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+statCard = {
+  const s = rResult;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Result", "—");
+    return box;
+  }
+
+  row("Dimensions", `${s.width} × ${s.height} px`);
+  row("Original CRS", s.originalCrs ?? "—");
+  row("Calculation CRS", s.calculationCrs);
+  row("Observer height", `${s.observerHeight} m`);
+  row("Visible pixels", s.visiblePixels.toLocaleString());
+  row("Total pixels", s.totalPixels.toLocaleString());
+  row("Visible %", `${s.visiblePercent}%`);
+
+  return box;
+}
+```
+
+${statCard}
+
+```{ojs}
+//| echo: false
+legendEl = {
+  const s = rResult;
+  const wrap = document.createElement("div");
+  wrap.className = "webgeods-legend";
+  if (!s) {
+    wrap.hidden = true;
+    return wrap;
+  }
+  const swatch = document.createElement("div");
+  swatch.className = "webgeods-legend-bar";
+  swatch.style.flex = "0 0 32px";
+  swatch.style.background = "rgb(255,213,79)";
+  const label = document.createElement("span");
+  label.className = "webgeods-legend-label";
+  label.textContent = "Visible from observer";
+  wrap.append(swatch, label);
+  return wrap;
+}
+```
+
+${legendEl}
+
+```{ojs}
+//| echo: false
+resetResult = async () => {
+  if (sharedMap.getGeoJSON("viewshed-r-footprint")) {
+    await sharedMap.setGeoJSON("viewshed-r-footprint", { type: "FeatureCollection", features: [] });
+  }
+  await sharedMap.removeRasterImage("viewshed-r-result");
+  mutable rResult = null;
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and result";
+  button.onclick = () => resetResult();
+  return button;
+}
+```
+
+## 4. Compute: viewshed in R — runnable here; Python — reference only
+
+::: {.panel-tabset}
+
+## R — runnable in this browser
+
+```{.webgeods-r #viewshed-r}
+#| package: terra, jsonlite, codetools
+library(terra)
+
+path <- NULL
+for (candidate in c("/uploaded.tif")) {
+  ok <- tryCatch({ rast(candidate); TRUE }, error = function(e) FALSE)
+  if (ok) { path <- candidate; break }
+}
+
+if (is.null(path)) {
+  # Synthetic hill DEM, deliberately in a GEOGRAPHIC CRS (EPSG:4326) --
+  # the case terra::viewshed() itself refuses to compute on directly
+  # (see section 2), so the fallback exercises the same reprojection
+  # path a real geographic DEM would.
+  n <- 20
+  xs <- 0:(n - 1)
+  ys <- 0:(n - 1)
+  elevation_vals <- outer(ys, xs, function(y, x) 100 + 40 * exp(-((x - 10)^2 + (y - 10)^2) / 30))
+  r <- rast(elevation_vals, crs = "EPSG:4326")
+  ext(r) <- c(12.40, 12.40 + n * 0.005, 41.95 - n * 0.005, 41.95)
+} else {
+  r <- rast(path)
+}
+
+elevation <- r[[1]]
+
+observer_lon <- 12.45
+observer_lat <- 41.90
+observer_height <- 1.8
+
+# Same missing-CRS convention as the rest of the Raster family, but
+# here the stakes are higher than a display nuance: viewshed cannot
+# pick a working projection or place an observer without knowing
+# where on Earth the file actually is, so this refuses outright
+# rather than silently assuming WGS84 (try the no-CRS example in
+# section 6 to see this happen).
+if (crs(elevation) == "") {
+  stop("This file has no declared CRS — a real-world location is required to compute a viewshed (to choose a working projection and place the observer correctly). Upload a georeferenced DEM.")
+}
+
+original_crs_label <- {
+  crs_desc <- crs(elevation, describe = TRUE)
+  if (!is.na(crs_desc$authority) && !is.na(crs_desc$code)) {
+    paste0(crs_desc$authority, ":", crs_desc$code)
+  } else {
+    crs(elevation, proj = TRUE)
+  }
+}
+
+# Working/calculation CRS -- see section 2. The original raster (and
+# original_crs_label above) is never modified.
+if (is.lonlat(elevation)) {
+  e <- ext(elevation)
+  center_lon <- (e$xmin + e$xmax) / 2
+  center_lat <- (e$ymin + e$ymax) / 2
+  utm_zone <- floor((center_lon + 180) / 6) + 1
+  calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
+  elevation_calc <- project(elevation, paste0("EPSG:", calc_epsg), method = "bilinear")
+} else {
+  elevation_calc <- elevation
+}
+
+calc_crs_label <- {
+  crs_desc <- crs(elevation_calc, describe = TRUE)
+  if (!is.na(crs_desc$authority) && !is.na(crs_desc$code)) {
+    paste0(crs_desc$authority, ":", crs_desc$code)
+  } else {
+    crs(elevation_calc, proj = TRUE)
+  }
+}
+
+# The observer arrives as lon/lat and is reprojected into the same
+# calculation CRS the raster itself is in.
+obs_pt <- vect(matrix(c(observer_lon, observer_lat), ncol = 2), crs = "EPSG:4326")
+obs_pt_calc <- project(obs_pt, crs(elevation_calc))
+obs_xy <- as.numeric(crds(obs_pt_calc)[1, ])
+
+vs <- viewshed(elevation_calc, loc = obs_xy, observer = observer_height, target = 0)
+
+# NaN renders transparent in shared/map.js's canvas renderer -- "not
+# visible" becomes NaN instead of FALSE/0, so only the visible area
+# paints, reusing the same renderer Band Math/NDVI already use
+# unmodified.
+vs_num <- as.numeric(values(vs, mat = FALSE))
+visible_mask <- vs_num == 1
+vs_num[!visible_mask] <- NaN
+vs_num[visible_mask] <- 1
+
+n_visible <- sum(visible_mask, na.rm = TRUE)
+n_total <- length(vs_num)
+
+e_calc <- ext(elevation_calc)
+bbox_wkt <- paste0(
+  "POLYGON((",
+  e_calc$xmin, " ", e_calc$ymin, ", ", e_calc$xmax, " ", e_calc$ymin, ", ",
+  e_calc$xmax, " ", e_calc$ymax, ", ", e_calc$xmin, " ", e_calc$ymax, ", ",
+  e_calc$xmin, " ", e_calc$ymin, "))"
+)
+bbox_vect <- vect(bbox_wkt, crs = crs(elevation_calc))
+bbox_wgs84 <- tryCatch(project(bbox_vect, "EPSG:4326"), error = function(err) bbox_vect)
+bbox_geom <- geom(bbox_wgs84)
+footprint_coords <- lapply(seq_len(nrow(bbox_geom)), function(i) c(bbox_geom[i, "x"], bbox_geom[i, "y"]))
+e_wgs84 <- ext(bbox_wgs84)
+
+footprint <- list(
+  type = jsonlite::unbox("FeatureCollection"),
+  features = list(list(
+    type = jsonlite::unbox("Feature"),
+    properties = list(name = jsonlite::unbox("viewshed footprint")),
+    geometry = list(type = jsonlite::unbox("Polygon"), coordinates = list(footprint_coords))
+  ))
+)
+
+con <- rawConnection(raw(0), "wb")
+writeBin(vs_num, con, size = 4, endian = "little")
+raw_bytes <- rawConnectionValue(con)
+close(con)
+data_b64 <- jsonlite::base64_enc(raw_bytes)
+
+summary_out <- list(
+  width = jsonlite::unbox(ncol(vs)),
+  height = jsonlite::unbox(nrow(vs)),
+  data = jsonlite::unbox(data_b64),
+  wgs84Bounds = round(c(e_wgs84$xmin, e_wgs84$ymin, e_wgs84$xmax, e_wgs84$ymax), 6),
+  originalCrs = jsonlite::unbox(original_crs_label),
+  calculationCrs = jsonlite::unbox(calc_crs_label),
+  observerHeight = jsonlite::unbox(observer_height),
+  visiblePixels = jsonlite::unbox(n_visible),
+  totalPixels = jsonlite::unbox(n_total),
+  visiblePercent = jsonlite::unbox(round(100 * n_visible / n_total, 1))
+)
+
+result_out <- list(summary = summary_out, footprint = footprint)
+jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)
+```
+
+## Python — reference (desktop/server)
+
+::: {.callout-warning}
+**Not runnable in this browser tool.** This is valid Python/GDAL —
+the equivalent desktop/server workflow — shown for reference. See
+[why](#why-python-is-reference-only-here) below.
+:::
+
+```python
+from osgeo import gdal
+
+# Reference implementation only -- not executable in this browser
+# tool. Exact keyword names can vary slightly by GDAL version; this
+# matches the GDAL 3.x osgeo.gdal.ViewshedGenerate() API.
+src_ds = gdal.Open("dem.tif")
+src_band = src_ds.GetRasterBand(1)
+
+gdal.ViewshedGenerate(
+    srcBand=src_band,
+    driverName="GTiff",
+    targetRasterName="viewshed.tif",
+    creationOptions=[],
+    observerX=500100.0,       # in the DEM's own (projected) CRS units
+    observerY=4600100.0,
+    observerHeight=1.8,
+    targetHeight=0.0,
+    visibleVal=1.0,
+    invisibleVal=0.0,
+    outOfRangeVal=0.0,
+    noDataVal=-1.0,
+    dfCurvCoeff=0.85714,       # same default terra::viewshed() uses
+    mode=gdal.GVM_Edge,
+    maxDistance=0.0,           # 0 = unlimited
+)
+```
+
+:::
+
+## 5. Why Python is reference-only here {#why-python-is-reference-only-here}
+
+Every other article in this Raster family runs Python and R side by
+side and confirms they agree on the numbers. This one can't, and it's
+worth being precise about why rather than waving at "GDAL isn't
+supported":
+
+The GDAL Python bindings expose `ViewshedGenerate()`, which provides
+the corresponding GDAL implementation — the same underlying algorithm
+`terra::viewshed()` uses on the R side. However, GDAL is not available
+in the curated Pyodide package index used by this browser runtime.
+Attempting to load it returns `No known package with name 'gdal'` —
+tested directly against this project, not assumed from general
+knowledge. `rasterio` itself, this site's usual Python raster engine,
+has never had a viewshed function of its own; it's a thin I/O layer
+over GDAL, not an analysis library. No actively-maintained pure-Python
+alternative exists either — the closest candidates
+(`whitebox`/WhiteboxTools, `richdem`) are a standalone compiled
+executable and a C++ extension respectively, neither usable inside
+Pyodide.
+
+The Python example above shows the equivalent desktop/server workflow
+but is not executable in this browser tool.
+
+The rest of this site's implicit promise has been "Python and R, side
+by side." This article refines that to "Python and R, when the
+browser runtime allows it" — a statement of what's actually true,
+not an exception being quietly worked around. Forcing a from-scratch
+numpy reimplementation just to keep two live panels would have traded
+a real, tested algorithm for an untested one, on a page whose whole
+point is trustworthy answers.
+
+## 6. A DEM with no declared CRS
+
+Unlike the rest of the Raster family, this isn't a cosmetic
+"Unknown ⚠️" row — the R cell above refuses to compute at all on a
+CRS-less file (`stop()`, not a graceful fallback), because a viewshed
+genuinely cannot be placed on Earth without knowing where the file
+already is. Click below to load a DEM with the CRS deliberately
+omitted, then run the R cell in section 4 to see the refusal itself,
+surfaced as a normal R error in the cell's output.
+
+```{ojs}
+//| echo: false
+loadNoCrsExampleButton = {
+  const button = document.createElement("button");
+  button.textContent = "📋 Load a no-CRS example";
+  button.onclick = async () => {
+    await window.WebGeoDS.CodeCell.find("viewshed-r")?.setCode(rNoCrsExampleCode);
+    document.getElementById("viewshed-r")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+rNoCrsExampleCode = `library(terra)
+
+n <- 20
+xs <- 0:(n - 1)
+ys <- 0:(n - 1)
+elevation_vals <- outer(ys, xs, function(y, x) 100 + 40 * exp(-((x - 10)^2 + (y - 10)^2) / 30))
+# crs deliberately omitted -- the whole point of this example.
+r <- rast(elevation_vals)
+ext(r) <- c(12.40, 12.40 + n * 0.005, 41.95 - n * 0.005, 41.95)
+
+elevation <- r[[1]]
+
+if (crs(elevation) == "") {
+  stop("This file has no declared CRS — a real-world location is required to compute a viewshed (to choose a working projection and place the observer correctly). Upload a georeferenced DEM.")
+}
+
+"unreachable -- the stop() above always fires for this example"`
+```
+
+${loadNoCrsExampleButton}
+
+## 7. Where to next
+
+- **Just needed the map?** The
+  [standalone Viewshed Calculator](/tools/viewshed-calculator.html)
+  click a point, no editing required.
+- **Combining two bands instead** (a difference map, NDVI)? See
+  [Raster Band Math](raster-band-math.qmd) or
+  [NDVI](raster-ndvi.qmd) — both run live in Python and R.
+- **Not sure what's in the file yet?** Start with
+  [Raster Inspector](/tools/raster-inspector.html).
+
+This closes the Raster family at four tools: Inspect, Calculate,
+NDVI, Viewshed — understand, compute, analyze, model.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

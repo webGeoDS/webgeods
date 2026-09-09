@@ -1,0 +1,222 @@
+project:
+  type: website # NOTE (2026-09-03): "blog" is NOT a valid Quarto
+                # project type (verified — `quarto render` errors with
+                # "Unsupported project type blog"; valid types are
+                # default/website/book/manuscript). The stale comment
+                # that used to be here was wrong. RSS/categories for a
+                # website-type project's listing come from the
+                # `feed:`/`categories:` options on the listing itself
+                # (see index.qmd), not from the project type.
+  resources:
+    - "runtime.js"
+    - "python.js"
+    - "r.js"
+    - "code-cell.js"
+    - "map.js"
+    - "table.js"
+    - "upload.js"
+    - "download.js"
+    - "styles.css"
+    - "alidade_smooth.json"
+    - "webgeods-logo.svg"
+    - "og-image.png"
+    - "maplibre-gl.js"
+    - "maplibre-gl.css"
+    - "fonts.css"
+    - "fonts/*.woff2"
+    - "codemirror-bundle.js"
+    - "downloads/*.pdf"
+    - "htl.min.js"
+    - "observable-inputs.min.js"
+
+website:
+  title: "webGeoDs"
+  description: "Bilingual (Python/R) spatial data science — interactive articles and tools running entirely in your browser via WebAssembly." # required together with site-url for RSS feed generation, not just descriptive
+  navbar:
+    logo: webgeods-logo.svg
+    # Documented, schema-valid option — but doesn't actually reach the
+    # rendered <img>'s alt attribute in this Quarto version (1.7.29),
+    # verified empirically (rendered, grepped, still alt=""). Kept
+    # here anyway (harmless, and free if a future Quarto version wires
+    # it up) — post-render-fixups.mjs patches the real HTML output in
+    # the meantime, see its own header comment.
+    logo-alt: "webgeods"
+    background: "#eee5d2" # dark-paper — light navbar in the reference design,
+    foreground: "#2a2117" # not a bar filled with the primary color (the cosmo
+                           # theme's default behavior, not what's wanted here)
+    left:
+      - href: index.qmd
+        text: Home
+      - text: Tools
+        menu:
+          - href: tools/index.qmd
+            text: All tools
+          # A plain "---" divider has no room for a label of its own
+          # (renders as a bare <hr>), and Quarto rejects a nested
+          # `menu:` here ("this menu does not support sub-menus",
+          # confirmed by quarto render itself) — so this divider is
+          # the anchor a small script (see include-after-body below)
+          # attaches a "Spatial Data Quality" header to at runtime.
+          - text: "---"
+          - href: tools/geospatial-file-inspector.qmd
+            text: Inspect
+          - href: tools/geojson-shapefile-validator.qmd
+            text: Validate
+          - href: tools/topology-checker.qmd
+            text: Check Topology
+          - href: tools/crs-inspector.qmd
+            text: CRS
+          # Second group, same "---"-as-anchor mechanism as above —
+          # the include-after-body script now labels dividers by
+          # position instead of just the first one (see its comment).
+          - text: "---"
+          - href: tools/raster-inspector.qmd
+            text: Inspect
+          - href: tools/raster-calculator.qmd
+            text: Calculate
+          - href: tools/ndvi-calculator.qmd
+            text: NDVI
+          - href: tools/viewshed-calculator.qmd
+            text: Viewshed
+      - text: Articles
+        menu:
+          - href: articles.qmd
+            text: All articles
+          - text: "---"
+          - href: posts/geospatial-file-inspection.qmd
+            text: Inspect
+          - href: posts/geometry-validity.qmd
+            text: Validate
+          - href: posts/topology-errors.qmd
+            text: Check Topology
+          - href: posts/crs-mismatch.qmd
+            text: CRS
+          - text: "---"
+          - href: posts/raster-file-inspection.qmd
+            text: Inspect
+          - href: posts/raster-band-math.qmd
+            text: Calculate
+          - href: posts/raster-ndvi.qmd
+            text: NDVI
+          - href: posts/raster-viewshed.qmd
+            text: Viewshed
+      - about.qmd
+    # Two groups per dropdown now: "Spatial Data Quality" (Fase 1) and
+    # "Raster" (Fase 2, started 2026-09-06) — see include-after-body's
+    # script for how the "---" dividers above become labeled headers.
+  open-graph: true
+  # sitemap.xml is not a key of its own: Quarto generates it automatically in
+  # _site/ when site-url is set. Placeholder to be confirmed — change it if
+  # the final domain/path of the blog section differs (see plan §5).
+  site-url: "https://webgeods.com"
+
+format:
+  html:
+    theme:
+      - cosmo
+      - brand # from _brand.yml, copied here from shared/ via sync-shared-assets.sh
+    css: [styles.css, fonts.css]
+    page-layout: article # for full-width PoCs/webapps: override per-page with `page-layout: full`
+    reference-location: margin # footnotes render as Tufte-style sidenotes in the same margin column the TOC already uses, instead of endnotes at the page bottom
+    # false (not true, unlike lessons/_quarto.yml): confirmed via
+    # `quarto render` that embed-resources:true silently suppresses
+    # RSS feed generation (feed: true on the index.qmd listing then
+    # produces no index.xml, no warning). It also isn't needed here —
+    # per piano-separazione-blog-lezioni.md §3, embed-resources:true
+    # is a lessons/-only requirement (single self-contained HTML for
+    # a cross-origin Teachable iframe); the blog is meant to be
+    # discoverable/shareable, the opposite goal, so separate files
+    # (shared via _site/site_libs across pages) are the correct
+    # choice here too, not just the RSS workaround.
+    embed-resources: false
+    include-in-header:
+      - text: |
+          <meta name="google-site-verification" content="qJP5C72-4WUUqIsBrZ3qXz62Hk1hTsQI8A9nztQemfg" />
+          <script>window.WEBGEODS_ASSET_BASE = "/";</script>
+          <!-- GoatCounter: privacy-friendly (no cookies, no personal
+               data), so no consent banner is required. Automatically
+               tracks pageviews (= article_view / tool_click-through as
+               a pageview on the destination); WebGeoDS.track() (see
+               shared/runtime.js) sends the additional named events
+               from the plan (tool_loaded, file_uploaded,
+               code_run_started/completed, download_clicked, ...). -->
+          <script data-goatcounter="https://webgeods.goatcounter.com/count"
+                  async src="//gc.zgo.at/count.js"></script>
+          <script>
+            // Generic funnel signal: a click on any link to /tools/,
+            // from anywhere on the site (this article today, any
+            // future one) — captures click-through intent even if the
+            // destination tool's own WASM runtime never finishes
+            // loading (so tool_loaded never fires for that visit).
+            document.addEventListener("click", (e) => {
+              const a = e.target.closest('a[href*="/tools/"]');
+              if (a) window.WebGeoDS?.track?.("tool_click", { href: a.getAttribute("href") });
+            });
+          </script>
+    include-after-body:
+      - text: |
+          <script src="/runtime.js"></script>
+          <script src="/python.js"></script>
+          <script src="/r.js"></script>
+          <script src="/code-cell.js"></script>
+          <script src="/map.js"></script>
+          <script src="/table.js"></script>
+          <script src="/upload.js"></script>
+          <script src="/download.js"></script>
+          <script>
+            // Quarto's navbar schema has no non-clickable header item
+            // inside a dropdown, and nested `menu:` submenus aren't
+            // supported either (quarto render itself refuses them:
+            // "this menu does not support sub-menus") -- so each
+            // group's label (see _quarto.yml's navbar) is inserted
+            // here instead, right where its own "---" divider already
+            // marks its place. Labels are matched to dividers by
+            // POSITION (first divider -> first label, second ->
+            // second, ...) -- both dropdowns carry the same two groups
+            // in the same order, but this doesn't assume they always
+            // will.
+            document.addEventListener("DOMContentLoaded", () => {
+              const GROUP_LABELS = ["Spatial Data Quality", "Raster"];
+              ["nav-menu-tools", "nav-menu-articles"].forEach((id) => {
+                const toggle = document.getElementById(id);
+                const dividers = toggle?.nextElementSibling?.querySelectorAll(".dropdown-divider");
+                if (!dividers) return;
+                dividers.forEach((divider, i) => {
+                  const label = GROUP_LABELS[i];
+                  if (!label) return;
+                  const li = document.createElement("li");
+                  li.innerHTML = `<h6 class="dropdown-header">${label}</h6>`;
+                  divider.closest("li").after(li);
+                });
+              });
+            });
+          </script>
+          <script>
+            // Both the navbar title (Quarto's `website.title`) and a
+            // page's own H1 (Quarto's `title:` frontmatter field) are
+            // rendered plain by Quarto's own template — no way to hand
+            // either already-styled HTML from the source. Every
+            // occurrence of "webGeoDs" in either gets restyled here to
+            // the wordmark: "web" + "Geo" (capitalized, colored to
+            // match the logo's terracotta point) + "Ds" — a substring
+            // replace, not an exact-match check, since a page title can
+            // be a compound like "webGeoDs — Articles" and still needs
+            // its "webGeoDs" part colored, with the rest of the string
+            // left alone. Every OTHER "webGeoDs" mention on the site
+            // (body prose, not currently used anywhere) would be real
+            // HTML written directly in its own page instead — this
+            // only owns the two spots Quarto itself generates the text
+            // with no opportunity to write it by hand.
+            document.addEventListener("DOMContentLoaded", () => {
+              const wordmarkHtml = 'web<span class="webgeods-wordmark-geo">Geo</span>Ds';
+              document.querySelectorAll(".navbar-title, h1.title").forEach((el) => {
+                if (el.textContent.includes("webGeoDs")) {
+                  el.innerHTML = el.textContent.split("webGeoDs").join(wordmarkHtml);
+                }
+              });
+            });
+          </script>
+    toc: true
+filters:
+  - webgeods-cells.lua
+  - seo-meta.lua

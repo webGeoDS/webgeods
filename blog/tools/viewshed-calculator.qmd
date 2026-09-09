@@ -1,0 +1,743 @@
+---
+title: "Viewshed Calculator"
+date: 2026-09-07
+categories: [tool, raster]
+description: "Upload a DEM, place an observer, and see which cells are visible from that point — a colored map overlay and a downloadable GeoTIFF. Runs entirely in your browser, powered by R."
+page-layout: full
+---
+
+Upload a `.tif`/`.tiff` elevation model (DEM), click the map (or type
+coordinates) to place an observer, and see which cells are visible
+from that point — accounting for terrain occlusion.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (R via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+```{ojs}
+//| echo: false
+mutable uploadBusy = false
+```
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "📁 Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  // R-only tool — the first one in this project. rasterio/GDAL have
+  // no viewshed function usable in Pyodide (verified directly against
+  // this project: gdal isn't in Pyodide's own curated package index),
+  // while terra::viewshed() works. Skip writing to Python's
+  // filesystem entirely, same reasoning every Python-only tool here
+  // already uses in reverse.
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["r"] });
+    if (result.ok) {
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.45, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "viewshed-calculator" });
+  return map;
+}
+```
+
+The code itself isn't shown here — it's a fixed, non-editable
+computation using `terra::viewshed()` underneath. Want to see it
+built up step by step (and read why this tool runs on R, not Python)?
+Read
+[Viewshed: What's Visible from Here](/posts/raster-viewshed.html).
+
+```{ojs}
+//| echo: false
+//| output: false
+// "Load example" writes a small synthetic DEM directly — a Gaussian
+// hill, same shape reused across the whole Raster family, but here
+// deliberately in a GEOGRAPHIC CRS (EPSG:4326), the case real-world
+// DEMs (SRTM and similar) commonly ship in and the one
+// terra::viewshed() itself refuses to compute on directly — so the
+// example exercises the tool's own automatic reprojection path, not
+// just the easy case.
+generateExample = async () => {
+  await window.WebGeoDS.CodeCell.find("viewshed-generate-example-r").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      await generateExample();
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = "✓ example DEM loaded — click the map or enter coordinates, then Compute.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
+}
+```
+
+```{.webgeods-r #viewshed-generate-example-r}
+#| package: terra, codetools
+library(terra)
+
+n <- 20
+xs <- 0:(n - 1)
+ys <- 0:(n - 1)
+elevation <- outer(ys, xs, function(y, x) 100 + 40 * exp(-((x - 10)^2 + (y - 10)^2) / 30))
+r <- rast(elevation, crs = "EPSG:4326")
+ext(r) <- c(12.40, 12.40 + n * 0.005, 41.95 - n * 0.005, 41.95)
+
+writeRaster(r, "/uploaded.tif", overwrite = TRUE, filetype = "GTiff")
+
+"example DEM written"
+```
+
+```{.webgeods-r #viewshed-inspect-r}
+#| package: terra, jsonlite, codetools
+library(terra)
+
+path <- NULL
+for (candidate in c("/uploaded.tif")) {
+  ok <- tryCatch({ rast(candidate); TRUE }, error = function(e) FALSE)
+  if (ok) { path <- candidate; break }
+}
+
+summary_out <- NULL
+footprint <- list(type = jsonlite::unbox("FeatureCollection"), features = list())
+
+if (!is.null(path)) {
+  r <- rast(path)
+  # Only the first band is treated as elevation -- a DEM is normally
+  # single-band; extra bands (if any) are simply ignored, same
+  # reasoning as every raster tool on this site that only needs one
+  # value per pixel.
+  elevation <- r[[1]]
+
+  # Same missing-CRS convention as the rest of the Raster family:
+  # unknown stays unknown, never silently relabeled as WGS84. Here the
+  # stakes are higher than a display nuance -- viewshed cannot pick a
+  # working projection or place an observer without knowing where on
+  # Earth the file actually is, so Compute refuses outright on a
+  # CRS-less file (see viewshed-r below) rather than guessing.
+  crs_label <- if (crs(elevation) == "") {
+    NULL
+  } else {
+    crs_desc <- crs(elevation, describe = TRUE)
+    if (!is.na(crs_desc$authority) && !is.na(crs_desc$code)) {
+      paste0(crs_desc$authority, ":", crs_desc$code)
+    } else {
+      crs(elevation, proj = TRUE)
+    }
+  }
+
+  e <- ext(elevation)
+  bbox_wkt <- paste0(
+    "POLYGON((",
+    e$xmin, " ", e$ymin, ", ", e$xmax, " ", e$ymin, ", ",
+    e$xmax, " ", e$ymax, ", ", e$xmin, " ", e$ymax, ", ",
+    e$xmin, " ", e$ymin, "))"
+  )
+  bbox_vect <- vect(bbox_wkt, crs = if (crs(elevation) == "") "EPSG:4326" else crs(elevation))
+  bbox_wgs84 <- tryCatch(project(bbox_vect, "EPSG:4326"), error = function(err) bbox_vect)
+  bbox_geom <- geom(bbox_wgs84)
+  footprint_coords <- lapply(seq_len(nrow(bbox_geom)), function(i) c(bbox_geom[i, "x"], bbox_geom[i, "y"]))
+
+  footprint <- list(
+    type = jsonlite::unbox("FeatureCollection"),
+    features = list(list(
+      type = jsonlite::unbox("Feature"),
+      properties = list(name = jsonlite::unbox("DEM footprint")),
+      geometry = list(type = jsonlite::unbox("Polygon"), coordinates = list(footprint_coords))
+    ))
+  )
+
+  summary_out <- list(
+    width = jsonlite::unbox(ncol(elevation)),
+    height = jsonlite::unbox(nrow(elevation)),
+    crs = if (is.null(crs_label)) NULL else jsonlite::unbox(crs_label),
+    bounds = round(c(e$xmin, e$ymin, e$xmax, e$ymax), 6)
+  )
+}
+
+result <- list(summary = summary_out, footprint = footprint)
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+autoInspect = async () => {
+  await window.WebGeoDS.CodeCell.find("viewshed-inspect-r").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+FOOTPRINT_PAINT = ({
+  "fill-color": "#42583c",
+  "fill-opacity": 0.35,
+  "fill-outline-color": "#2a2117"
+})
+```
+
+```{ojs}
+//| echo: false
+mutable inspectSummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable resultSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rInspect = WebGeoDS.getCellValue("viewshed-inspect-r", Generators)
+{
+  if (rInspect && rInspect.summary) {
+    await sharedMap.setGeoJSON("viewshed-footprint", rInspect.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(rInspect.footprint);
+    mutable inspectSummary = rInspect.summary;
+    // A fresh upload/example invalidates any previously computed
+    // result — same reasoning as clicking Reset.
+    await sharedMap.removeRasterImage("viewshed-result");
+    mutable resultSummary = null;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// base64 -> raw bytes, same pattern as the rest of the site (binary
+// data can only cross the webR->JS bridge as a cell value via a text
+// encoding).
+base64ToBytes = (base64Str) => {
+  const binary = atob(base64Str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+```
+
+```{.webgeods-r #viewshed-r}
+#| inject: [obsLon, obsLat, obsHeight]
+#| package: terra, jsonlite, codetools
+library(terra)
+
+r <- rast(path)
+elevation <- r[[1]]
+
+if (crs(elevation) == "") {
+  stop("This file has no declared CRS — a real-world location is required to compute a viewshed (to choose a working projection and place the observer correctly). Upload a georeferenced DEM.")
+}
+
+original_crs_label <- {
+  crs_desc <- crs(elevation, describe = TRUE)
+  if (!is.na(crs_desc$authority) && !is.na(crs_desc$code)) {
+    paste0(crs_desc$authority, ":", crs_desc$code)
+  } else {
+    crs(elevation, proj = TRUE)
+  }
+}
+
+# Working/calculation CRS: terra::viewshed() requires projected
+# coordinates (confirmed empirically -- it throws "the method does
+# not support lon/lat data" otherwise). A geographic DEM is
+# reprojected HERE, for this calculation only -- the original raster
+# is never modified, and the CRS reported above is the file's real
+# one, not this working projection. The UTM zone is picked from the
+# raster's own centre -- a reasonable default for a single local DEM,
+# not a universally correct choice (a DEM spanning multiple UTM
+# zones, near the poles, or very large would need a deliberate choice
+# instead).
+if (is.lonlat(elevation)) {
+  e <- ext(elevation)
+  center_lon <- (e$xmin + e$xmax) / 2
+  center_lat <- (e$ymin + e$ymax) / 2
+  utm_zone <- floor((center_lon + 180) / 6) + 1
+  calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
+  elevation_calc <- project(elevation, paste0("EPSG:", calc_epsg), method = "bilinear")
+} else {
+  elevation_calc <- elevation
+}
+
+calc_crs_label <- {
+  crs_desc <- crs(elevation_calc, describe = TRUE)
+  if (!is.na(crs_desc$authority) && !is.na(crs_desc$code)) {
+    paste0(crs_desc$authority, ":", crs_desc$code)
+  } else {
+    crs(elevation_calc, proj = TRUE)
+  }
+}
+
+# The observer point always arrives as lon/lat (map click or manual
+# input) and is reprojected into whatever the calculation CRS turned
+# out to be -- whether or not the raster itself needed reprojecting.
+obs_pt <- vect(matrix(c(as.numeric(obsLon), as.numeric(obsLat)), ncol = 2), crs = "EPSG:4326")
+obs_pt_calc <- project(obs_pt, crs(elevation_calc))
+obs_xy <- as.numeric(crds(obs_pt_calc)[1, ])
+
+vs <- viewshed(elevation_calc, loc = obs_xy, observer = as.numeric(obsHeight), target = 0)
+
+# Recoded for the shared canvas renderer (shared/map.js): NaN already
+# renders transparent there, so "not visible" becomes NaN instead of
+# FALSE/0 -- only the visible area paints, nothing new needed in
+# shared code, same trick as this tool's own Calculator/NDVI siblings
+# reusing setRasterImage() without modifying it.
+vs_num <- as.numeric(values(vs, mat = FALSE))
+visible_mask <- vs_num == 1
+vs_num[!visible_mask] <- NaN
+vs_num[visible_mask] <- 1
+
+n_visible <- sum(visible_mask, na.rm = TRUE)
+n_total <- length(vs_num)
+
+e_calc <- ext(elevation_calc)
+bbox_wkt <- paste0(
+  "POLYGON((",
+  e_calc$xmin, " ", e_calc$ymin, ", ", e_calc$xmax, " ", e_calc$ymin, ", ",
+  e_calc$xmax, " ", e_calc$ymax, ", ", e_calc$xmin, " ", e_calc$ymax, ", ",
+  e_calc$xmin, " ", e_calc$ymin, "))"
+)
+bbox_vect <- vect(bbox_wkt, crs = crs(elevation_calc))
+bbox_wgs84 <- tryCatch(project(bbox_vect, "EPSG:4326"), error = function(err) bbox_vect)
+bbox_geom <- geom(bbox_wgs84)
+footprint_coords <- lapply(seq_len(nrow(bbox_geom)), function(i) c(bbox_geom[i, "x"], bbox_geom[i, "y"]))
+e_wgs84 <- ext(bbox_wgs84)
+
+footprint <- list(
+  type = jsonlite::unbox("FeatureCollection"),
+  features = list(list(
+    type = jsonlite::unbox("Feature"),
+    properties = list(name = jsonlite::unbox("viewshed footprint")),
+    geometry = list(type = jsonlite::unbox("Polygon"), coordinates = list(footprint_coords))
+  ))
+)
+
+# Same base64-float32 pixel transfer already proven for Band Math/NDVI
+# on the R side: rawConnection()+writeBin()+jsonlite::base64_enc().
+con <- rawConnection(raw(0), "wb")
+writeBin(vs_num, con, size = 4, endian = "little")
+raw_bytes <- rawConnectionValue(con)
+close(con)
+data_b64 <- jsonlite::base64_enc(raw_bytes)
+
+summary_out <- list(
+  width = jsonlite::unbox(ncol(vs)),
+  height = jsonlite::unbox(nrow(vs)),
+  data = jsonlite::unbox(data_b64),
+  wgs84Bounds = round(c(e_wgs84$xmin, e_wgs84$ymin, e_wgs84$xmax, e_wgs84$ymax), 6),
+  originalCrs = jsonlite::unbox(original_crs_label),
+  calculationCrs = jsonlite::unbox(calc_crs_label),
+  observerHeight = jsonlite::unbox(as.numeric(obsHeight)),
+  visiblePixels = jsonlite::unbox(n_visible),
+  totalPixels = jsonlite::unbox(n_total),
+  visiblePercent = jsonlite::unbox(round(100 * n_visible / n_total, 1))
+)
+
+result_out <- list(summary = summary_out, footprint = footprint)
+jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)
+```
+
+```{.webgeods-r #viewshed-export-r}
+#| inject: [obsLon, obsLat, obsHeight]
+#| package: terra, jsonlite, codetools
+# Recomputes the same viewshed (cheap relative to re-reading the
+# source file) and writes it as an actual GeoTIFF via writeRaster() —
+# in the CALCULATION crs (the projection the computation actually ran
+# in), not the original file's CRS, since re-reprojecting the result
+# back just for convenience would add a step with no real benefit —
+# the download button below labels this explicitly.
+library(terra)
+
+r <- rast(path)
+elevation <- r[[1]]
+
+if (is.lonlat(elevation)) {
+  e <- ext(elevation)
+  center_lon <- (e$xmin + e$xmax) / 2
+  center_lat <- (e$ymin + e$ymax) / 2
+  utm_zone <- floor((center_lon + 180) / 6) + 1
+  calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
+  elevation_calc <- project(elevation, paste0("EPSG:", calc_epsg), method = "bilinear")
+} else {
+  elevation_calc <- elevation
+}
+
+obs_pt <- vect(matrix(c(as.numeric(obsLon), as.numeric(obsLat)), ncol = 2), crs = "EPSG:4326")
+obs_pt_calc <- project(obs_pt, crs(elevation_calc))
+obs_xy <- as.numeric(crds(obs_pt_calc)[1, ])
+
+vs <- viewshed(elevation_calc, loc = obs_xy, observer = as.numeric(obsHeight), target = 0)
+
+out_path <- "/tmp/viewshed.tif"
+writeRaster(vs, out_path, overwrite = TRUE, filetype = "GTiff")
+raw_bytes <- readBin(out_path, what = "raw", n = file.info(out_path)$size)
+jsonlite::base64_enc(raw_bytes)
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Colored overlay for a boolean result -- not a gradient like Band
+// Math/NDVI. Both ramp stops are the same warm color: any finite
+// value (only ever 1, "visible") paints solid, NaN ("not visible")
+// stays transparent via _renderRasterCanvas's existing NaN handling.
+VIEWSHED_RAMP = [
+  [0.00, 255, 213, 79],
+  [1.00, 255, 213, 79]
+]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Static: unlike the band pickers on Calculator/NDVI, nothing here
+// depends on the uploaded file's shape, so this cell (and the DOM
+// nodes it creates) never needs to be rebuilt — map-click wiring
+// below can bind to it once.
+observerRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+
+  const makeNumberInput = (id, defaultValue, step, width) => {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.id = id;
+    input.step = String(step);
+    input.value = String(defaultValue);
+    input.className = "webgeods-panel-status";
+    input.style.width = width;
+    return input;
+  };
+
+  const label = (text) => {
+    const span = document.createElement("span");
+    span.className = "webgeods-panel-status";
+    span.textContent = text;
+    return span;
+  };
+
+  const lonInput = makeNumberInput("observer-lon-input", 12.45, 0.0001, "95px");
+  const latInput = makeNumberInput("observer-lat-input", 41.90, 0.0001, "95px");
+  const heightInput = makeNumberInput("observer-height-input", 1.8, 0.1, "60px");
+
+  const computeButton = document.createElement("button");
+  computeButton.className = "webgeods-panel-btn";
+  computeButton.textContent = "▶ Compute";
+  computeButton.onclick = async () => {
+    if (!inspectSummary) {
+      mutable uploadStatus = "⚠️ Upload a DEM or load the example first.";
+      return;
+    }
+    computeButton.disabled = true;
+    const originalText = computeButton.textContent;
+    computeButton.textContent = "⌛ Computing...";
+    try {
+      const obsLon = Number(lonInput.value);
+      const obsLat = Number(latInput.value);
+      const obsHeight = Number(heightInput.value);
+      window.obsLon = obsLon;
+      window.obsLat = obsLat;
+      window.obsHeight = obsHeight;
+      await window.WebGeoDS.CodeCell.find("viewshed-r").run();
+      // The cell's own return value is { summary, footprint } (same
+      // shape as the inspect cell, unlike Calculator/NDVI's flat
+      // compute-cell output) -- summary holds the fields used here.
+      const result = document.getElementById("viewshed-r").value.summary;
+      await sharedMap.setRasterImage("viewshed-result", {
+        bounds: result.wgs84Bounds,
+        width: result.width,
+        height: result.height,
+        values: new Float32Array(base64ToBytes(result.data).buffer),
+        min: 0,
+        max: 1,
+        colorRamp: VIEWSHED_RAMP
+      });
+      mutable resultSummary = { ...result, obsLon, obsLat };
+      window.WebGeoDS.track?.("validation_completed", { tool: "viewshed-calculator" });
+    } catch (err) {
+      console.error("viewshed-calculator: Compute failed", err);
+      mutable uploadStatus = `⚠️ Compute failed: ${err.message}`;
+    } finally {
+      computeButton.disabled = false;
+      computeButton.textContent = originalText;
+    }
+  };
+
+  row.append(
+    label("Observer lon:"), lonInput,
+    label("lat:"), latInput,
+    label("height (m):"), heightInput,
+    label("— or click the map"),
+    computeButton
+  );
+
+  return row;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Wires the map click -> observer inputs once. sharedMap.map is
+// MapLibre's own instance (already used directly elsewhere in this
+// session for source lookups) -- no new shared/map.js method needed,
+// same "JS decides the interaction, the engine only computes"
+// architecture as everywhere else on this site.
+mapClickWiring = {
+  sharedMap.map.on("click", (e) => {
+    const lonInput = document.getElementById("observer-lon-input");
+    const latInput = document.getElementById("observer-lat-input");
+    if (lonInput) lonInput.value = e.lngLat.lng.toFixed(6);
+    if (latInput) latInput.value = e.lngLat.lat.toFixed(6);
+  });
+  return true;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+downloadButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "⬇ Download (calculation CRS)";
+  button.disabled = !resultSummary;
+  button.onclick = async () => {
+    if (!resultSummary) return;
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "⌛ Preparing...";
+    try {
+      window.obsLon = resultSummary.obsLon;
+      window.obsLat = resultSummary.obsLat;
+      window.obsHeight = resultSummary.observerHeight;
+      await window.WebGeoDS.CodeCell.find("viewshed-export-r").run();
+      const b64 = document.getElementById("viewshed-export-r").value;
+      const bytes = base64ToBytes(b64);
+      const base = WebGeoDS.Upload.baseName(uploadedFiles);
+      WebGeoDS.downloadBlob(
+        bytes,
+        base ? `${base}-viewshed.tif` : "viewshed.tif",
+        "image/tiff",
+        { tool: "viewshed-calculator" }
+      );
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+resetCalculator = async () => {
+  await sharedMap.removeRasterImage("viewshed-result");
+  if (sharedMap.getGeoJSON("viewshed-footprint")) {
+    await sharedMap.setGeoJSON("viewshed-footprint", { type: "FeatureCollection", features: [] });
+  }
+  mutable inspectSummary = null;
+  mutable resultSummary = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
+  button.onclick = () => resetCalculator();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
+  return row;
+}
+```
+
+*First run loads the R engine — expect 1-3 minutes (R's WebAssembly
+build is noticeably slower to start than this site's Python tools).
+Instant after that, and again each time you come back to this page.*
+
+:::: {.webgeods-panel}
+
+::: {.webgeods-panel-row}
+${controlPanelRow}
+:::
+
+::: {.webgeods-panel-row}
+${uploadStatusEl}
+:::
+
+::: {.webgeods-panel-row}
+${observerRow}
+:::
+
+::::
+
+```{ojs}
+//| echo: false
+statCard = {
+  const s = inspectSummary;
+  const r = resultSummary;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Dimensions", "—");
+    row("—", "Upload a .tif/.tiff DEM or load the example above");
+    return box;
+  }
+
+  row("Dimensions", `${s.width} × ${s.height} px`);
+  row("Original CRS", s.crs === null || s.crs === undefined ? "Unknown ⚠️ viewshed needs a real-world location" : s.crs);
+  row("Bounds", s.bounds.join(", "));
+
+  if (r) {
+    row("Calculation CRS", r.calculationCrs);
+    row("Observer height", `${r.observerHeight} m`);
+    row("Visible pixels", r.visiblePixels.toLocaleString());
+    row("Total pixels", r.totalPixels.toLocaleString());
+    row("Visible %", `${r.visiblePercent}%`);
+  }
+
+  return box;
+}
+```
+
+${statCard}
+
+```{ojs}
+//| echo: false
+legendEl = {
+  const r = resultSummary;
+  const wrap = document.createElement("div");
+  wrap.className = "webgeods-legend";
+  if (!r) {
+    wrap.hidden = true;
+    return wrap;
+  }
+  const swatch = document.createElement("div");
+  swatch.className = "webgeods-legend-bar";
+  swatch.style.flex = "0 0 32px";
+  swatch.style.background = "rgb(255,213,79)";
+  const label = document.createElement("span");
+  label.className = "webgeods-legend-label";
+  label.textContent = "Visible from observer";
+  wrap.append(swatch, label);
+  return wrap;
+}
+```
+
+${legendEl}
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+<style>
+#viewshed-generate-example-r, #viewshed-inspect-r, #viewshed-r, #viewshed-export-r {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+Fourth and last tool in the Raster family. Read the
+<a href="/posts/raster-viewshed.html">companion article</a> for the
+same computation built up one cell at a time — including why this is
+the one tool on this site that runs on R, with Python shown only as a
+reference (not runnable here).
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

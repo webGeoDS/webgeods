@@ -1,0 +1,43 @@
+---
+title: "webGeoDs"
+description: "Spatial Data Science, directly in your browser — interactive articles and free tools for Python and R, with no local setup and nothing ever uploaded."
+---
+
+**Read** — interactive articles that explain a spatial problem
+properly, with runnable Python and R examples built in, not just
+diagrams. [Explore the articles →](/articles.html)
+
+**Use** — free standalone tools for the same checks, when you just
+need an answer, not the full explanation. [Explore the tools →](/tools/index.html)
+
+## Spatial Data Quality
+
+A small, focused toolkit for checking geospatial data before you trust
+it. Free, no account, nothing leaves your browser.
+
+**Tools** — [Inspect](/tools/geospatial-file-inspector.html) ·
+[Validate](/tools/geojson-shapefile-validator.html) ·
+[Check Topology](/tools/topology-checker.html) ·
+[CRS](/tools/crs-inspector.html)
+
+**Articles** — [Inspect](/posts/geospatial-file-inspection.html) ·
+[Validate](/posts/geometry-validity.html) ·
+[Check Topology](/posts/topology-errors.html) ·
+[CRS](/posts/crs-mismatch.html)
+
+## Raster
+
+Reading a GeoTIFF's dimensions, bands, CRS, and NoData, then computing
+with it — combining two bands into a colored result, including a
+vegetation-specific NDVI map, and modeling what's visible from a
+point given the terrain in between.
+
+**Tools** — [Inspect](/tools/raster-inspector.html) →
+[Calculate](/tools/raster-calculator.html) →
+[NDVI](/tools/ndvi-calculator.html) →
+[Viewshed](/tools/viewshed-calculator.html)
+
+**Articles** — [Inspect](/posts/raster-file-inspection.html) →
+[Calculate](/posts/raster-band-math.html) →
+[NDVI](/posts/raster-ndvi.html) →
+[Viewshed](/posts/raster-viewshed.html)

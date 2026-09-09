@@ -1,0 +1,739 @@
+---
+title: "Raster Calculator & Band Math"
+date: 2026-09-07
+categories: [tool, raster]
+description: "Upload a multi-band GeoTIFF, pick two bands and an operation, and see the computed result as a colored map overlay. Free, runs entirely in your browser: the file never leaves your computer."
+page-layout: full
+---
+
+Upload a `.tif`/`.tiff` file with two or more bands, pick Band A,
+Band B, and an operation, and get the computed band back — as a
+colored overlay on the map and as a downloadable GeoTIFF.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (Python via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+```{ojs}
+//| echo: false
+mutable uploadBusy = false
+```
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "📁 Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  // Python-only tool, same reasoning as the Inspector: skip writing to
+  // R's filesystem entirely so selecting a file doesn't also boot
+  // webR in the background for nothing.
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
+    if (result.ok) {
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "raster-calculator" });
+  return map;
+}
+```
+
+The code itself isn't shown here — it's a fixed, non-editable
+computation using `rasterio`/`numpy` underneath. Want to see the same
+computation built up step by step, in Python *and* R? Read
+[Raster Band Math](/posts/raster-band-math.html).
+
+```{ojs}
+//| echo: false
+//| output: false
+// "Load example" writes a small synthetic TWO-band raster directly
+// (unlike the Inspector's own fallback, which is a single band — a
+// 1-band file can't demonstrate band math at all). Two different
+// Gaussian bumps, close enough that every operator produces a
+// non-trivial pattern, far enough apart that Normalized Difference
+// isn't ~0 everywhere.
+generateExample = async () => {
+  await window.WebGeoDS.CodeCell.find("raster-calc-generate-example-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      await generateExample();
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = "✓ example data loaded — pick two bands and Compute below.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
+}
+```
+
+```{.webgeods-python #raster-calc-generate-example-py}
+#| package: rasterio, numpy
+import rasterio
+from rasterio.transform import from_origin
+import numpy as np
+
+n = 20
+xs = np.arange(n)
+ys = np.arange(n)
+X, Y = np.meshgrid(xs, ys)
+
+band1 = (100 + 40 * np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)).astype("float32")
+band2 = (100 + 25 * np.exp(-((X - 6) ** 2 + (Y - 14) ** 2) / 40)).astype("float32")
+band1[0, 0] = -9999
+band2[0, 0] = -9999
+
+transform = from_origin(12.40, 41.95, 0.005, 0.005)
+
+with rasterio.open(
+    "/uploaded.tif", "w", driver="GTiff", height=n, width=n, count=2,
+    dtype="float32", crs="EPSG:4326", transform=transform, nodata=-9999
+) as dst:
+    dst.write(band1, 1)
+    dst.write(band2, 2)
+
+"example raster written"
+```
+
+```{.webgeods-python #raster-calc-inspect-py}
+#| package: rasterio, numpy
+import rasterio
+from rasterio.warp import transform_bounds
+
+path = None
+for candidate in ["/uploaded.tif"]:
+    try:
+        with rasterio.open(candidate):
+            path = candidate
+            break
+    except Exception:
+        pass
+
+summary = None
+footprint = {"type": "FeatureCollection", "features": []}
+
+if path is not None:
+    with rasterio.open(path) as src:
+        # Same missing-CRS convention as the Raster Inspector: unknown
+        # stays unknown in the "crs" field, never silently relabeled as
+        # WGS84 — see displayCrsAssumption for the map-only exception.
+        crs_warning = None
+        display_crs_assumption = None
+        if src.crs is not None:
+            crs_for_transform = src.crs
+            crs_label = str(src.crs)
+        else:
+            crs_for_transform = "EPSG:4326"
+            crs_label = None
+            crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
+            display_crs_assumption = "EPSG:4326"
+
+        bounds = [round(float(b), 6) for b in src.bounds]
+        try:
+            wgs84_bounds = transform_bounds(crs_for_transform, "EPSG:4326", *src.bounds)
+        except Exception:
+            wgs84_bounds = src.bounds
+
+        minx, miny, maxx, maxy = wgs84_bounds
+        footprint = {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "properties": {"name": "raster footprint"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]
+                }
+            }]
+        }
+
+        summary = {
+            "width": src.width,
+            "height": src.height,
+            "bandCount": src.count,
+            "crs": crs_label,
+            "crsWarning": crs_warning,
+            "displayCrsAssumption": display_crs_assumption,
+            "bounds": bounds,
+        }
+
+{
+    "summary": summary,
+    "footprint": footprint
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+autoInspect = async () => {
+  await window.WebGeoDS.CodeCell.find("raster-calc-inspect-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+FOOTPRINT_PAINT = ({
+  "fill-color": "#42583c",
+  "fill-opacity": 0.35,
+  "fill-outline-color": "#2a2117"
+})
+```
+
+```{ojs}
+//| echo: false
+mutable inspectSummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable resultSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyInspect = WebGeoDS.getCellValue("raster-calc-inspect-py", Generators)
+{
+  if (pyInspect && pyInspect.summary) {
+    await sharedMap.setGeoJSON("raster-calc-footprint", pyInspect.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(pyInspect.footprint);
+    mutable inspectSummary = pyInspect.summary;
+    // A fresh upload/example invalidates any previously computed
+    // result — same reasoning as clicking Reset, just triggered by
+    // loading new data instead of an explicit click.
+    await sharedMap.removeRasterImage("raster-calc-result");
+    mutable resultSummary = null;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// base64 -> raw bytes, same pattern as crs-inspector.qmd's
+// base64ToBytes (binary data can only cross the Pyodide->JS bridge as
+// a cell value via a text encoding).
+base64ToBytes = (base64Str) => {
+  const binary = atob(base64Str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+```
+
+```{.webgeods-python #raster-calc-py}
+#| inject: [bandA, bandB, operator]
+#| package: rasterio, numpy
+import base64
+import numpy as np
+import rasterio
+from rasterio.warp import transform_bounds
+
+with rasterio.open(path) as src:
+    a = src.read(int(bandA), masked=True).astype("float32").filled(np.nan)
+    b = src.read(int(bandB), masked=True).astype("float32").filled(np.nan)
+
+    # errstate: a divide-by-zero or 0/0 (Normalized Difference on two
+    # all-zero pixels) produces Inf/NaN silently instead of a runtime
+    # warning — both get folded into NoData two lines down, so the
+    # canvas renderer and the stats below only ever have to reason
+    # about "finite" vs "not", not separately about Inf.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        if operator == "add":
+            result = a + b
+        elif operator == "subtract":
+            result = a - b
+        elif operator == "multiply":
+            result = a * b
+        elif operator == "divide":
+            result = a / b
+        elif operator == "normalized_difference":
+            result = (a - b) / (a + b)
+        else:
+            raise ValueError(f"unknown operator: {operator}")
+
+    result[~np.isfinite(result)] = np.nan
+
+    valid = result[np.isfinite(result)]
+    has_valid = valid.size > 0
+
+    # Same missing-CRS convention as raster-calc-inspect-py above —
+    # this cell's own output dict is independent, so the three CRS
+    # fields are recomputed here rather than inherited.
+    crs_warning = None
+    display_crs_assumption = None
+    if src.crs is not None:
+        crs_for_transform = src.crs
+        crs_label = str(src.crs)
+    else:
+        crs_for_transform = "EPSG:4326"
+        crs_label = None
+        crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
+        display_crs_assumption = "EPSG:4326"
+
+    try:
+        wgs84_bounds = transform_bounds(crs_for_transform, "EPSG:4326", *src.bounds)
+    except Exception:
+        wgs84_bounds = src.bounds
+
+    # Pixels cross the bridge as base64 float32 bytes, not a numpy
+    # array handed straight to toJs() — sidesteps any ambiguity about
+    # how a 2D ndarray converts, and reuses the exact binary-transfer
+    # pattern already proven in crs-inspector.qmd/
+    # geojson-shapefile-validator.qmd (there for a zipped shapefile,
+    # here for raw pixels — same mechanism, different payload).
+    data_b64 = base64.b64encode(result.astype("float32").tobytes()).decode("ascii")
+
+    output = {
+        "data": data_b64,
+        "width": src.width,
+        "height": src.height,
+        "bounds": [round(float(v), 6) for v in wgs84_bounds],
+        "min": round(float(valid.min()), 4) if has_valid else None,
+        "max": round(float(valid.max()), 4) if has_valid else None,
+        "mean": round(float(valid.mean()), 4) if has_valid else None,
+        "nodataCount": int(result.size - valid.size),
+        "totalPixels": int(result.size),
+        "crs": crs_label,
+        "crsWarning": crs_warning,
+        "displayCrsAssumption": display_crs_assumption,
+    }
+
+output
+```
+
+```{.webgeods-python #raster-calc-export-py}
+#| inject: [bandA, bandB, operator]
+#| package: rasterio, numpy
+# Recomputes the same band math (cheap relative to re-reading the
+# source file, and avoids having to carry the full-resolution result
+# array across cells/languages) and writes it as an actual GeoTIFF via
+# MemoryFile — same in-memory-file idiom already used elsewhere on
+# this site's raster tools, no virtual-filesystem path needed.
+import base64
+import numpy as np
+import rasterio
+from rasterio.io import MemoryFile
+
+with rasterio.open(path) as src:
+    a = src.read(int(bandA), masked=True).astype("float32").filled(np.nan)
+    b = src.read(int(bandB), masked=True).astype("float32").filled(np.nan)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        if operator == "add":
+            result = a + b
+        elif operator == "subtract":
+            result = a - b
+        elif operator == "multiply":
+            result = a * b
+        elif operator == "divide":
+            result = a / b
+        elif operator == "normalized_difference":
+            result = (a - b) / (a + b)
+        else:
+            raise ValueError(f"unknown operator: {operator}")
+
+    result[~np.isfinite(result)] = np.nan
+
+    profile = src.profile.copy()
+    profile.update(count=1, dtype="float32", nodata=np.nan)
+
+    memfile = MemoryFile()
+    with memfile.open(**profile) as dst:
+        dst.write(result, 1)
+    tiff_bytes = memfile.read()
+    memfile.close()
+
+base64.b64encode(tiff_bytes).decode("ascii")
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Two separate label sets, not one string-substituted from the other:
+// the dropdown's own option text has no band numbers yet to
+// substitute in (generic "A + B"), while the stat card's "Operation"
+// row needs the ACTUAL band numbers picked — a naive .replace("A", …)
+// on a template string breaks on Normalized Difference anyway, whose
+// label contains "A" and "B" twice each.
+OPERATOR_OPTIONS = ({
+  add: "A + B",
+  subtract: "A − B",
+  multiply: "A × B",
+  divide: "A ÷ B",
+  normalized_difference: "Normalized Difference (A−B)/(A+B)"
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+OPERATOR_DESCRIBE = ({
+  add: (a, b) => `Band ${a} + Band ${b}`,
+  subtract: (a, b) => `Band ${a} − Band ${b}`,
+  multiply: (a, b) => `Band ${a} × Band ${b}`,
+  divide: (a, b) => `Band ${a} ÷ Band ${b}`,
+  normalized_difference: (a, b) => `Normalized Difference: (Band ${a} − Band ${b}) / (Band ${a} + Band ${b})`
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The band pickers + operator + Compute button, rebuilt together
+// whenever inspectSummary changes — the option counts (band A/B
+// dropdowns) depend on the current file's actual band count, so a
+// static cell referencing a stale option list would drift out of sync
+// with a newly uploaded file. Disabled entirely (with an explanatory
+// message instead of a dropdown pair) for a file with fewer than 2
+// bands: band math has nothing to compute on a single band.
+bandMathRow = {
+  const s = inspectSummary;
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+
+  const bandCount = s ? s.bandCount : 0;
+
+  if (bandCount < 2) {
+    const status = document.createElement("span");
+    status.className = "webgeods-panel-status";
+    status.textContent = s
+      ? `This file has only ${bandCount} band — Band Math needs at least 2.`
+      : "Upload a file or load the example to pick bands.";
+    row.append(status);
+    return row;
+  }
+
+  const makeBandSelect = (id, label, defaultBand) => {
+    const wrap = document.createElement("span");
+    const span = document.createElement("span");
+    span.className = "webgeods-panel-status";
+    span.textContent = label;
+    const select = document.createElement("select");
+    select.id = id;
+    select.className = "webgeods-panel-status";
+    for (let i = 1; i <= bandCount; i++) {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = `Band ${i}`;
+      if (i === defaultBand) opt.selected = true;
+      select.appendChild(opt);
+    }
+    wrap.append(span, select);
+    return wrap;
+  };
+
+  const operatorSelect = document.createElement("select");
+  operatorSelect.id = "operator-select";
+  operatorSelect.className = "webgeods-panel-status";
+  Object.entries(OPERATOR_OPTIONS).forEach(([value, label]) => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    operatorSelect.appendChild(opt);
+  });
+
+  const computeButton = document.createElement("button");
+  computeButton.className = "webgeods-panel-btn";
+  computeButton.textContent = "▶ Compute";
+  computeButton.onclick = async () => {
+    computeButton.disabled = true;
+    const originalText = computeButton.textContent;
+    computeButton.textContent = "⌛ Computing...";
+    try {
+      const bandA = Number(document.getElementById("band-a-select").value);
+      const bandB = Number(document.getElementById("band-b-select").value);
+      const operator = document.getElementById("operator-select").value;
+      window.bandA = bandA;
+      window.bandB = bandB;
+      window.operator = operator;
+      await window.WebGeoDS.CodeCell.find("raster-calc-py").run();
+      const result = document.getElementById("raster-calc-py").value;
+      await sharedMap.setRasterImage("raster-calc-result", {
+        bounds: result.bounds,
+        width: result.width,
+        height: result.height,
+        values: new Float32Array(base64ToBytes(result.data).buffer),
+        min: result.min ?? 0,
+        max: result.max ?? 1
+      });
+      mutable resultSummary = { ...result, bandA, bandB, operator };
+      window.WebGeoDS.track?.("validation_completed", { tool: "raster-calculator" });
+    } catch (err) {
+      console.error("raster-calculator: Compute failed", err);
+      mutable uploadStatus = `⚠️ Compute failed: ${err.message}`;
+    } finally {
+      computeButton.disabled = false;
+      computeButton.textContent = originalText;
+    }
+  };
+
+  row.append(
+    makeBandSelect("band-a-select", "A:", 1),
+    makeBandSelect("band-b-select", "B:", Math.min(2, bandCount)),
+    operatorSelect,
+    computeButton
+  );
+
+  return row;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+downloadButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "⬇ Download result";
+  button.disabled = !resultSummary;
+  button.onclick = async () => {
+    if (!resultSummary) return;
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "⌛ Preparing...";
+    try {
+      window.bandA = resultSummary.bandA;
+      window.bandB = resultSummary.bandB;
+      window.operator = resultSummary.operator;
+      await window.WebGeoDS.CodeCell.find("raster-calc-export-py").run();
+      const b64 = document.getElementById("raster-calc-export-py").value;
+      const bytes = base64ToBytes(b64);
+      const base = WebGeoDS.Upload.baseName(uploadedFiles);
+      WebGeoDS.downloadBlob(
+        bytes,
+        base ? `${base}-${resultSummary.operator}.tif` : `band-math-${resultSummary.operator}.tif`,
+        "image/tiff",
+        { tool: "raster-calculator" }
+      );
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+resetCalculator = async () => {
+  await sharedMap.removeRasterImage("raster-calc-result");
+  if (sharedMap.getGeoJSON("raster-calc-footprint")) {
+    await sharedMap.setGeoJSON("raster-calc-footprint", { type: "FeatureCollection", features: [] });
+  }
+  mutable inspectSummary = null;
+  mutable resultSummary = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
+  button.onclick = () => resetCalculator();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
+  return row;
+}
+```
+
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+:::: {.webgeods-panel}
+
+::: {.webgeods-panel-row}
+${controlPanelRow}
+:::
+
+::: {.webgeods-panel-row}
+${uploadStatusEl}
+:::
+
+::: {.webgeods-panel-row}
+${bandMathRow}
+:::
+
+::::
+
+```{ojs}
+//| echo: false
+statCard = {
+  const s = inspectSummary;
+  const r = resultSummary;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Dimensions", "—");
+    row("—", "Upload a .tif/.tiff file or load the example above");
+    return box;
+  }
+
+  row("Dimensions", `${s.width} × ${s.height} px`);
+  row("Bands", String(s.bandCount));
+  row("CRS", s.crs === null || s.crs === undefined ? `Unknown ⚠️ ${s.crsWarning}` : s.crs);
+  if (s.displayCrsAssumption) {
+    row("Display assumption", `${s.displayCrsAssumption} — map only, not a fact about the file`);
+  }
+  row("Bounds", s.bounds.join(", "));
+
+  if (r) {
+    row("Operation", OPERATOR_DESCRIBE[r.operator](r.bandA, r.bandB));
+    row("Output range", r.min !== null ? `${r.min} to ${r.max} (mean ${r.mean})` : "all NoData");
+    row("NoData pixels", `${r.nodataCount.toLocaleString()} / ${r.totalPixels.toLocaleString()}`);
+  }
+
+  return box;
+}
+```
+
+${statCard}
+
+```{ojs}
+//| echo: false
+legendEl = {
+  const r = resultSummary;
+  const wrap = document.createElement("div");
+  wrap.className = "webgeods-legend";
+  if (!r || r.min === null) {
+    wrap.hidden = true;
+    return wrap;
+  }
+  const minLabel = document.createElement("span");
+  minLabel.className = "webgeods-legend-label";
+  minLabel.textContent = String(r.min);
+  const bar = document.createElement("div");
+  bar.className = "webgeods-legend-bar";
+  const stops = WebGeoDS.Map.DEFAULT_RASTER_RAMP
+    .map(([t, red, green, blue]) => `rgb(${red},${green},${blue}) ${t * 100}%`)
+    .join(", ");
+  bar.style.background = `linear-gradient(to right, ${stops})`;
+  const maxLabel = document.createElement("span");
+  maxLabel.className = "webgeods-legend-label";
+  maxLabel.textContent = String(r.max);
+  wrap.append(minLabel, bar, maxLabel);
+  return wrap;
+}
+```
+
+${legendEl}
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+<style>
+#raster-calc-generate-example-py, #raster-calc-inspect-py, #raster-calc-py, #raster-calc-export-py {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+Second tool in the Raster family. Read the
+<a href="/posts/raster-band-math.html">companion article</a> for the
+same computation in Python and R, one cell at a time, or start from
+<a href="/tools/raster-inspector.html">Raster Inspector</a> if you
+just need to see what's in a file first. Working with vegetation
+imagery specifically? Try the
+<a href="/tools/ndvi-calculator.html">NDVI Calculator</a> — the same
+Normalized Difference operation above, with red/near-infrared band
+presets and a vegetation color scale.
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

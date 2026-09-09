@@ -1,0 +1,846 @@
+---
+title: "Topology Checker"
+date: 2026-09-03
+categories: [tool, geometry]
+description: "Upload a GeoJSON or a Shapefile and check it for the five recurring topology errors — overlap, gap, sliver, duplicates, dangle. Free, runs entirely in your browser: the file never leaves your computer."
+page-layout: full
+---
+
+Upload a file — `.geojson`, or a shapefile as a single `.zip` or as
+`.shp`/`.dbf`/`.shx` selected together — and find out whether any
+feature overlaps, leaves a gap, is a sliver, duplicates another, or
+(for lines) dangles unconnected.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (Python via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+This is diagnosis only, not repair — fixing a topology error almost
+always requires a human decision (see the
+[full article](/posts/topology-errors.html) for why), so there's no
+"Fix" step here, just the report and a map to inspect it on.
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+```{ojs}
+//| echo: false
+// Pulses the status text while true — set around both the actual
+// file write AND the automatic check that follows it, same pattern
+// as geojson-shapefile-validator.qmd's uploadBusy.
+mutable uploadBusy = false
+```
+
+```{ojs}
+//| echo: false
+// The current file selection — a plain `mutable`, written by
+// uploadControl's onChange below. Was a `viewof`-bound variable
+// (Observable Inputs' Inputs.file() widget) until this cell replaced
+// it — see WebGeoDS.Upload.createControl's doc comment in
+// shared/upload.js for why.
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+// Which results the table (and the gaps map layer) currently shows —
+// "features" (the uploaded data, one row per original feature) or
+// "gaps" (the synthetic gap polygons check_gap() finds between
+// nearby features, one row each). Two truly separate map sources
+// (topology-py / topology-gaps-py, see pyErrors below) instead of one
+// merged collection: a gap has no corresponding row in the uploaded
+// file, so merging it in made the feature COUNT lie (54 "features"
+// for a 10-feature file) and made it impossible for the map to show
+// just the real data.
+mutable topologyView = "features"
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The upload control itself — a native <input type="file"> wrapped
+// in a <label> styled as a .webgeods-panel-btn. output:false + only
+// ever consumed via controlPanelRow's row.append() below (same
+// reasoning as loadExampleButton/checkButton there): folding it into
+// that one JS-built row, instead of giving it its own
+// `${uploadControl}` markdown interpolation, also sidesteps a real
+// bug found on geojson-shapefile-validator.qmd — two `${...}`
+// interpolations on separate paragraphs (needed there to dodge
+// Pandoc's math-dollar parser swallowing adjacent `${x} ${y}` on one
+// line) each get wrapped in their own <p>, and each <p> becomes an
+// independent flex item, breaking vertical alignment between them.
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  // Python-only tool: skip writing to R's filesystem entirely, so
+  // selecting a file doesn't also load webR in the background for
+  // no reason (see shared/upload.js's `languages` option doc).
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
+    if (result.ok) {
+      mutable uploadStatus = "⌛ Checking...";
+      await runCheck();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Only ever shown via ${uploadStatusEl} inside the panel — see
+// loadExampleButton's comment for why this needs output:false too.
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "topology-checker" });
+  return map;
+}
+```
+
+The code itself isn't shown here — it's a fixed, non-editable check
+using GeoPandas/Shapely underneath; see the
+[full article](/posts/topology-errors.html) for the actual code,
+editable and explained one check at a time.
+
+Gap and sliver aren't absolute properties of a dataset — they depend
+on a judgment call. **Sliver threshold** (compactness, 0-1): how thin
+counts as "not a real shape" — lower catches only thinner slivers.
+**Gap search distance** (degrees): how close two features need to be
+before a gap between them counts — larger finds gaps further apart.
+
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+:::: {.webgeods-panel}
+
+::: {.webgeods-panel-row}
+${sliderRow}
+:::
+
+${controlPanelRow}
+
+::: {.webgeods-panel-row}
+${uploadStatusEl}
+:::
+
+::::
+
+```{ojs}
+//| echo: false
+//| output: false
+// window.Inputs, lazy-loaded on demand (WebGeoDS.loadObservableInputs()
+// in shared/upload.js — awaited here directly, same reasoning as the
+// upload cell above: no bigger WebGeoDS wrapper exists to hide this
+// load step inside without recreating an indirection already removed
+// once). output:false: only ever shown via sliderRow below.
+sliverControl = {
+  await WebGeoDS.loadObservableInputs();
+  const el = window.Inputs.range([0.01, 0.9], {
+    value: 0.15,
+    step: 0.01,
+    label: "Sliver threshold"
+  });
+  // Read imperatively by id in checkButton's onclick below, not by
+  // referencing this OJS variable directly — doing the latter would
+  // make OJS recreate checkButton's whole cell on every drag tick.
+  el.id = "sliver-threshold-control";
+  return el;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+gapControl = {
+  await WebGeoDS.loadObservableInputs();
+  const el = window.Inputs.range([0.01, 0.5], {
+    value: 0.06,
+    step: 0.01,
+    label: "Gap search distance"
+  });
+  el.id = "gap-proximity-control";
+  return el;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Both sliders folded into one JS-built row (same reasoning as
+// controlPanelRow further down): `${sliverControl}` and
+// `${gapControl}` used to sit in the SAME markdown paragraph
+// separated by a blank line, which Pandoc wraps each in its own <p>
+// — and each <p> becomes an independent flex item, breaking their
+// alignment with each other exactly like uploadControl vs
+// controlPanelRow did (see uploadControl's comment above). Sliders
+// aren't `viewof` cells, just plain elements — safe to move via
+// appendChild, same as every button on this page.
+sliderRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(sliverControl, gapControl);
+  return row;
+}
+```
+
+```{.webgeods-python #topology-diagnose-py}
+#| package: geopandas, shapely
+#| inject: [sliverThreshold, gapProximity]
+import math
+from shapely.geometry import mapping
+
+def geom_family(gdf):
+    types = set(gdf.geometry.geom_type)
+    if types <= {"Polygon", "MultiPolygon"}:
+        return "polygon"
+    if types <= {"LineString", "MultiLineString"}:
+        return "line"
+    if types <= {"Point", "MultiPoint"}:
+        return "point"
+    return "mixed"
+
+def check_overlap(gdf):
+    n = len(gdf)
+    results = [[] for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            gi, gj = gdf.geometry.iloc[i], gdf.geometry.iloc[j]
+            if gi.overlaps(gj):
+                area = gi.intersection(gj).area
+                results[i].append(("overlap", j, area))
+                results[j].append(("overlap", i, area))
+    return results
+
+def check_duplicate(gdf):
+    n = len(gdf)
+    results = [[] for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            if gdf.geometry.iloc[i].equals(gdf.geometry.iloc[j]):
+                results[i].append(("duplicate", j, 0))
+                results[j].append(("duplicate", i, 0))
+    return results
+
+def check_sliver(gdf, compactness_threshold=0.15):
+    results = [[] for _ in range(len(gdf))]
+    for i, geom in enumerate(gdf.geometry):
+        perim = geom.length
+        area = geom.area
+        if perim > 0:
+            compactness = 4 * math.pi * area / (perim ** 2)
+            if compactness < compactness_threshold:
+                results[i].append(("sliver", None, compactness))
+    return results
+
+def check_gap(gdf, min_area=1e-6, proximity=0.06):
+    n = len(gdf)
+    gaps = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            gi, gj = gdf.geometry.iloc[i], gdf.geometry.iloc[j]
+            if gi.overlaps(gj):
+                continue
+            if gi.equals(gj):
+                continue
+            if gi.distance(gj) > proximity:
+                continue
+            pair_union = gi.union(gj)
+            gap_geom = pair_union.convex_hull.difference(pair_union)
+            if not gap_geom.is_empty:
+                parts = gap_geom.geoms if hasattr(gap_geom, "geoms") else [gap_geom]
+                for part in parts:
+                    if part.area > min_area:
+                        gaps.append(part)
+    return gaps
+
+def check_dangle(gdf, tolerance=1e-9):
+    endpoints = []
+    for i, geom in enumerate(gdf.geometry):
+        coords = list(geom.coords)
+        endpoints.append((i, "start", coords[0]))
+        endpoints.append((i, "end", coords[-1]))
+    results = [[] for _ in range(len(gdf))]
+    for i, which, (x, y) in endpoints:
+        connected = False
+        for j, which2, (x2, y2) in endpoints:
+            if j == i:
+                continue
+            if ((x - x2) ** 2 + (y - y2) ** 2) ** 0.5 <= tolerance:
+                connected = True
+                break
+        if not connected:
+            results[i].append(("dangle", which, 0))
+    return results
+
+def detect_and_check(gdf, sliver_threshold=0.15, gap_proximity=0.06):
+    family = geom_family(gdf)
+    n = len(gdf)
+    per_feature = [[] for _ in range(n)]
+    extra_features = []
+
+    dup = check_duplicate(gdf)
+    for i in range(n):
+        per_feature[i].extend(dup[i])
+
+    if family == "polygon":
+        ov = check_overlap(gdf)
+        sl = check_sliver(gdf, compactness_threshold=sliver_threshold)
+        for i in range(n):
+            per_feature[i].extend(ov[i])
+            per_feature[i].extend(sl[i])
+        for gap_geom in check_gap(gdf, proximity=gap_proximity):
+            extra_features.append({
+                "type": "Feature",
+                "properties": {
+                    "name": "gap", "error_type": "gap", "has_error": True,
+                    "partner": "", "metric": round(gap_geom.area, 6), "severity": "warning"
+                },
+                "geometry": mapping(gap_geom)
+            })
+    elif family == "line":
+        dg = check_dangle(gdf)
+        for i in range(n):
+            per_feature[i].extend(dg[i])
+
+    # Report columns computed here, then assigned onto gdf itself
+    # instead of building each feature's properties dict from scratch
+    # (an earlier version did that, discarding every other original
+    # column the uploaded file had — a real difference from
+    # geojson-shapefile-validator.qmd, which has always preserved
+    # them). "name" is guaranteed present by the caller already.
+    names = gdf["name"]
+    error_types, has_errors, partners, metrics, severities = [], [], [], [], []
+    for i in range(n):
+        errs = per_feature[i]
+        has_error = len(errs) > 0
+        partner_idx = errs[0][1] if has_error and isinstance(errs[0][1], int) else None
+        error_types.append(errs[0][0] if has_error else "")
+        has_errors.append(has_error)
+        partners.append(str(names.iloc[partner_idx]) if partner_idx is not None else "")
+        metrics.append(round(errs[0][2], 6) if has_error else 0)
+        severities.append("error" if has_error else "")
+
+    gdf["error_type"] = error_types
+    gdf["has_error"] = has_errors
+    gdf["partner"] = partners
+    gdf["metric"] = metrics
+    gdf["severity"] = severities
+
+    # Same reasoning as geojson-shapefile-validator.qmd: a None in an
+    # ORIGINAL column (not under our control) would otherwise vanish
+    # silently crossing the Pyodide->JS bridge as a live cell value.
+    for col in gdf.columns:
+        if col != "geometry":
+            gdf[col] = gdf[col].fillna("")
+
+    # Kept as two separate collections instead of one concatenated
+    # list (an earlier version merged them): a gap is synthetic — it
+    # has no corresponding row in the uploaded file — and merging it
+    # in inflated the feature count on a dense test file to 54 rows
+    # for 10 real features (44 pairwise "gap" candidates), with no way
+    # for the map to show just the original data or for the count to
+    # distinguish "real feature" from "synthetic gap". JS puts each
+    # collection on its own map source (topology-py / topology-gaps-py)
+    # instead. Gaps stay a fixed, small property set (unlike the real
+    # features above) — a gap has no original row to inherit columns
+    # from, it's purely computed.
+    return {
+        "features": gdf.__geo_interface__,
+        "gaps": {"type": "FeatureCollection", "features": extra_features}
+    }
+
+import geopandas as gpd
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+# The sliver/gap thresholds above (and every check_*() function) work
+# in gdf's OWN coordinate units — "Gap search distance (degrees)" in
+# the panel only means what it says if gdf is actually in a geographic
+# CRS — so it's reprojected to WGS84 here before any check runs, not
+# just before the map draws it.
+crs_warning = None
+original_crs = None
+if gdf is not None:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    original_crs = gdf.crs
+    if original_crs != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+
+    if "name" not in gdf.columns:
+        gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+def export_crs(g):
+    # Reprojects `g` back to the CRS it was uploaded in — used by the
+    # download button below, so what comes out matches what went in
+    # even though the checks above always run in WGS84.
+    if g is None or original_crs is None or original_crs == "EPSG:4326":
+        return g
+    return g.to_crs(original_crs)
+
+# No built-in fallback anymore (an earlier version diagnosed two
+# hardcoded example polygons automatically whenever nothing had been
+# uploaded) — see geojson-shapefile-validator.qmd's identical change:
+# the page now starts genuinely empty until the user either uploads a
+# file or clicks "Load example" below, so "no results yet" actually
+# means no results yet.
+EMPTY_FC = {"type": "FeatureCollection", "features": []}
+if gdf is not None:
+    result = detect_and_check(gdf, sliver_threshold=sliverThreshold, gap_proximity=gapProximity)
+    result["originalCrsFeatures"] = export_crs(gdf).__geo_interface__
+    result["crsWarning"] = crs_warning
+else:
+    result = {"features": EMPTY_FC, "gaps": EMPTY_FC, "originalCrsFeatures": EMPTY_FC, "crsWarning": None}
+result
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Shared by checkButton (below), the upload-effect cell and
+// loadExampleButton above: reads the current slider values (by id,
+// not by referencing the sliverControl/gapControl OJS variables
+// directly — see sliderControl's own comment for why) and runs the
+// check. Extracted once three separate call sites needed the exact
+// same "read thresholds, run" sequence instead of duplicating it —
+// geojson-shapefile-validator.qmd's autoValidate() is the same idea.
+runCheck = async () => {
+  window.sliverThreshold = +document.getElementById("sliver-threshold-control").value;
+  window.gapProximity = +document.getElementById("gap-proximity-control").value;
+  await window.WebGeoDS.CodeCell.find("topology-diagnose-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+checkButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.textContent = "▶ Check";
+  button.onclick = async () => {
+    button.disabled = true;
+    button.classList.add("webgeods-btn-loading");
+    button.textContent = "⌛ Checking...";
+    try {
+      await runCheck();
+    } finally {
+      button.disabled = false;
+      button.classList.remove("webgeods-btn-loading");
+      button.textContent = "▶ Check";
+    }
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Same canonical two-polygon example as the removed Python fallback
+// above, now loaded explicitly instead of automatically — matches
+// geojson-shapefile-validator.qmd's EXAMPLE_GEOJSON.
+EXAMPLE_GEOJSON = JSON.stringify({
+  type: "FeatureCollection",
+  features: [
+    {
+      type: "Feature",
+      properties: { name: "A (example)" },
+      geometry: { type: "Polygon", coordinates: [[[12.45, 41.85], [12.52, 41.85], [12.52, 41.92], [12.45, 41.92], [12.45, 41.85]]] }
+    },
+    {
+      type: "Feature",
+      properties: { name: "B (example)" },
+      geometry: { type: "Polygon", coordinates: [[[12.50, 41.87], [12.57, 41.87], [12.57, 41.94], [12.50, 41.94], [12.50, 41.87]]] }
+    }
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
+      await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
+      mutable uploadStatus = "⌛ Checking...";
+      await runCheck();
+      mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The color is decided by JS, not Python — see topology-errors.qmd for
+// the full explanation. The geometry type isn't fixed (polygons for
+// overlap/gap/sliver/duplicates, lines for dangle), so the paint
+// itself depends on the data: setGeoJSON() (shared/map.js) detects on
+// its own when the layer's TYPE needs to change and recreates it.
+errorPaint = (data) => {
+  const geometryType = data?.features?.find((f) => f?.geometry?.type)?.geometry?.type ?? "";
+  const colorExpr = ["case", ["==", ["get", "has_error"], true], "#e05252", "#3d5a73"];
+  if (geometryType === "LineString" || geometryType === "MultiLineString") {
+    return { "line-color": colorExpr, "line-width": 4 };
+  }
+  if (geometryType === "Point" || geometryType === "MultiPoint") {
+    return { "circle-color": colorExpr, "circle-radius": 6 };
+  }
+  return { "fill-color": colorExpr, "fill-opacity": 0.55 };
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Gaps are always polygons (check_gap() builds them from a
+// convex-hull difference) — no per-geometry-type branching needed,
+// unlike errorPaint above. --attenzione/warning amber, matching the
+// "severity": "warning" Python already tags every gap feature with
+// (as opposed to "error" for a real per-feature problem) — same
+// color language, not an arbitrary second color.
+gapPaint = ({
+  "fill-color": "#c48a2e",
+  "fill-opacity": 0.45
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyErrors = WebGeoDS.getCellValue("topology-diagnose-py", Generators)
+{
+  if (pyErrors) {
+    await sharedMap.setGeoJSON("topology-py", pyErrors.features, { paint: errorPaint(pyErrors.features) });
+    // Gaps live on their own source so the map can show just the
+    // real data (features) or both at once (features + gaps in
+    // amber) — visibility follows topologyView, the same tab state
+    // the table below uses, so switching tabs and re-running Check
+    // both keep the map and the table in sync with each other.
+    await sharedMap.setGeoJSON("topology-gaps-py", pyErrors.gaps, {
+      paint: gapPaint,
+      layout: { visibility: topologyView === "gaps" ? "visible" : "none" }
+    });
+    // Zooms to the real data's bounds regardless of which tab is
+    // active — same as geojson-shapefile-validator.qmd's pyDiagnose
+    // effect — so switching tabs never itself moves the map. A no-op
+    // on an empty FeatureCollection.
+    await sharedMap.fitToData(pyErrors.features);
+    mutable exportFeatures = pyErrors.originalCrsFeatures;
+    mutable crsWarning = pyErrors.crsWarning;
+    // See geojson-shapefile-validator.qmd's own comment on this same
+    // call -- the Tool Utility Rate funnel's own step, distinct from
+    // the generic code_run_completed.
+    window.WebGeoDS.track?.("validation_completed", { tool: "topology-checker" });
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+// The CRS-correct download payload — original features only (no
+// gaps, same reasoning as downloadButton below), in the file's own
+// CRS rather than the WGS84 working copy the map/table show. Cleared
+// by resetChecker alongside the map.
+mutable exportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+mutable crsWarning = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Keeps the gaps LAYER's visibility in sync with topologyView after
+// the layer already exists — the assignment inside pyErrors above
+// only sets it once, at creation/re-check time; this is what actually
+// reacts when the user merely clicks a tab without re-running Check.
+// Guarded on getLayer() existing: harmless no-op before the first
+// check has ever run.
+{
+  if (sharedMap.map.getLayer("topology-gaps-py")) {
+    sharedMap.map.setLayoutProperty(
+      "topology-gaps-py",
+      "visibility",
+      topologyView === "gaps" ? "visible" : "none"
+    );
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Two independent, stable tableCell()s (never re-created — only
+// their .style.display is toggled by tabbedResultsView below) instead
+// of one table whose sourceIds swaps reactively with topologyView:
+// each keeps its own tableCell()-internal "sourcedata" subscription
+// alive and correctly reacting to ITS OWN source's data changes the
+// entire time, with no risk of losing or double-registering a
+// listener across a tab switch.
+featuresTableCell = sharedMap.tableCell(["topology-py"], null, Generators, {
+  rowClassName: (row) => row.has_error === "true" ? "webgeods-row-invalid" : "",
+  emptyMessage: "No results yet"
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// No rowClassName here: every row IS a gap (has_error is always true
+// for them), so coloring every row the same would add nothing.
+gapsTableCell = sharedMap.tableCell(["topology-gaps-py"], null, Generators, {
+  emptyMessage: "No gaps found"
+})
+```
+
+```{ojs}
+//| echo: false
+// Tab bar + both panes in one cell (output:false-free, physically
+// positioned here where the table should display — same "avoid the
+// scatter-on-load bug" reasoning as every button on this page, just
+// for a single auto-displayed cell instead of one moved via
+// controlPanelRow). Reactive on topologyView, but only ever
+// recreates this thin wrapper + tab buttons — featuresTableCell/
+// gapsTableCell above are NEVER re-created, only shown/hidden, so
+// their own reactivity (and any current row selection) survives a
+// tab switch untouched.
+tabbedResultsView = {
+  const tab = (key, label) => {
+    const button = document.createElement("button");
+    button.className = "webgeods-panel-btn";
+    if (topologyView !== key) button.dataset.variant = "outline";
+    button.textContent = label;
+    button.onclick = () => { mutable topologyView = key; };
+    return button;
+  };
+
+  const tabs = document.createElement("div");
+  tabs.className = "webgeods-panel-row";
+  tabs.append(tab("features", "Original geometries"), tab("gaps", "Gaps"));
+
+  featuresTableCell.style.display = topologyView === "features" ? "" : "none";
+  gapsTableCell.style.display = topologyView === "gaps" ? "" : "none";
+
+  const wrap = document.createElement("div");
+  wrap.append(tabs, featuresTableCell, gapsTableCell);
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// total/errors count ONLY the real uploaded features (topology-py) —
+// gaps are synthetic and get their own count instead of inflating
+// this one, see pyErrors's comment.
+topologyStats = Generators.observe((change) => {
+  const compute = () => {
+    const features = sharedMap.getGeoJSON("topology-py")?.features ?? [];
+    const gaps = sharedMap.getGeoJSON("topology-gaps-py")?.features ?? [];
+    const total = features.length;
+    const errors = features.filter((f) => f.properties?.has_error === true).length;
+    change({ total, errors, gaps: gaps.length });
+  };
+  compute();
+  const handler = (e) => {
+    if (
+      e.dataType === "source" &&
+      e.sourceDataType === "content" &&
+      (e.sourceId === "topology-py" || e.sourceId === "topology-gaps-py")
+    ) {
+      compute();
+    }
+  };
+  sharedMap.map.on("sourcedata", handler);
+  return () => sharedMap.map.off("sourcedata", handler);
+})
+```
+
+```{ojs}
+//| echo: false
+resetChecker = async () => {
+  const empty = { type: "FeatureCollection", features: [] };
+  if (sharedMap.getGeoJSON("topology-py")) {
+    await sharedMap.setGeoJSON("topology-py", empty);
+  }
+  if (sharedMap.getGeoJSON("topology-gaps-py")) {
+    await sharedMap.setGeoJSON("topology-gaps-py", empty);
+  }
+  mutable exportFeatures = null;
+  mutable crsWarning = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
+  button.onclick = () => resetChecker();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// WebGeoDS.downloadBlob (shared/download.js) — this page used to have
+// its own near-duplicate of geojson-shapefile-validator.qmd's own
+// function; that page's comment named "a second tool duplicating
+// this" as the trigger for promoting it, which is exactly what
+// happened, so it's shared now instead of duplicated a third time.
+downloadButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "⬇ Download";
+  button.onclick = () => {
+    const base = WebGeoDS.Upload.baseName(uploadedFiles);
+    // Original features only, same set as the Features tab/topology-py
+    // — a gap has no corresponding row in the uploaded file (that's
+    // the whole reason it got its own map source and table tab
+    // instead of being merged in), so a downloaded "here's your data
+    // plus its topology report" file shouldn't reintroduce synthetic
+    // rows the source data never had either. exportFeatures (not the
+    // map source) so the download comes back in the file's own CRS,
+    // not the WGS84 working copy the checks/map use — see
+    // topology-diagnose-py's export_crs().
+    const data = exportFeatures ?? { type: "FeatureCollection", features: [] };
+    WebGeoDS.downloadBlob(
+      JSON.stringify(data, null, 2),
+      base ? `${base}-topology-report.geojson` : "topology-report.geojson",
+      "application/geo+json",
+      { tool: "topology-checker" }
+    );
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// output:false: this cell's own definition sits well before the
+// panel in the document — without it, the fully-grouped row would
+// flash into view there FIRST (Quarto's own auto-display), then
+// disappear and reappear down in the panel once ${controlPanelRow}
+// mounts the same node — same reasoning as every button cell above.
+//
+// One DOM node grouping the upload control + Load example/Check/
+// Download/Reset + the live status, built in JS rather than composed
+// with several `${...}` markdown interpolations side by side —
+// Pandoc's math-dollar parser reads adjacent `${x} ${y}` in the same
+// paragraph as inline math and swallows them, and even `${x}`/`${y}`
+// on separate paragraphs has its own problem (see uploadControl's
+// comment above). A single `${controlPanelRow}` avoids both.
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(uploadControl, loadExampleButton, checkButton, downloadButton, resetMapButton);
+  const status = document.createElement("span");
+  status.className = "webgeods-panel-status";
+  // "with an error" counts real features only (never gaps — see
+  // topologyStats' own comment); "total gaps" is the separate count
+  // of synthetic gap features found between them, so the two numbers
+  // together can't be misread as "N of these M things are broken"
+  // when M actually mixes two different kinds of thing.
+  const base = `${topologyStats.total} feature, ${topologyStats.errors} with an error, ${topologyStats.gaps} total gaps`;
+  // crsWarning referenced here (not just read elsewhere) so this cell
+  // is reactive on it — only known once Check has actually run, after
+  // this row was first built.
+  status.textContent = crsWarning ? `${base} — ⚠️ ${crsWarning}` : base;
+  row.appendChild(status);
+  return row;
+}
+```
+
+<style>
+/* topology-diagnose-py is functional (the CodeCell engine still runs
+   it), just not shown — see geojson-shapefile-validator.qmd for the
+   full rationale and the display:none pitfall (breaks maplibre-gl.js
+   loading) already found and avoided here from the start. Stays HERE,
+   after the last {ojs} cell, and the closing note below is raw HTML
+   rather than a Pandoc fenced div — same two Quarto/Pandoc bugs
+   documented at length in geojson-shapefile-validator.qmd's own
+   equivalent block, right down to the exact same reasoning: this
+   block must stay after the OJS cells, and the closing note must
+   stay raw HTML, or the page breaks in one of two different ways. */
+#topology-diagnose-py {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+Want to understand each of the five errors, see the actual code, or
+compare against R's independent implementation? The
+<a href="/posts/topology-errors.html">full article</a> covers all of
+it, with a worked example for each one.
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

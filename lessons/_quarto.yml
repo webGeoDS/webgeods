@@ -1,0 +1,47 @@
+project:
+  type: default
+  resources:
+    - "runtime.js"
+    - "python.js"
+    - "r.js"
+    - "code-cell.js"
+    - "map.js"
+    - "styles.css"
+    - "alidade_smooth.json"
+    - "maplibre-gl.js"
+    - "maplibre-gl.css"
+    - "fonts.css"
+    - "fonts/*.woff2"
+    - "codemirror-bundle.js"
+
+# No navbar/sidebar: Teachable already provides its own navigation
+# frame around the iframe (see piano-separazione-blog-lezioni.md §3).
+# `type: default` instead of `website` so as not to auto-generate
+# sitemap/search/nav — not needed here.
+
+format:
+  html:
+    css: [styles.css, fonts.css]
+    embed-resources: true # requirement: each lesson a single self-contained HTML in an iframe
+    include-in-header:
+      - text: |
+          <meta name="robots" content="noindex, nofollow">
+          <style>
+            /* No Bootstrap/_brand.yml here by design (no navbar/theme,
+               see above) — font-family itself comes from fonts.css
+               (loaded via css: above); this only sets colors, so the
+               prose around the cells matches the "Field Atlas" look. */
+            body { background: #f3ede1; color: #2a2117; }
+            a { color: #2a2117; } a:hover { color: #b0522c; }
+          </style>
+    include-after-body:
+      - text: |
+          <script src="runtime.js"></script>
+          <script src="python.js"></script>
+          <script src="r.js"></script>
+          <script src="code-cell.js"></script>
+          <script src="map.js"></script>
+    toc: false # narrow iframe space, no internal table of contents
+
+filters:
+  - webgeods-cells.lua

@@ -1,0 +1,42 @@
+---
+title: "webGeoDs — Tools"
+description: "Free tools for spatial analysis, with no upload to a server: they run entirely in the browser via Python in WebAssembly. The [full articles](/articles.html) behind them also cover R."
+listing:
+  contents: .
+  sort: "date desc"
+  type: default
+  categories: false
+  exclude:
+    filename: "index.qmd"
+---
+
+## Spatial Data Quality Toolkit
+
+A small, focused suite for checking geospatial data before you trust
+it. Free, no account, nothing ever leaves your browser. Want the full
+explanation instead of just the tool? The
+[interactive articles](/articles.html) walk through the same checks
+in Python and R.
+
+**[Inspect](geospatial-file-inspector.qmd)** →
+**[Validate](geojson-shapefile-validator.qmd)** →
+**[Check Topology](topology-checker.qmd)** →
+**[CRS](crs-inspector.qmd)**
+
+All four are live — Inspect, Validate geometry, Check Topology, and
+find/convert a CRS.
+
+## Raster Toolkit
+
+Reading a GeoTIFF, then computing with it. **[Inspect](raster-inspector.qmd)**
+→ **[Calculate](raster-calculator.qmd)** → **[NDVI](ndvi-calculator.qmd)**
+→ **[Viewshed](viewshed-calculator.qmd)**: dimensions, bands,
+resolution, CRS, NoData, and per-band value ranges first, then combine
+two bands into a computed result — a difference map, a Normalized
+Difference — shown as a colored overlay and downloadable as a GeoTIFF.
+The NDVI tool specializes that same computation for vegetation
+health, with red/near-infrared band presets. Viewshed answers a
+different question — what's visible from a point, given the terrain
+in between — and runs on R (Python is shown only as reference in its
+[companion article](/posts/raster-viewshed.html), since no viewshed
+implementation is available in this browser's Python runtime).

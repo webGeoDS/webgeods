@@ -1,0 +1,790 @@
+---
+title: "First Look at a Raster File: Dimensions, Bands, and NoData"
+date: 2026-09-06
+categories: [tool, raster, bilingual]
+description: "Upload a GeoTIFF and get an instant summary — dimensions, resolution, band count, CRS, NoData, and per-band min/max/mean — in Python and R on the same map."
+---
+
+A vector file's first look answers "how many features, what shape, what
+CRS." A raster's is a different set of numbers entirely: how big is the
+grid, how many bands does each pixel carry, what does one pixel cover
+on the ground, and which value means "no data here" rather than a real
+measurement.
+
+Get those wrong and everything downstream is wrong too — a slope
+calculation that treats -9999 as a very steep cliff, a mean elevation
+dragged down by a border of NoData pixels, a band mistaken for degrees
+Celsius when it's really reflectance times 10,000.
+
+Just want the summary, without the rest of the reading? Use the
+[standalone tool](/tools/raster-inspector.html) — same engine, less
+prose.
+
+## 1. Upload your file
+
+A single `.tif` or `.tiff` — no sidecars, unlike a shapefile.
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+## 2. Why start with a summary?
+
+Eight numbers, each answering a question that's otherwise easy to get
+wrong by assumption:
+
+- **Dimensions** — width × height in pixels. Determines how much work
+  any pixel-by-pixel operation actually is, and whether a "small" file
+  is small in bytes but enormous in pixel count (or the reverse).
+- **Bands** — one grid of numbers, or several stacked together (RGB,
+  a multispectral stack, a time series). Some checks and most
+  visualizations only make sense once you know how many there are.
+- **CRS** — same coordinate reference system concept as a vector file.
+  A missing CRS is reported as genuinely unknown, not silently
+  relabeled as WGS84 — the map still needs *some* projection to place
+  the footprint, so that assumption is shown separately, labeled as a
+  display choice rather than folded into the CRS field itself.
+- **Resolution** — the ground distance one pixel actually covers, in
+  the file's own CRS units. A 30 (Landsat-scale) versus a 0.001
+  (sub-meter) changes what questions the data can even answer.
+- **Data type** — `uint8`, `int16`, `float32`, ... . The single most
+  common source of a "why are all my values 0 or wildly wrong"
+  surprise: an integer type storing values that were meant to be
+  divided by a scale factor, or a float column silently truncated by
+  being written back as an integer type.
+- **NoData** — the sentinel value marking "no measurement here" (often
+  `-9999`, `0`, or a type's max value) — as fundamental to a raster as
+  a null is to a table column, and just as easy to accidentally treat
+  as a real number if it isn't checked first.
+- **Bounds** — the same bounding-box sanity check as a vector file:
+  numbers wildly outside -180..180 / -90..90 are the CRS-mismatch tell,
+  here too.
+- **Value range** — the per-band min/max/mean, with NoData pixels
+  correctly excluded. The fastest way to catch a unit mistake (a
+  "temperature in Celsius" band whose values run from 200 to 320 is
+  actually Kelvin) before it reaches an analysis.
+
+## 3. Shared map and summary
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+FOOTPRINT_PAINT = ({
+  "fill-color": "#42583c",
+  "fill-opacity": 0.35,
+  "fill-outline-color": "#2a2117"
+})
+```
+
+```{ojs}
+//| echo: false
+// Same reasoning as geospatial-file-inspection.qmd's pySummary/
+// rSummary: separate mutable state so Reset (added in section 6) can
+// clear the cards even though there's nothing to re-run.
+mutable pySummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable rSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyInspect = WebGeoDS.getCellValue("raster-inspect-py", Generators)
+{
+  if (pyInspect && pyInspect.summary) {
+    await sharedMap.setGeoJSON("raster-inspect-py", pyInspect.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(pyInspect.footprint);
+    mutable pySummary = pyInspect.summary;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rInspect = WebGeoDS.getCellValue("raster-inspect-r", Generators)
+{
+  if (rInspect && rInspect.summary) {
+    await sharedMap.setGeoJSON("raster-inspect-r", rInspect.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(rInspect.footprint);
+    mutable rSummary = rInspect.summary;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+// Two cards side by side, same reasoning as the vector article: a
+// combined "total pixel count" wouldn't mean anything, but seeing the
+// two engines' numbers agree (or noticing where the CRS string or
+// data type label doesn't) is itself the point — see section 5.
+statCard = (label, s) => {
+  const wrap = document.createElement("div");
+  wrap.style.flex = "1";
+  wrap.style.minWidth = "260px";
+
+  const heading = document.createElement("div");
+  heading.className = "webgeods-label";
+  heading.textContent = label;
+  wrap.appendChild(heading);
+
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  wrap.appendChild(box);
+
+  const row = (rowLabel, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = rowLabel;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Dimensions", "—");
+    return wrap;
+  }
+
+  const MAX_BANDS_SHOWN = 6;
+  const bandLines = s.bandStats.slice(0, MAX_BANDS_SHOWN).map((b) =>
+    b.min === null
+      ? `Band ${b.band}: all NoData`
+      : `Band ${b.band}: ${b.min} to ${b.max} (mean ${b.mean})`
+  );
+  if (s.bandStats.length > MAX_BANDS_SHOWN) {
+    bandLines.push(`… and ${s.bandStats.length - MAX_BANDS_SHOWN} more band(s)`);
+  }
+
+  row("Dimensions", `${s.width} × ${s.height} px`);
+  row("Bands", String(s.bandCount));
+  row("CRS", s.crs === null || s.crs === undefined ? `Unknown ⚠️ ${s.crsWarning}` : s.crs);
+  if (s.displayCrsAssumption) {
+    row("Display assumption", `${s.displayCrsAssumption} — map only, not a fact about the file`);
+  }
+  row("Resolution", s.resolution.join(" × "));
+  // terra's datatype() returns "" for a raster built directly from a
+  // matrix (the fallback example, no GDAL file behind it — nothing to
+  // report a storage type FROM) rather than a placeholder string —
+  // shown as "—" here for the same reason every other "nothing to
+  // show" value on this page is, not blank space that reads as a
+  // rendering bug.
+  row("Data type", s.dtype || "—");
+  row("NoData", s.nodata === null || s.nodata === undefined ? "None declared" : String(s.nodata));
+  row("Bounds", s.bounds.join(", "));
+  row("Value range", bandLines.join(" · "));
+
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+statCardsRow = {
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "16px";
+  row.append(statCard("Python", pySummary), statCard("R", rSummary));
+  return row;
+}
+```
+
+${statCardsRow}
+
+```{ojs}
+//| echo: false
+resetInspection = async () => {
+  for (const id of ["raster-inspect-py", "raster-inspect-r"]) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
+  }
+  mutable pySummary = null;
+  mutable rSummary = null;
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and summary";
+  button.onclick = () => resetInspection();
+  return button;
+}
+```
+
+## 4. Inspect: summarize your file
+
+Run the same summary in Python or R on the current data (your file
+uploaded above, or the built-in example below).
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #raster-inspect-py}
+#| package: rasterio, numpy
+import rasterio
+from rasterio.transform import from_origin
+from rasterio.io import MemoryFile
+from rasterio.warp import transform_bounds
+import numpy as np
+
+path = None
+for candidate in ["/uploaded.tif"]:
+    try:
+        with rasterio.open(candidate):
+            path = candidate
+            break
+    except Exception:
+        pass
+
+# No file uploaded yet: a small synthetic hill built directly in
+# memory (rasterio.io.MemoryFile — no virtual-filesystem path needed
+# for a fallback), with one deliberately-NoData corner pixel so the
+# NoData row below has something real to show.
+memfile = None
+if path is None:
+    n = 20
+    xs = np.arange(n)
+    ys = np.arange(n)
+    X, Y = np.meshgrid(xs, ys)
+    elevation = (100 + 40 * np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)).astype("float32")
+    elevation[0, 0] = -9999
+    transform = from_origin(12.40, 41.95, 0.005, 0.005)
+    memfile = MemoryFile()
+    with memfile.open(
+        driver="GTiff", height=n, width=n, count=1,
+        dtype="float32", crs="EPSG:4326", transform=transform, nodata=-9999
+    ) as dst:
+        dst.write(elevation, 1)
+    path = memfile.name
+
+with rasterio.open(path) as src:
+    # A missing CRS is reported as genuinely unknown, not silently
+    # relabeled as WGS84 — "no CRS" and "WGS84" are different facts,
+    # and blurring them defeats the point of a tool whose whole job is
+    # telling you what's actually true about the file. EPSG:4326 is
+    # still used internally (crs_for_transform) to place the footprint
+    # on the map — that's a display convenience, reported separately
+    # below as display_crs_assumption, never folded into the "crs"
+    # field itself.
+    crs_warning = None
+    display_crs_assumption = None
+    if src.crs is not None:
+        crs_for_transform = src.crs
+        crs_label = str(src.crs)
+    else:
+        crs_for_transform = "EPSG:4326"
+        crs_label = None
+        crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
+        display_crs_assumption = "EPSG:4326"
+
+    # Per-band min/max/mean, NoData pixels excluded via masked=True —
+    # a band that's entirely NoData reports nulls instead of a bogus
+    # min/max computed from an empty array.
+    band_stats = []
+    for i in range(1, src.count + 1):
+        band = src.read(i, masked=True)
+        has_valid = band.count() > 0
+        band_stats.append({
+            "band": i,
+            "min": round(float(band.min()), 4) if has_valid else None,
+            "max": round(float(band.max()), 4) if has_valid else None,
+            "mean": round(float(band.mean()), 4) if has_valid else None,
+        })
+
+    bounds = [round(float(b), 6) for b in src.bounds]
+    try:
+        wgs84_bounds = transform_bounds(crs_for_transform, "EPSG:4326", *src.bounds)
+    except Exception:
+        wgs84_bounds = src.bounds
+
+    minx, miny, maxx, maxy = wgs84_bounds
+    footprint = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"name": "raster footprint"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]
+            }
+        }]
+    }
+
+    summary = {
+        "width": src.width,
+        "height": src.height,
+        "bandCount": src.count,
+        "crs": crs_label,
+        "crsWarning": crs_warning,
+        "displayCrsAssumption": display_crs_assumption,
+        "nodata": src.nodata,
+        "resolution": [round(float(r), 6) for r in src.res],
+        "dtype": src.dtypes[0],
+        "bounds": bounds,
+        "bandStats": band_stats,
+    }
+
+if memfile is not None:
+    memfile.close()
+
+{
+    "summary": summary,
+    "footprint": footprint
+}
+```
+
+## R
+
+```{.webgeods-r #raster-inspect-r}
+#| package: terra, jsonlite, codetools
+library(terra)
+
+path <- NULL
+for (candidate in c("/uploaded.tif")) {
+  ok <- tryCatch({ rast(candidate); TRUE }, error = function(e) FALSE)
+  if (ok) { path <- candidate; break }
+}
+
+if (is.null(path)) {
+  # Same synthetic hill as the Python fallback — built directly as a
+  # SpatRaster from a plain matrix via rast(), with the extent set
+  # explicitly afterward, rather than through a file: no virtual
+  # filesystem needed for this side either.
+  n <- 20
+  xs <- 0:(n - 1)
+  ys <- 0:(n - 1)
+  elevation <- outer(ys, xs, function(y, x) 100 + 40 * exp(-((x - 10)^2 + (y - 10)^2) / 30))
+  elevation[1, 1] <- NA
+  r <- rast(elevation, crs = "EPSG:4326")
+  ext(r) <- c(12.40, 12.40 + n * 0.005, 41.95 - n * 0.005, 41.95)
+} else {
+  r <- rast(path)
+}
+
+# A missing CRS is reported as genuinely unknown, not silently
+# relabeled as WGS84 (same reasoning as the Python cell above). terra
+# reports a missing CRS as an empty string, not NA — checked directly
+# rather than through an sf-style is.na() test (this cell no longer
+# depends on sf at all, see the footprint construction below).
+# was_missing_crs is captured BEFORE crs(r) is mutated below, since
+# that mutation is only there to give the footprint reprojection
+# something to work with — the label itself must stay NULL regardless
+# of what crs(r) reports afterward.
+was_missing_crs <- crs(r) == ""
+crs_warning <- NULL
+display_crs_assumption <- NULL
+if (was_missing_crs) {
+  crs_warning <- "No CRS declared — spatial location cannot be reliably interpreted."
+  display_crs_assumption <- "EPSG:4326"
+  crs(r) <- "EPSG:4326"
+}
+
+# crs(r, describe = TRUE) resolves to an EPSG code when the CRS is one
+# GDAL recognizes (the common case); crs(r, proj = TRUE) is the
+# fallback for anything else. See section 5 — this is one of the
+# genuine format divergences from Python's str(src.crs). Skipped
+# entirely when the CRS was missing — describing the EPSG:4326 just
+# assigned above would misreport it as the file's own CRS.
+crs_label <- if (was_missing_crs) {
+  NULL
+} else {
+  crs_desc <- crs(r, describe = TRUE)
+  if (!is.na(crs_desc$authority) && !is.na(crs_desc$code)) {
+    paste0(crs_desc$authority, ":", crs_desc$code)
+  } else {
+    crs(r, proj = TRUE)
+  }
+}
+
+band_count <- nlyr(r)
+res_xy <- res(r)
+e <- ext(r)
+bounds <- c(e$xmin, e$ymin, e$xmax, e$ymax)
+
+# jsonlite::toJSON() treats every length-1 vector as a single-element
+# array by default — a genuine scalar (a width, a CRS string) needs an
+# explicit jsonlite::unbox() to serialize as one. ub()/ub_if() below
+# are just that, plus a NULL passthrough for optional fields (see
+# geospatial-file-inspection.qmd for the full reasoning on why this,
+# not toJSON(auto_unbox = TRUE), is the safer default).
+ub <- function(x) if (is.null(x)) NULL else jsonlite::unbox(x)
+ub_if <- function(cond, x) if (cond) jsonlite::unbox(x) else NULL
+
+# global(..., na.rm = TRUE) computes per-band stats directly — terra
+# reads the file's declared NoData value and excludes those pixels
+# automatically (confirmed: a -9999 sentinel pixel never pollutes the
+# min below), the same way rasterio's masked=True does. Unlike
+# rasterio, though, the sentinel value itself isn't exposed anywhere
+# afterward either — see section 5.
+stats <- global(r, c("min", "max", "mean"), na.rm = TRUE)
+band_stats <- lapply(seq_len(band_count), function(i) {
+  has_valid <- is.finite(stats$min[i])
+  list(
+    band = jsonlite::unbox(i),
+    min = ub_if(has_valid, round(stats$min[i], 4)),
+    max = ub_if(has_valid, round(stats$max[i], 4)),
+    mean = ub_if(has_valid, round(stats$mean[i], 4))
+  )
+})
+
+# MapLibre/GeoJSON require WGS84 — the bounding box is reprojected via
+# terra's own vect()/project() (no sf needed) the same way the
+# summary's own "bounds" field stays in the file's native CRS (same
+# reasoning as the vector article). geom() reads the reprojected
+# polygon's coordinates back out as a plain matrix.
+bbox_wkt <- paste0(
+  "POLYGON((",
+  e$xmin, " ", e$ymin, ", ", e$xmax, " ", e$ymin, ", ",
+  e$xmax, " ", e$ymax, ", ", e$xmin, " ", e$ymax, ", ",
+  e$xmin, " ", e$ymin, "))"
+)
+bbox_vect <- vect(bbox_wkt, crs = crs(r))
+bbox_wgs84 <- tryCatch(project(bbox_vect, "EPSG:4326"), error = function(err) bbox_vect)
+bbox_geom <- geom(bbox_wgs84)
+footprint_coords <- lapply(seq_len(nrow(bbox_geom)), function(i) c(bbox_geom[i, "x"], bbox_geom[i, "y"]))
+
+footprint <- list(
+  type = jsonlite::unbox("FeatureCollection"),
+  features = list(list(
+    type = jsonlite::unbox("Feature"),
+    properties = list(name = jsonlite::unbox("raster footprint")),
+    geometry = list(
+      type = jsonlite::unbox("Polygon"),
+      coordinates = list(footprint_coords)
+    )
+  ))
+)
+
+summary_out <- list(
+  width = jsonlite::unbox(ncol(r)),
+  height = jsonlite::unbox(nrow(r)),
+  bandCount = jsonlite::unbox(band_count),
+  crs = ub(crs_label),
+  crsWarning = ub(crs_warning),
+  displayCrsAssumption = ub(display_crs_assumption),
+  nodata = NULL,
+  resolution = c(round(res_xy[1], 6), round(res_xy[2], 6)),
+  # datatype(r) returns one type PER BAND (terra allows different bands
+  # to carry different types, even if real files rarely do) -- a plain
+  # unbox() on a multi-band raster throws "Tried to unbox a vector of
+  # length N". [1] takes the first band's type, same convention as
+  # rasterio's own src.dtypes[0] on the Python side.
+  dtype = jsonlite::unbox(datatype(r)[1]),
+  bounds = unname(round(bounds, 6)),
+  bandStats = band_stats
+)
+
+# Round-tripped through JSON once more, whole-object — same reasoning
+# as the vector article: R's atomic vectors don't cross the webR->JS
+# bridge as plain JS arrays on their own the way a jsonlite-parsed
+# list does.
+result <- list(summary = summary_out, footprint = footprint)
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+```
+
+:::
+
+## 5. Same spatial question, two languages
+
+Python and R read the same file through the same underlying GDAL, but
+the two engines disagree in ways a vector file's `sf`/GeoPandas split
+never surfaces:
+
+**Python** (rasterio)
+
+```python
+src.width, src.height     # dimensions
+src.count                 # band count
+src.crs                   # CRS
+src.res                   # pixel resolution
+src.dtypes[0]              # data type, as declared in the file
+src.nodata                 # the NoData sentinel value itself
+src.read(i, masked=True)  # one band, NoData pixels masked out
+```
+
+**R** (terra)
+
+```r
+ncol(r), nrow(r), nlyr(r)   # dimensions + band count
+crs(r, describe = TRUE)     # CRS, resolved to an EPSG code when GDAL recognizes one
+res(r)                      # pixel resolution
+datatype(r)[1]               # terra's own type code, one per band -- [1] mirrors dtypes[0]
+# no direct equivalent — see below
+global(r, "mean", na.rm = TRUE)  # NoData pixels already excluded
+```
+
+Three genuine divergences, not just naming differences:
+
+- **CRS formatting** — same issue as the vector article's `st_crs()`
+  vs GeoPandas footnote: when GDAL can resolve the file's CRS to a
+  known EPSG code, `crs(r, describe = TRUE)` gives exactly that
+  (`"EPSG:4326"`, matching Python here) — but for anything it can't
+  match to a registry entry, the fallback is a `+proj=...` string,
+  a different format entirely from `str(src.crs)`.[^raster-crs-format]
+- **Data type** — closer to Python than `stars` was: `datatype(r)`
+  does reflect the file's actual storage type, just under terra's own
+  naming convention (`"FLT4S"` for a 4-byte signed float, `"INT2U"`
+  for an unsigned 16-bit integer, ...) rather than GDAL's own
+  descriptive names (`"float32"`, `"uint16"`) the way rasterio's
+  `dtypes[0]` reports them. A real format difference, not a loss of
+  information the way it was with `stars` — though `datatype(r)`
+  itself returns one type *per band* (terra allows different bands to
+  carry different types), so both sides here report only the first
+  band's type, `dtypes[0]` and `datatype(r)[1]` respectively.
+- **NoData retention** — `rast()` reads the file's declared NoData
+  value and excludes those pixels automatically wherever a reduction
+  is computed (confirmed: a `-9999` sentinel pixel never pollutes
+  `global(..., "min")` above), the same way rasterio's `masked=True`
+  does — but the sentinel value itself isn't exposed anywhere
+  afterward. rasterio keeps it directly on `src.nodata`; terra
+  doesn't have an equally direct equivalent for a file already open.
+  That's why the R card's "NoData" row never shows anything but "None
+  declared," even on a file that clearly has one — it isn't wrong,
+  the exclusion already happened, there's just no simple accessor left
+  to report the raw number by.
+
+[^raster-crs-format]: A GeoTIFF's own embedded CRS often resolves to a
+human-readable name in GDAL's metadata (e.g. `"WGS 84"`), which
+`crs(r, describe = TRUE)` still maps back to its EPSG code when one
+exists — while an unusual or locally-defined CRS with no registry
+match falls back to a PROJ string on the R side, with no equivalent
+fallback needed on Python's, since `str(src.crs)` already prints
+whatever GDAL gave it either way. Worth checking which form you're
+looking at before assuming a mismatch means an actual problem.
+
+## 6. A raster with no declared CRS
+
+The reusable cell pair above already builds a small synthetic hill
+with one NoData pixel whenever nothing has been uploaded — click
+**▶ Run** on both languages in section 4 to see it. This button swaps
+in the same raster, minus the CRS, to see the CRS row switch to
+"Unknown" and a separate "Display assumption" row appear below
+it.[^raster-crs-missing]
+
+[^raster-crs-missing]: An unreferenced raster isn't rare in practice —
+a sensor's raw output, or a file exported by a tool that never wrote a
+CRS tag at all. Nothing about the pixel *values* is wrong in that
+case; only where they sit on the earth is unknown until someone
+supplies it, which is exactly the situation the warning exists to
+flag before a map silently plots it in the wrong place (or, for
+`sf`/GeoPandas, refuses to reproject it at all).
+
+
+```{ojs}
+//| echo: false
+pyNoCrsExampleCode = `import rasterio
+from rasterio.transform import from_origin
+from rasterio.io import MemoryFile
+import numpy as np
+
+n = 20
+xs = np.arange(n)
+ys = np.arange(n)
+X, Y = np.meshgrid(xs, ys)
+elevation = (100 + 40 * np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)).astype("float32")
+elevation[0, 0] = -9999
+transform = from_origin(12.40, 41.95, 0.005, 0.005)
+
+# crs deliberately omitted — the whole point of this example.
+memfile = MemoryFile()
+with memfile.open(
+    driver="GTiff", height=n, width=n, count=1,
+    dtype="float32", transform=transform, nodata=-9999
+) as dst:
+    dst.write(elevation, 1)
+
+with rasterio.open(memfile.name) as src:
+    crs_warning = None
+    display_crs_assumption = None
+    if src.crs is not None:
+        crs_label = str(src.crs)
+    else:
+        crs_label = None
+        crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
+        display_crs_assumption = "EPSG:4326"
+
+    band_stats = []
+    for i in range(1, src.count + 1):
+        band = src.read(i, masked=True)
+        has_valid = band.count() > 0
+        band_stats.append({
+            "band": i,
+            "min": round(float(band.min()), 4) if has_valid else None,
+            "max": round(float(band.max()), 4) if has_valid else None,
+            "mean": round(float(band.mean()), 4) if has_valid else None,
+        })
+
+    minx, miny, maxx, maxy = src.bounds
+    footprint = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"name": "raster footprint"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]
+            }
+        }]
+    }
+
+    summary = {
+        "width": src.width, "height": src.height, "bandCount": src.count,
+        "crs": crs_label, "crsWarning": crs_warning,
+        "displayCrsAssumption": display_crs_assumption, "nodata": src.nodata,
+        "resolution": [round(float(r), 6) for r in src.res], "dtype": src.dtypes[0],
+        "bounds": [round(float(b), 6) for b in src.bounds], "bandStats": band_stats,
+    }
+
+memfile.close()
+
+{"summary": summary, "footprint": footprint}`
+rNoCrsExampleCode = `library(terra)
+
+n <- 20
+xs <- 0:(n - 1)
+ys <- 0:(n - 1)
+elevation <- outer(ys, xs, function(y, x) 100 + 40 * exp(-((x - 10)^2 + (y - 10)^2) / 30))
+elevation[1, 1] <- NA
+# crs deliberately omitted from rast() -- the whole point of this example.
+r <- rast(elevation)
+ext(r) <- c(12.40, 12.40 + n * 0.005, 41.95 - n * 0.005, 41.95)
+
+was_missing_crs <- crs(r) == ""
+crs_warning <- NULL
+display_crs_assumption <- NULL
+if (was_missing_crs) {
+  crs_warning <- "No CRS declared — spatial location cannot be reliably interpreted."
+  display_crs_assumption <- "EPSG:4326"
+  crs(r) <- "EPSG:4326"
+}
+crs_label <- if (was_missing_crs) {
+  NULL
+} else {
+  crs_desc <- crs(r, describe = TRUE)
+  if (!is.na(crs_desc$authority) && !is.na(crs_desc$code)) {
+    paste0(crs_desc$authority, ":", crs_desc$code)
+  } else {
+    crs(r, proj = TRUE)
+  }
+}
+
+res_xy <- res(r)
+e <- ext(r)
+bounds <- c(e$xmin, e$ymin, e$xmax, e$ymax)
+
+stats <- global(r, c("min", "max", "mean"), na.rm = TRUE)
+band_stats <- list(list(
+  band = jsonlite::unbox(1),
+  min = jsonlite::unbox(round(stats$min[1], 4)),
+  max = jsonlite::unbox(round(stats$max[1], 4)),
+  mean = jsonlite::unbox(round(stats$mean[1], 4))
+))
+
+bbox_wkt <- paste0(
+  "POLYGON((",
+  e$xmin, " ", e$ymin, ", ", e$xmax, " ", e$ymin, ", ",
+  e$xmax, " ", e$ymax, ", ", e$xmin, " ", e$ymax, ", ",
+  e$xmin, " ", e$ymin, "))"
+)
+bbox_vect <- vect(bbox_wkt, crs = crs(r))
+bbox_wgs84 <- tryCatch(project(bbox_vect, "EPSG:4326"), error = function(err) bbox_vect)
+bbox_geom <- geom(bbox_wgs84)
+footprint_coords <- lapply(seq_len(nrow(bbox_geom)), function(i) c(bbox_geom[i, "x"], bbox_geom[i, "y"]))
+
+footprint <- list(
+  type = jsonlite::unbox("FeatureCollection"),
+  features = list(list(
+    type = jsonlite::unbox("Feature"),
+    properties = list(name = jsonlite::unbox("raster footprint")),
+    geometry = list(
+      type = jsonlite::unbox("Polygon"),
+      coordinates = list(footprint_coords)
+    )
+  ))
+)
+
+summary_out <- list(
+  width = jsonlite::unbox(ncol(r)), height = jsonlite::unbox(nrow(r)), bandCount = jsonlite::unbox(1),
+  crs = NULL, crsWarning = jsonlite::unbox(crs_warning),
+  displayCrsAssumption = jsonlite::unbox(display_crs_assumption), nodata = NULL,
+  resolution = c(round(res_xy[1], 6), round(res_xy[2], 6)), dtype = jsonlite::unbox(datatype(r)[1]),
+  bounds = unname(round(bounds, 6)), bandStats = band_stats
+)
+
+result <- list(summary = summary_out, footprint = footprint)
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)`
+```
+
+```{ojs}
+//| echo: false
+loadNoCrsExampleButton = WebGeoDS.loadExampleButton("📋 Load a no-CRS example", { pyId: "raster-inspect-py", rId: "raster-inspect-r", pyCode: pyNoCrsExampleCode, rCode: rNoCrsExampleCode })
+```
+
+## 7. Where to next
+
+A summary is a starting point:
+
+- **Just needed the numbers?** The
+  [standalone Raster Inspector](/tools/raster-inspector.html) has the
+  same summary, no reading required.
+- **Working with vector data instead?** Start with
+  [First Look at a Geospatial File](geospatial-file-inspection.qmd) —
+  the same idea, for GeoJSON and Shapefile.
+- **Need to combine two bands into a result** (a difference map, a
+  Normalized Difference like NDVI)? See
+  [Raster Band Math](raster-band-math.qmd), or the standalone
+  [Raster Calculator](/tools/raster-calculator.html).
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

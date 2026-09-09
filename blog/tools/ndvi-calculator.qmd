@@ -1,0 +1,734 @@
+---
+title: "NDVI Calculator"
+date: 2026-09-07
+categories: [tool, raster]
+description: "Upload a multi-band GeoTIFF, pick your Red and near-infrared bands, and get a vegetation-health map (NDVI) as a colored overlay and a downloadable GeoTIFF. Free, runs entirely in your browser."
+page-layout: full
+---
+
+Upload a `.tif`/`.tiff` file with a Red and a near-infrared (NIR)
+band, pick which band is which, and get the Normalized Difference
+Vegetation Index (NDVI) back — as a colored map and a downloadable
+GeoTIFF.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (Python via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+```{ojs}
+//| echo: false
+mutable uploadBusy = false
+```
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "📁 Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  // Python-only tool, same reasoning as the Inspector/Calculator:
+  // skip writing to R's filesystem entirely so selecting a file
+  // doesn't also boot webR in the background for nothing.
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
+    if (result.ok) {
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "ndvi-calculator" });
+  return map;
+}
+```
+
+The code itself isn't shown here — it's a fixed, non-editable
+computation using `rasterio`/`numpy` underneath, the same Normalized
+Difference from [Raster Calculator](/tools/raster-calculator.html)
+with the formula and bands fixed to Red/NIR. Want to see it built up
+step by step, in Python *and* R? Read
+[NDVI: Measuring Vegetation from Two Bands](/posts/raster-ndvi.html).
+
+```{ojs}
+//| echo: false
+//| output: false
+// "Load example" writes a small synthetic two-band raster shaped like
+// a real Red/NIR pair: a Gaussian "vegetation patch" where NIR is
+// high and Red is low (the actual physical signature — leaves reflect
+// strongly in NIR, chlorophyll absorbs red light), fading to a
+// bare-soil-like background where the opposite holds. Produces a
+// believable NDVI range (roughly -0.4 to +0.85), not a coincidental
+// near-zero result the way an arbitrary pair of bumps would.
+generateExample = async () => {
+  await window.WebGeoDS.CodeCell.find("ndvi-generate-example-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      await generateExample();
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = "✓ example data loaded — pick Red/NIR and Compute below.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
+}
+```
+
+```{.webgeods-python #ndvi-generate-example-py}
+#| package: rasterio, numpy
+import rasterio
+from rasterio.transform import from_origin
+import numpy as np
+
+n = 20
+xs = np.arange(n)
+ys = np.arange(n)
+X, Y = np.meshgrid(xs, ys)
+vegetation = np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)
+
+# Illustrative reflectance-like values (0..1), not calibrated to any
+# real sensor's digital numbers -- the point is the SHAPE of the
+# signature (NIR up, Red down where "vegetation" is present), which
+# is what actually drives NDVI regardless of units.
+red = (0.25 - 0.20 * vegetation).astype("float32")
+nir = (0.10 + 0.50 * vegetation).astype("float32")
+red[0, 0] = -9999
+nir[0, 0] = -9999
+
+transform = from_origin(12.40, 41.95, 0.005, 0.005)
+
+# Band 1 = Red, band 2 = NIR for this synthetic file -- an arbitrary
+# choice (real sensors vary), matching the tool's own default band
+# picks below.
+with rasterio.open(
+    "/uploaded.tif", "w", driver="GTiff", height=n, width=n, count=2,
+    dtype="float32", crs="EPSG:4326", transform=transform, nodata=-9999
+) as dst:
+    dst.write(red, 1)
+    dst.write(nir, 2)
+
+"example raster written"
+```
+
+```{.webgeods-python #ndvi-inspect-py}
+#| package: rasterio, numpy
+import rasterio
+from rasterio.warp import transform_bounds
+
+path = None
+for candidate in ["/uploaded.tif"]:
+    try:
+        with rasterio.open(candidate):
+            path = candidate
+            break
+    except Exception:
+        pass
+
+summary = None
+footprint = {"type": "FeatureCollection", "features": []}
+
+if path is not None:
+    with rasterio.open(path) as src:
+        # Same missing-CRS convention as the rest of the Raster
+        # family: unknown stays unknown in the "crs" field, never
+        # silently relabeled as WGS84.
+        crs_warning = None
+        display_crs_assumption = None
+        if src.crs is not None:
+            crs_for_transform = src.crs
+            crs_label = str(src.crs)
+        else:
+            crs_for_transform = "EPSG:4326"
+            crs_label = None
+            crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
+            display_crs_assumption = "EPSG:4326"
+
+        bounds = [round(float(b), 6) for b in src.bounds]
+        try:
+            wgs84_bounds = transform_bounds(crs_for_transform, "EPSG:4326", *src.bounds)
+        except Exception:
+            wgs84_bounds = src.bounds
+
+        minx, miny, maxx, maxy = wgs84_bounds
+        footprint = {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "properties": {"name": "raster footprint"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]
+                }
+            }]
+        }
+
+        summary = {
+            "width": src.width,
+            "height": src.height,
+            "bandCount": src.count,
+            "crs": crs_label,
+            "crsWarning": crs_warning,
+            "displayCrsAssumption": display_crs_assumption,
+            "bounds": bounds,
+        }
+
+{
+    "summary": summary,
+    "footprint": footprint
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+autoInspect = async () => {
+  await window.WebGeoDS.CodeCell.find("ndvi-inspect-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+FOOTPRINT_PAINT = ({
+  "fill-color": "#42583c",
+  "fill-opacity": 0.35,
+  "fill-outline-color": "#2a2117"
+})
+```
+
+```{ojs}
+//| echo: false
+mutable inspectSummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable resultSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyInspect = WebGeoDS.getCellValue("ndvi-inspect-py", Generators)
+{
+  if (pyInspect && pyInspect.summary) {
+    await sharedMap.setGeoJSON("ndvi-footprint", pyInspect.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(pyInspect.footprint);
+    mutable inspectSummary = pyInspect.summary;
+    // A fresh upload/example invalidates any previously computed
+    // result — same reasoning as clicking Reset.
+    await sharedMap.removeRasterImage("ndvi-result");
+    mutable resultSummary = null;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// base64 -> raw bytes, same pattern as the rest of the site (binary
+// data can only cross the Pyodide->JS bridge as a cell value via a
+// text encoding).
+base64ToBytes = (base64Str) => {
+  const binary = atob(base64Str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+```
+
+```{.webgeods-python #ndvi-py}
+#| inject: [nirBand, redBand]
+#| package: rasterio, numpy
+import base64
+import numpy as np
+import rasterio
+from rasterio.warp import transform_bounds
+
+with rasterio.open(path) as src:
+    nir = src.read(int(nirBand), masked=True).astype("float32").filled(np.nan)
+    red = src.read(int(redBand), masked=True).astype("float32").filled(np.nan)
+
+    # NDVI, fixed formula -- unlike Raster Calculator's generic
+    # operator choice, this tool exists specifically to compute this.
+    # errstate: an all-zero pixel pair (nir+red == 0) produces NaN
+    # silently instead of a runtime warning -- folded into NoData two
+    # lines down like everywhere else on this site.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = (nir - red) / (nir + red)
+
+    result[~np.isfinite(result)] = np.nan
+
+    valid = result[np.isfinite(result)]
+    has_valid = valid.size > 0
+
+    # Same missing-CRS convention as ndvi-inspect-py above -- this
+    # cell's own output dict is independent, recomputed rather than
+    # inherited.
+    crs_warning = None
+    display_crs_assumption = None
+    if src.crs is not None:
+        crs_for_transform = src.crs
+        crs_label = str(src.crs)
+    else:
+        crs_for_transform = "EPSG:4326"
+        crs_label = None
+        crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
+        display_crs_assumption = "EPSG:4326"
+
+    try:
+        wgs84_bounds = transform_bounds(crs_for_transform, "EPSG:4326", *src.bounds)
+    except Exception:
+        wgs84_bounds = src.bounds
+
+    # Pixels cross the bridge as base64 float32 bytes -- same
+    # mechanism already proven in raster-calculator.qmd.
+    data_b64 = base64.b64encode(result.astype("float32").tobytes()).decode("ascii")
+
+    output = {
+        "data": data_b64,
+        "width": src.width,
+        "height": src.height,
+        "bounds": [round(float(v), 6) for v in wgs84_bounds],
+        "min": round(float(valid.min()), 4) if has_valid else None,
+        "max": round(float(valid.max()), 4) if has_valid else None,
+        "mean": round(float(valid.mean()), 4) if has_valid else None,
+        "nodataCount": int(result.size - valid.size),
+        "totalPixels": int(result.size),
+        "crs": crs_label,
+        "crsWarning": crs_warning,
+        "displayCrsAssumption": display_crs_assumption,
+    }
+
+output
+```
+
+```{.webgeods-python #ndvi-export-py}
+#| inject: [nirBand, redBand]
+#| package: rasterio, numpy
+# Recomputes NDVI (cheap relative to re-reading the source file) and
+# writes it as an actual GeoTIFF via MemoryFile -- same idiom already
+# used elsewhere on this site's raster tools.
+import base64
+import numpy as np
+import rasterio
+from rasterio.io import MemoryFile
+
+with rasterio.open(path) as src:
+    nir = src.read(int(nirBand), masked=True).astype("float32").filled(np.nan)
+    red = src.read(int(redBand), masked=True).astype("float32").filled(np.nan)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = (nir - red) / (nir + red)
+
+    result[~np.isfinite(result)] = np.nan
+
+    profile = src.profile.copy()
+    profile.update(count=1, dtype="float32", nodata=np.nan)
+
+    memfile = MemoryFile()
+    with memfile.open(**profile) as dst:
+        dst.write(result, 1)
+    tiff_bytes = memfile.read()
+    memfile.close()
+
+base64.b64encode(tiff_bytes).decode("ascii")
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// A pure convenience: precompiles the NIR/Red selects with commonly
+// documented band numbers for a couple of well-known sensors. It
+// does NOT verify anything against the actual uploaded file (a
+// GeoTIFF never declares which sensor produced it) -- purely a
+// starting guess the user is expected to confirm or correct, worded
+// as such in the row's own label below.
+SENSOR_PRESETS = ({
+  custom: null,
+  landsat: { red: 4, nir: 5, label: "Landsat 8/9 (Red=B4, NIR=B5)" },
+  sentinel2: { red: 4, nir: 8, label: "Sentinel-2 (Red=B4, NIR=B8)" }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The band pickers + preset + Compute button, rebuilt together
+// whenever inspectSummary changes -- same reasoning as
+// raster-calculator.qmd's bandMathRow (option counts depend on the
+// current file's real band count).
+ndviRow = {
+  const s = inspectSummary;
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+
+  const bandCount = s ? s.bandCount : 0;
+
+  if (bandCount < 2) {
+    const status = document.createElement("span");
+    status.className = "webgeods-panel-status";
+    status.textContent = s
+      ? `This file has only ${bandCount} band — NDVI needs at least 2 (a Red and a NIR band).`
+      : "Upload a file or load the example to pick bands.";
+    row.append(status);
+    return row;
+  }
+
+  const makeBandSelect = (id, label, defaultBand) => {
+    const wrap = document.createElement("span");
+    const span = document.createElement("span");
+    span.className = "webgeods-panel-status";
+    span.textContent = label;
+    const select = document.createElement("select");
+    select.id = id;
+    select.className = "webgeods-panel-status";
+    for (let i = 1; i <= bandCount; i++) {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = `Band ${i}`;
+      if (i === defaultBand) opt.selected = true;
+      select.appendChild(opt);
+    }
+    wrap.append(span, select);
+    return wrap;
+  };
+
+  const redWrap = makeBandSelect("red-band-select", "Red:", 1);
+  const nirWrap = makeBandSelect("nir-band-select", "NIR:", Math.min(2, bandCount));
+
+  const presetLabel = document.createElement("span");
+  presetLabel.className = "webgeods-panel-status";
+  presetLabel.textContent = "Common sensor (starting guess):";
+  const presetSelect = document.createElement("select");
+  presetSelect.className = "webgeods-panel-status";
+  presetSelect.appendChild(new Option("Custom / manual", "custom"));
+  presetSelect.appendChild(new Option(SENSOR_PRESETS.landsat.label, "landsat"));
+  presetSelect.appendChild(new Option(SENSOR_PRESETS.sentinel2.label, "sentinel2"));
+  presetSelect.onchange = () => {
+    const preset = SENSOR_PRESETS[presetSelect.value];
+    if (!preset) return;
+    if (preset.red > bandCount || preset.nir > bandCount) {
+      mutable uploadStatus = `⚠️ ${presetSelect.options[presetSelect.selectedIndex].text} needs at least band ${Math.max(preset.red, preset.nir)} — this file only has ${bandCount}.`;
+      presetSelect.value = "custom";
+      return;
+    }
+    document.getElementById("red-band-select").value = String(preset.red);
+    document.getElementById("nir-band-select").value = String(preset.nir);
+  };
+
+  const computeButton = document.createElement("button");
+  computeButton.className = "webgeods-panel-btn";
+  computeButton.textContent = "▶ Compute";
+  computeButton.onclick = async () => {
+    computeButton.disabled = true;
+    const originalText = computeButton.textContent;
+    computeButton.textContent = "⌛ Computing...";
+    try {
+      const nirBand = Number(document.getElementById("nir-band-select").value);
+      const redBand = Number(document.getElementById("red-band-select").value);
+      window.nirBand = nirBand;
+      window.redBand = redBand;
+      await window.WebGeoDS.CodeCell.find("ndvi-py").run();
+      const result = document.getElementById("ndvi-py").value;
+      // Fixed -1..1 scale, not this file's own min/max -- NDVI is a
+      // bounded index by convention, and a fixed scale keeps maps
+      // comparable across different files (the stat card below still
+      // reports the REAL min/max/mean for this particular result).
+      await sharedMap.setRasterImage("ndvi-result", {
+        bounds: result.bounds,
+        width: result.width,
+        height: result.height,
+        values: new Float32Array(base64ToBytes(result.data).buffer),
+        min: -1,
+        max: 1,
+        colorRamp: NDVI_RAMP
+      });
+      mutable resultSummary = { ...result, nirBand, redBand };
+      window.WebGeoDS.track?.("validation_completed", { tool: "ndvi-calculator" });
+    } catch (err) {
+      console.error("ndvi-calculator: Compute failed", err);
+      mutable uploadStatus = `⚠️ Compute failed: ${err.message}`;
+    } finally {
+      computeButton.disabled = false;
+      computeButton.textContent = originalText;
+    }
+  };
+
+  row.append(presetLabel, presetSelect, redWrap, nirWrap, computeButton);
+
+  return row;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Brown (bare soil/water, low NDVI) -> pale yellow (sparse
+// vegetation, near zero) -> green (dense vegetation, high NDVI) --
+// the conventional NDVI color scheme, deliberately different from
+// setRasterImage()'s generic viridis default (WebGeoDS.Map.
+// DEFAULT_RASTER_RAMP, used by Raster Calculator) since this tool's
+// whole point is a domain-appropriate map, not a neutral one. Stops
+// are [t, r, g, b] with t in [0, 1] mapping onto the FIXED -1..1
+// scale above (t=0 -> NDVI -1, t=0.5 -> NDVI 0, t=1 -> NDVI +1).
+NDVI_RAMP = [
+  [0.00, 140, 90, 45],
+  [0.30, 210, 190, 130],
+  [0.50, 230, 220, 140],
+  [0.75, 130, 190, 80],
+  [1.00, 20, 90, 30]
+]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+downloadButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "⬇ Download NDVI";
+  button.disabled = !resultSummary;
+  button.onclick = async () => {
+    if (!resultSummary) return;
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "⌛ Preparing...";
+    try {
+      window.nirBand = resultSummary.nirBand;
+      window.redBand = resultSummary.redBand;
+      await window.WebGeoDS.CodeCell.find("ndvi-export-py").run();
+      const b64 = document.getElementById("ndvi-export-py").value;
+      const bytes = base64ToBytes(b64);
+      const base = WebGeoDS.Upload.baseName(uploadedFiles);
+      WebGeoDS.downloadBlob(
+        bytes,
+        base ? `${base}-ndvi.tif` : "ndvi.tif",
+        "image/tiff",
+        { tool: "ndvi-calculator" }
+      );
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+resetCalculator = async () => {
+  await sharedMap.removeRasterImage("ndvi-result");
+  if (sharedMap.getGeoJSON("ndvi-footprint")) {
+    await sharedMap.setGeoJSON("ndvi-footprint", { type: "FeatureCollection", features: [] });
+  }
+  mutable inspectSummary = null;
+  mutable resultSummary = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
+  button.onclick = () => resetCalculator();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
+  return row;
+}
+```
+
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+:::: {.webgeods-panel}
+
+::: {.webgeods-panel-row}
+${controlPanelRow}
+:::
+
+::: {.webgeods-panel-row}
+${uploadStatusEl}
+:::
+
+::: {.webgeods-panel-row}
+${ndviRow}
+:::
+
+::::
+
+```{ojs}
+//| echo: false
+statCard = {
+  const s = inspectSummary;
+  const r = resultSummary;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Dimensions", "—");
+    row("—", "Upload a .tif/.tiff file or load the example above");
+    return box;
+  }
+
+  row("Dimensions", `${s.width} × ${s.height} px`);
+  row("Bands", String(s.bandCount));
+  row("CRS", s.crs === null || s.crs === undefined ? `Unknown ⚠️ ${s.crsWarning}` : s.crs);
+  if (s.displayCrsAssumption) {
+    row("Display assumption", `${s.displayCrsAssumption} — map only, not a fact about the file`);
+  }
+  row("Bounds", s.bounds.join(", "));
+
+  if (r) {
+    row("Formula", `(Band ${r.nirBand} − Band ${r.redBand}) / (Band ${r.nirBand} + Band ${r.redBand})`);
+    row("NDVI range (this file)", r.min !== null ? `${r.min} to ${r.max} (mean ${r.mean})` : "all NoData");
+    row("NoData pixels", `${r.nodataCount.toLocaleString()} / ${r.totalPixels.toLocaleString()}`);
+  }
+
+  return box;
+}
+```
+
+${statCard}
+
+```{ojs}
+//| echo: false
+legendEl = {
+  const r = resultSummary;
+  const wrap = document.createElement("div");
+  wrap.className = "webgeods-legend";
+  if (!r) {
+    wrap.hidden = true;
+    return wrap;
+  }
+  const minLabel = document.createElement("span");
+  minLabel.className = "webgeods-legend-label";
+  minLabel.textContent = "−1 (bare soil / water)";
+  const bar = document.createElement("div");
+  bar.className = "webgeods-legend-bar";
+  const stops = NDVI_RAMP
+    .map(([t, red, green, blue]) => `rgb(${red},${green},${blue}) ${t * 100}%`)
+    .join(", ");
+  bar.style.background = `linear-gradient(to right, ${stops})`;
+  const maxLabel = document.createElement("span");
+  maxLabel.className = "webgeods-legend-label";
+  maxLabel.textContent = "1 (dense vegetation)";
+  wrap.append(minLabel, bar, maxLabel);
+  return wrap;
+}
+```
+
+${legendEl}
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+<style>
+#ndvi-generate-example-py, #ndvi-inspect-py, #ndvi-py, #ndvi-export-py {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+Third tool in the Raster family. Read the
+<a href="/posts/raster-ndvi.html">companion article</a> for the same
+computation in Python and R, one cell at a time — or
+<a href="/tools/raster-calculator.html">Raster Calculator</a> for the
+general two-band arithmetic this tool specializes (any operator, any
+two bands, no vegetation assumption). Working with terrain instead of
+imagery? <a href="/tools/viewshed-calculator.html">Viewshed
+Calculator</a> is the fourth and last tool in this family.
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

@@ -1,0 +1,776 @@
+---
+title: "NDVI: Measuring Vegetation from Two Bands"
+date: 2026-09-07
+categories: [tool, raster, bilingual]
+description: "Compute the Normalized Difference Vegetation Index from a Red and a near-infrared band, and see it as a colored map — in Python and R on the same map."
+---
+
+Plants reflect near-infrared (NIR) light strongly and absorb most red
+light for photosynthesis — a signature no bare soil, water, or
+built surface shares. The Normalized Difference Vegetation Index,
+NDVI, turns that one physical fact into a single number per pixel:
+
+$$\text{NDVI} = \frac{\text{NIR} - \text{Red}}{\text{NIR} + \text{Red}}$$
+
+Same formula as [Raster Band Math](raster-band-math.qmd)'s Normalized
+Difference operator — this article fixes it to a specific pair of
+bands and gives the result a name, a conventional range, and a
+color scheme, because that's what turns "a computed raster" into
+"a vegetation map."
+
+Just want the map, without the rest of the reading? Use the
+[standalone tool](/tools/ndvi-calculator.html) — same engine, pick
+your bands directly.
+
+## 1. Upload your file
+
+A `.tif`/`.tiff` with a Red and a near-infrared band.
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+## 2. Why NDVI, and its most common real-world mistake
+
+Three things worth knowing before the first computed map:
+
+- **It's bounded, by construction.** Normalizing by `NIR + Red`
+  (rather than a plain difference) squeezes the result into roughly
+  `-1..1` regardless of the sensor's raw value range — a Landsat scene
+  in reflectance units and a raw-DN Sentinel-2 tile produce NDVI on
+  the *same* scale, which is exactly why a fixed color scale (not a
+  per-file min/max) makes sense here, unlike the generic Band Math
+  tool.
+- **Roughly**: negative values are usually water, values near zero
+  are bare soil or built surfaces, and increasingly positive values
+  track increasingly dense, healthy vegetation. "Roughly" is doing
+  real work in that sentence — season, sensor, and atmospheric
+  correction all shift the exact thresholds; treat it as a ranking,
+  not a lab measurement.
+- **The single most common real-world mistake: Red and NIR swapped,
+  or the wrong band picked entirely.** A GeoTIFF's band order isn't
+  standardized — it's whatever the sensor or processing pipeline put
+  there, and the file itself never declares "band 4 is Red." Swap the
+  two bands and NDVI doesn't error, it just silently inverts —
+  vegetation reads as water-like and vice versa, a wrong answer that
+  *looks* like a plausible map. Worth a specific check (`0.2 <= NDVI
+  <= 0.9` somewhere near obvious vegetation in the image) before
+  trusting a result on an unfamiliar file, not just a general
+  disclaimer to keep in mind.
+
+## 3. Shared map and result
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+FOOTPRINT_PAINT = ({
+  "fill-color": "#42583c",
+  "fill-opacity": 0.35,
+  "fill-outline-color": "#2a2117"
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Brown (bare soil/water) -> pale yellow (sparse) -> green (dense
+// vegetation) -- the conventional NDVI palette, deliberately
+// different from the generic viridis ramp Raster Band Math uses
+// (WebGeoDS.Map.DEFAULT_RASTER_RAMP) since a domain-specific tool
+// should look like one. Same 5-stop [t, r, g, b] shape, t mapping
+// onto the fixed -1..1 scale below.
+NDVI_RAMP = [
+  [0.00, 140, 90, 45],
+  [0.30, 210, 190, 130],
+  [0.50, 230, 220, 140],
+  [0.75, 130, 190, 80],
+  [1.00, 20, 90, 30]
+]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+base64ToBytes = (base64Str) => {
+  const binary = atob(base64Str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+```
+
+```{ojs}
+//| echo: false
+// Same reasoning as the other bilingual raster articles: separate
+// mutable state so Reset can clear the cards even though there's
+// nothing to re-run.
+mutable pyResult = null
+```
+
+```{ojs}
+//| echo: false
+mutable rResult = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyCompute = WebGeoDS.getCellValue("ndvi-py", Generators)
+{
+  if (pyCompute && pyCompute.summary) {
+    const s = pyCompute.summary;
+    await sharedMap.setGeoJSON("ndvi-py-footprint", pyCompute.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(pyCompute.footprint);
+    if (s.min !== null) {
+      // Fixed -1..1 scale, not this result's own min/max -- see
+      // section 2's note on why NDVI gets a fixed reference scale.
+      await sharedMap.setRasterImage("ndvi-py-result", {
+        bounds: s.wgs84Bounds,
+        width: s.width,
+        height: s.height,
+        values: new Float32Array(base64ToBytes(s.data).buffer),
+        min: -1,
+        max: 1,
+        colorRamp: NDVI_RAMP
+      });
+    }
+    mutable pyResult = s;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rCompute = WebGeoDS.getCellValue("ndvi-r", Generators)
+{
+  if (rCompute && rCompute.summary) {
+    const s = rCompute.summary;
+    await sharedMap.setGeoJSON("ndvi-r-footprint", rCompute.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(rCompute.footprint);
+    if (s.min !== null) {
+      await sharedMap.setRasterImage("ndvi-r-result", {
+        bounds: s.wgs84Bounds,
+        width: s.width,
+        height: s.height,
+        values: new Float32Array(base64ToBytes(s.data).buffer),
+        min: -1,
+        max: 1,
+        colorRamp: NDVI_RAMP
+      });
+    }
+    mutable rResult = s;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+statCard = (label, s) => {
+  const wrap = document.createElement("div");
+  wrap.style.flex = "1";
+  wrap.style.minWidth = "260px";
+
+  const heading = document.createElement("div");
+  heading.className = "webgeods-label";
+  heading.textContent = label;
+  wrap.appendChild(heading);
+
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  wrap.appendChild(box);
+
+  const row = (rowLabel, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = rowLabel;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("NDVI", "—");
+    return wrap;
+  }
+
+  row("Dimensions", `${s.width} × ${s.height} px`);
+  row("CRS", s.crs === null || s.crs === undefined ? `Unknown ⚠️ ${s.crsWarning}` : s.crs);
+  if (s.displayCrsAssumption) {
+    row("Display assumption", `${s.displayCrsAssumption} — map only, not a fact about the file`);
+  }
+  row("NDVI range (this file)", s.min !== null ? `${s.min} to ${s.max} (mean ${s.mean})` : "all NoData");
+  row("NoData pixels", `${s.nodataCount.toLocaleString()} / ${s.totalPixels.toLocaleString()}`);
+
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+statCardsRow = {
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "16px";
+  row.append(statCard("Python", pyResult), statCard("R", rResult));
+  return row;
+}
+```
+
+${statCardsRow}
+
+```{ojs}
+//| echo: false
+legendEl = {
+  const anyResult = (pyResult && pyResult.min !== null) || (rResult && rResult.min !== null);
+  const wrap = document.createElement("div");
+  wrap.className = "webgeods-legend";
+  if (!anyResult) {
+    wrap.hidden = true;
+    return wrap;
+  }
+  const minLabel = document.createElement("span");
+  minLabel.className = "webgeods-legend-label";
+  minLabel.textContent = "−1 (bare soil / water)";
+  const bar = document.createElement("div");
+  bar.className = "webgeods-legend-bar";
+  const stops = NDVI_RAMP
+    .map(([t, red, green, blue]) => `rgb(${red},${green},${blue}) ${t * 100}%`)
+    .join(", ");
+  bar.style.background = `linear-gradient(to right, ${stops})`;
+  const maxLabel = document.createElement("span");
+  maxLabel.className = "webgeods-legend-label";
+  maxLabel.textContent = "1 (dense vegetation)";
+  wrap.append(minLabel, bar, maxLabel);
+  return wrap;
+}
+```
+
+${legendEl}
+
+```{ojs}
+//| echo: false
+resetResult = async () => {
+  for (const id of ["ndvi-py-footprint", "ndvi-r-footprint"]) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
+  }
+  await sharedMap.removeRasterImage("ndvi-py-result");
+  await sharedMap.removeRasterImage("ndvi-r-result");
+  mutable pyResult = null;
+  mutable rResult = null;
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and result";
+  button.onclick = () => resetResult();
+  return button;
+}
+```
+
+## 4. Compute: run NDVI in Python or R
+
+Run the same computation on the current data (your file uploaded
+above, or the built-in example below) — edit `band_red`/`band_nir`
+to match your file (common conventions: Landsat 8/9 Red=band 4,
+NIR=band 5; Sentinel-2 Red=band 4, NIR=band 8 — but always confirm
+against the file at hand, not just the sensor name) and re-run.
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #ndvi-py}
+#| package: rasterio, numpy
+import base64
+import rasterio
+from rasterio.transform import from_origin
+from rasterio.io import MemoryFile
+from rasterio.warp import transform_bounds
+import numpy as np
+
+path = None
+for candidate in ["/uploaded.tif"]:
+    try:
+        with rasterio.open(candidate):
+            path = candidate
+            break
+    except Exception:
+        pass
+
+# No file uploaded yet: a synthetic Red/NIR pair shaped like a real
+# vegetation signature (NIR up, Red down where "vegetation" is
+# present) rather than two arbitrary bands -- see section 2.
+memfile = None
+if path is None:
+    n = 20
+    xs = np.arange(n)
+    ys = np.arange(n)
+    X, Y = np.meshgrid(xs, ys)
+    vegetation = np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)
+    red_band = (0.25 - 0.20 * vegetation).astype("float32")
+    nir_band = (0.10 + 0.50 * vegetation).astype("float32")
+    red_band[0, 0] = -9999
+    nir_band[0, 0] = -9999
+    transform = from_origin(12.40, 41.95, 0.005, 0.005)
+    memfile = MemoryFile()
+    with memfile.open(
+        driver="GTiff", height=n, width=n, count=2,
+        dtype="float32", crs="EPSG:4326", transform=transform, nodata=-9999
+    ) as dst:
+        dst.write(red_band, 1)
+        dst.write(nir_band, 2)
+    path = memfile.name
+
+band_red = 1
+band_nir = 2
+
+with rasterio.open(path) as src:
+    red = src.read(band_red, masked=True).astype("float32").filled(np.nan)
+    nir = src.read(band_nir, masked=True).astype("float32").filled(np.nan)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = (nir - red) / (nir + red)
+
+    # Inf/NaN (from an all-zero pixel pair) folded into NoData the
+    # same way as every other raster tool on this site.
+    result[~np.isfinite(result)] = np.nan
+
+    valid = result[np.isfinite(result)]
+    has_valid = valid.size > 0
+
+    crs_warning = None
+    display_crs_assumption = None
+    if src.crs is not None:
+        crs_for_transform = src.crs
+        crs_label = str(src.crs)
+    else:
+        crs_for_transform = "EPSG:4326"
+        crs_label = None
+        crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
+        display_crs_assumption = "EPSG:4326"
+
+    try:
+        wgs84_bounds = transform_bounds(crs_for_transform, "EPSG:4326", *src.bounds)
+    except Exception:
+        wgs84_bounds = src.bounds
+
+    minx, miny, maxx, maxy = wgs84_bounds
+    footprint = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"name": "NDVI footprint"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]
+            }
+        }]
+    }
+
+    data_b64 = base64.b64encode(result.astype("float32").tobytes()).decode("ascii")
+
+    summary = {
+        "width": src.width,
+        "height": src.height,
+        "data": data_b64,
+        "wgs84Bounds": [round(float(v), 6) for v in wgs84_bounds],
+        "crs": crs_label,
+        "crsWarning": crs_warning,
+        "displayCrsAssumption": display_crs_assumption,
+        "min": round(float(valid.min()), 4) if has_valid else None,
+        "max": round(float(valid.max()), 4) if has_valid else None,
+        "mean": round(float(valid.mean()), 4) if has_valid else None,
+        "nodataCount": int(result.size - valid.size),
+        "totalPixels": int(result.size),
+    }
+
+if memfile is not None:
+    memfile.close()
+
+{
+    "summary": summary,
+    "footprint": footprint
+}
+```
+
+## R
+
+```{.webgeods-r #ndvi-r}
+#| package: terra, jsonlite, codetools
+library(terra)
+
+path <- NULL
+for (candidate in c("/uploaded.tif")) {
+  ok <- tryCatch({ rast(candidate); TRUE }, error = function(e) FALSE)
+  if (ok) { path <- candidate; break }
+}
+
+if (is.null(path)) {
+  # Same synthetic Red/NIR pair as the Python fallback.
+  n <- 20
+  xs <- 0:(n - 1)
+  ys <- 0:(n - 1)
+  vegetation <- outer(ys, xs, function(y, x) exp(-((x - 10)^2 + (y - 10)^2) / 30))
+  red_band <- 0.25 - 0.20 * vegetation
+  nir_band <- 0.10 + 0.50 * vegetation
+  red_band[1, 1] <- NA
+  nir_band[1, 1] <- NA
+  r <- c(
+    rast(red_band, crs = "EPSG:4326"),
+    rast(nir_band, crs = "EPSG:4326")
+  )
+  ext(r) <- c(12.40, 12.40 + n * 0.005, 41.95 - n * 0.005, 41.95)
+} else {
+  r <- rast(path)
+}
+
+band_red <- 1
+band_nir <- 2
+
+red <- r[[band_red]]
+nir <- r[[band_nir]]
+
+result <- (nir - red) / (nir + red)
+
+# ifel() is terra's own vectorized if/else -- same reasoning as
+# raster-band-math.qmd's use of it for Inf/NaN cleanup after a
+# division.
+result <- ifel(is.finite(result), result, NA)
+
+was_missing_crs <- crs(r) == ""
+crs_warning <- NULL
+display_crs_assumption <- NULL
+if (was_missing_crs) {
+  crs_warning <- "No CRS declared — spatial location cannot be reliably interpreted."
+  display_crs_assumption <- "EPSG:4326"
+  crs(r) <- "EPSG:4326"
+}
+crs_label <- if (was_missing_crs) {
+  NULL
+} else {
+  crs_desc <- crs(r, describe = TRUE)
+  if (!is.na(crs_desc$authority) && !is.na(crs_desc$code)) {
+    paste0(crs_desc$authority, ":", crs_desc$code)
+  } else {
+    crs(r, proj = TRUE)
+  }
+}
+
+e <- ext(r)
+bbox_wkt <- paste0(
+  "POLYGON((",
+  e$xmin, " ", e$ymin, ", ", e$xmax, " ", e$ymin, ", ",
+  e$xmax, " ", e$ymax, ", ", e$xmin, " ", e$ymax, ", ",
+  e$xmin, " ", e$ymin, "))"
+)
+bbox_vect <- vect(bbox_wkt, crs = crs(r))
+bbox_wgs84 <- tryCatch(project(bbox_vect, "EPSG:4326"), error = function(err) bbox_vect)
+bbox_geom <- geom(bbox_wgs84)
+footprint_coords <- lapply(seq_len(nrow(bbox_geom)), function(i) c(bbox_geom[i, "x"], bbox_geom[i, "y"]))
+e_wgs84 <- ext(bbox_wgs84)
+
+footprint <- list(
+  type = jsonlite::unbox("FeatureCollection"),
+  features = list(list(
+    type = jsonlite::unbox("Feature"),
+    properties = list(name = jsonlite::unbox("NDVI footprint")),
+    geometry = list(
+      type = jsonlite::unbox("Polygon"),
+      coordinates = list(footprint_coords)
+    )
+  ))
+)
+
+vals <- values(result, mat = FALSE)
+valid <- vals[is.finite(vals)]
+has_valid <- length(valid) > 0
+
+con <- rawConnection(raw(0), "wb")
+writeBin(as.numeric(ifelse(is.finite(vals), vals, NaN)), con, size = 4, endian = "little")
+raw_bytes <- rawConnectionValue(con)
+close(con)
+data_b64 <- jsonlite::base64_enc(raw_bytes)
+
+# jsonlite::toJSON() treats every length-1 vector as a single-element
+# array by default — a genuine scalar (a width, a CRS string) needs an
+# explicit jsonlite::unbox() to serialize as one. ub()/ub_if() below
+# are just that, plus a NULL passthrough for optional fields (see
+# geospatial-file-inspection.qmd for the full reasoning on why this,
+# not toJSON(auto_unbox = TRUE), is the safer default).
+ub <- function(x) if (is.null(x)) NULL else jsonlite::unbox(x)
+ub_if <- function(cond, x) if (cond) jsonlite::unbox(x) else NULL
+
+summary_out <- list(
+  width = jsonlite::unbox(ncol(r)),
+  height = jsonlite::unbox(nrow(r)),
+  data = jsonlite::unbox(data_b64),
+  wgs84Bounds = round(c(e_wgs84$xmin, e_wgs84$ymin, e_wgs84$xmax, e_wgs84$ymax), 6),
+  crs = ub(crs_label),
+  crsWarning = ub(crs_warning),
+  displayCrsAssumption = ub(display_crs_assumption),
+  min = ub_if(has_valid, round(min(valid), 4)),
+  max = ub_if(has_valid, round(max(valid), 4)),
+  mean = ub_if(has_valid, round(mean(valid), 4)),
+  nodataCount = jsonlite::unbox(length(vals) - length(valid)),
+  totalPixels = jsonlite::unbox(length(vals))
+)
+
+result_out <- list(summary = summary_out, footprint = footprint)
+jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)
+```
+
+:::
+
+## 5. Same spatial question, two languages
+
+Same divergence already documented in
+[Raster Band Math](raster-band-math.qmd#same-spatial-question-two-languages)
+— numpy needs an explicit `np.errstate` context to suppress the
+runtime warning a division by zero would otherwise print, while
+terra's `ifel()` is a single vectorized call with no equivalent
+warning. Nothing about NDVI specifically changes that comparison; the
+formula is just a Normalized Difference with the bands fixed to
+Red/NIR.
+
+## 6. A raster with no declared CRS
+
+Same convention as every other Raster tool on this site — a missing
+CRS shows "Unknown" plus a separate "Display assumption" row, never
+silently relabeled as WGS84. NDVI itself doesn't change based on
+CRS — the arithmetic is per-pixel regardless of where the pixel sits
+on the earth — but the footprint on the map still needs *some*
+projection to draw.[^ndvi-crs-missing]
+
+[^ndvi-crs-missing]: The reusable cell pair above already builds the
+synthetic Red/NIR pair whenever nothing has been uploaded — click
+**▶ Run** on both languages in section 4 to see it with a real CRS.
+This button swaps in the same pair, minus the CRS.
+
+
+```{ojs}
+//| echo: false
+pyNoCrsExampleCode = `import base64
+import rasterio
+from rasterio.transform import from_origin
+from rasterio.io import MemoryFile
+import numpy as np
+
+n = 20
+xs = np.arange(n)
+ys = np.arange(n)
+X, Y = np.meshgrid(xs, ys)
+vegetation = np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)
+red_band = (0.25 - 0.20 * vegetation).astype("float32")
+nir_band = (0.10 + 0.50 * vegetation).astype("float32")
+red_band[0, 0] = -9999
+nir_band[0, 0] = -9999
+transform = from_origin(12.40, 41.95, 0.005, 0.005)
+
+# crs deliberately omitted -- the whole point of this example.
+memfile = MemoryFile()
+with memfile.open(
+    driver="GTiff", height=n, width=n, count=2,
+    dtype="float32", transform=transform, nodata=-9999
+) as dst:
+    dst.write(red_band, 1)
+    dst.write(nir_band, 2)
+
+band_red, band_nir = 1, 2
+
+with rasterio.open(memfile.name) as src:
+    red = src.read(band_red, masked=True).astype("float32").filled(np.nan)
+    nir = src.read(band_nir, masked=True).astype("float32").filled(np.nan)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = (nir - red) / (nir + red)
+    result[~np.isfinite(result)] = np.nan
+
+    valid = result[np.isfinite(result)]
+    has_valid = valid.size > 0
+
+    crs_warning = None
+    display_crs_assumption = None
+    if src.crs is not None:
+        crs_label = str(src.crs)
+    else:
+        crs_label = None
+        crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
+        display_crs_assumption = "EPSG:4326"
+
+    minx, miny, maxx, maxy = src.bounds
+    footprint = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"name": "NDVI footprint"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]
+            }
+        }]
+    }
+
+    data_b64 = base64.b64encode(result.astype("float32").tobytes()).decode("ascii")
+
+    summary = {
+        "width": src.width, "height": src.height, "data": data_b64,
+        "wgs84Bounds": [round(float(v), 6) for v in src.bounds],
+        "crs": crs_label, "crsWarning": crs_warning,
+        "displayCrsAssumption": display_crs_assumption,
+        "min": round(float(valid.min()), 4) if has_valid else None,
+        "max": round(float(valid.max()), 4) if has_valid else None,
+        "mean": round(float(valid.mean()), 4) if has_valid else None,
+        "nodataCount": int(result.size - valid.size), "totalPixels": int(result.size),
+    }
+
+memfile.close()
+
+{"summary": summary, "footprint": footprint}`
+rNoCrsExampleCode = `library(terra)
+
+n <- 20
+xs <- 0:(n - 1)
+ys <- 0:(n - 1)
+vegetation <- outer(ys, xs, function(y, x) exp(-((x - 10)^2 + (y - 10)^2) / 30))
+red_band <- 0.25 - 0.20 * vegetation
+nir_band <- 0.10 + 0.50 * vegetation
+red_band[1, 1] <- NA
+nir_band[1, 1] <- NA
+# crs deliberately omitted from rast() -- the whole point of this example.
+r <- c(rast(red_band), rast(nir_band))
+ext(r) <- c(12.40, 12.40 + n * 0.005, 41.95 - n * 0.005, 41.95)
+
+band_red <- 1
+band_nir <- 2
+red <- r[[band_red]]
+nir <- r[[band_nir]]
+result <- (nir - red) / (nir + red)
+result <- ifel(is.finite(result), result, NA)
+
+crs_warning <- NULL
+display_crs_assumption <- NULL
+if (crs(r) == "") {
+  crs_warning <- "No CRS declared — spatial location cannot be reliably interpreted."
+  display_crs_assumption <- "EPSG:4326"
+  crs(r) <- "EPSG:4326"
+}
+
+e <- ext(r)
+bbox_wkt <- paste0(
+  "POLYGON((",
+  e$xmin, " ", e$ymin, ", ", e$xmax, " ", e$ymin, ", ",
+  e$xmax, " ", e$ymax, ", ", e$xmin, " ", e$ymax, ", ",
+  e$xmin, " ", e$ymin, "))"
+)
+bbox_vect <- vect(bbox_wkt, crs = crs(r))
+bbox_geom <- geom(bbox_vect)
+footprint_coords <- lapply(seq_len(nrow(bbox_geom)), function(i) c(bbox_geom[i, "x"], bbox_geom[i, "y"]))
+
+footprint <- list(
+  type = jsonlite::unbox("FeatureCollection"),
+  features = list(list(
+    type = jsonlite::unbox("Feature"),
+    properties = list(name = jsonlite::unbox("NDVI footprint")),
+    geometry = list(type = jsonlite::unbox("Polygon"), coordinates = list(footprint_coords))
+  ))
+)
+
+vals <- values(result, mat = FALSE)
+valid <- vals[is.finite(vals)]
+has_valid <- length(valid) > 0
+
+con <- rawConnection(raw(0), "wb")
+writeBin(as.numeric(ifelse(is.finite(vals), vals, NaN)), con, size = 4, endian = "little")
+raw_bytes <- rawConnectionValue(con)
+close(con)
+data_b64 <- jsonlite::base64_enc(raw_bytes)
+
+summary_out <- list(
+  width = jsonlite::unbox(ncol(r)), height = jsonlite::unbox(nrow(r)), data = jsonlite::unbox(data_b64),
+  wgs84Bounds = round(c(e$xmin, e$ymin, e$xmax, e$ymax), 6),
+  crs = NULL, crsWarning = jsonlite::unbox(crs_warning),
+  displayCrsAssumption = jsonlite::unbox(display_crs_assumption),
+  min = if (has_valid) jsonlite::unbox(round(min(valid), 4)) else NULL,
+  max = if (has_valid) jsonlite::unbox(round(max(valid), 4)) else NULL,
+  mean = if (has_valid) jsonlite::unbox(round(mean(valid), 4)) else NULL,
+  nodataCount = jsonlite::unbox(length(vals) - length(valid)), totalPixels = jsonlite::unbox(length(vals))
+)
+
+result_out <- list(summary = summary_out, footprint = footprint)
+jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)`
+```
+
+```{ojs}
+//| echo: false
+loadNoCrsExampleButton = WebGeoDS.loadExampleButton("📋 Load a no-CRS example", { pyId: "ndvi-py", rId: "ndvi-r", pyCode: pyNoCrsExampleCode, rCode: rNoCrsExampleCode })
+```
+
+${loadNoCrsExampleButton}
+
+## 7. Where to next
+
+- **Just needed the map?** The
+  [standalone NDVI Calculator](/tools/ndvi-calculator.html) picks Red
+  and NIR from a dropdown, no editing required.
+- **Different two bands, or a different operation?**
+  [Raster Band Math](raster-band-math.qmd) is the general version of
+  this same computation — add/subtract/multiply/divide, any two
+  bands, no vegetation assumption.
+- **Not sure what's in the file yet?** Start with
+  [Raster Inspector](/tools/raster-inspector.html) — dimensions,
+  bands, CRS, NoData, before computing anything.
+- **Working with terrain instead of imagery?** See
+  [Viewshed](raster-viewshed.qmd) — what's visible from a point,
+  accounting for the ground in between.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

@@ -1,0 +1,490 @@
+/* css styles */
+
+/* ============================================================
+   Design tokens — Field Atlas
+   Source of truth: shared/_brand.yml (the "webgeods Field Atlas
+   System" design canvas) — these are the SAME colors, not a second
+   opinion about them; token names match _brand.yml's Italian names
+   exactly so the two files describe one system, not two. Everything
+   below this block should reference a var(), not a literal hex —
+   a palette change happens here, once, not by grepping the file.
+
+   Two layers: the literal palette (what _brand.yml defines), then
+   semantic aliases (what a component actually asks for — "surface",
+   "action", "danger" — so a future re-theme only touches the alias
+   layer, not every rule that happens to use terracotta today).
+   ============================================================ */
+:root {
+  --carta: #f3ede1;
+  --carta-scura: #eee5d2;
+  --inchiostro: #2a2117;
+  --inchiostro-tenue: #5a4f3e;
+  --terracotta: #ab502b; /* darkened from #b0522c (2026-09-06, WCAG audit) — see _brand.yml */
+  --muschio: #42583c;
+  --muschio-hover: #526b4a; /* not in _brand.yml — a hover shade derived from muschio, not a brand color in its own right */
+  --hairline: #ddd1b8;
+  --etichetta: #766851; /* darkened from #8a7a5f (2026-09-06, WCAG audit) — see _brand.yml */
+  --info: #3d5a73;
+  --attenzione: #c48a2e;
+  --errore: #8b2f24;
+
+  --surface: var(--carta);
+  --surface-muted: var(--carta-scura);
+  --border: var(--inchiostro-tenue);
+  --border-hairline: var(--hairline);
+  --text: var(--inchiostro);
+  --text-muted: var(--etichetta);
+  --action: var(--muschio);
+  --action-hover: var(--muschio-hover);
+  --action-disabled-bg: #b9ae95; /* not in _brand.yml — see .webgeods-panel-btn:disabled below; .webgeods-run-btn:disabled uses --border-hairline instead, an existing inconsistency kept as-is (not introduced by this pass) rather than silently unified */
+  --success: var(--muschio);
+  --warning: var(--attenzione);
+  --danger: var(--errore);
+
+  /* Data-visualization tones — deliberately NOT the same as the UI
+     semantic colors above: a brighter red/green used for map fills
+     and validity row coloring, chosen for legibility against a
+     MapLibre basemap, not for brand consistency. terracotta doesn't
+     become "the invalid-feature color" just because it's the brand
+     accent — see roadmap-acquisizione.md's design-tokens entry. */
+  --dataviz-invalid: #e05252;
+  --dataviz-valid: #2ea44f;
+  --dataviz-selection: #ffeb3b; /* not in _brand.yml — map.js's row-selection/highlight() yellow, promoted from a literal repeated 6 times with no token at all (see roadmap-acquisizione.md's "Field Atlas" audit) */
+}
+
+/* The wordmark's "Geo" segment, wherever "webGeoDs" is written out by
+   hand in prose (the navbar's own instance is styled by a small
+   script instead — see blog/_quarto.yml's include-after-body — since
+   Quarto generates that text itself, with no markdown to write a
+   <span> into). One class instead of a repeated inline style, same
+   reasoning as every other token in this file. */
+.webgeods-wordmark-geo {
+  color: var(--terracotta);
+  font-weight: 600;
+}
+
+/* Navbar's active-page indicator ("Home" on the homepage, etc.):
+   Bootstrap auto-darkens the link/primary color for this state
+   (--bs-navbar-active-color, computed to ~70% of terracotta) instead
+   of reusing terracotta itself -- a third, unintended shade sitting
+   next to the real terracotta used everywhere else (body links, the
+   "Geo" wordmark). Found during a live color audit of the homepage
+   (2026-09-06): three different reds in one navbar. Forced back to
+   the one real accent color instead of Bootstrap's own derivation. */
+.navbar .nav-link.active {
+  color: var(--terracotta) !important;
+}
+
+/* Quarto's title-block description (any page with a `description:`
+   in its front matter, e.g. the homepage's one-line pitch under
+   "webGeoDs"): ships with zero spacing of its own -- it sits flush
+   against the H1 above it (0px gap, measured) while a full paragraph
+   gap (~60px) follows before the next real paragraph, making it read
+   as fused to the title rather than as its own line. Muted color and
+   italic distinguish it from body copy as a genuine subtitle, not
+   "the first sentence of the page". */
+#title-block-header.quarto-title-block.default .description {
+  margin-top: 0.5rem;
+  color: var(--etichetta);
+  font-style: italic;
+}
+
+/* Code cell container — "Field Atlas" palette. Sharp corners
+   throughout (no border-radius) by design, matching the canvas. */
+.webgeods-editor-container {
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  background-color: var(--surface-muted);
+}
+
+/* Top toolbar: language label on the left, Run button on the right. */
+.webgeods-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--border-hairline);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Language label (R/Python). */
+.webgeods-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Run button. */
+.webgeods-run-btn {
+  background: var(--action);
+  color: var(--surface);
+  border: none;
+  border-radius: 0;
+  padding: 4px 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.webgeods-run-btn:hover {
+  background: var(--action-hover);
+}
+
+.webgeods-run-btn:disabled {
+  background: var(--border-hairline);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* Log colors by status level — same semantic tokens as _brand.yml
+   (info/successo/errore), for readable contrast against the
+   carta/carta-scura backgrounds above. */
+.webgeods-log-waiting { color: var(--text-muted); font-style: italic; }
+.webgeods-log-running { color: var(--info); font-weight: bold; }
+.webgeods-log-error   { color: var(--danger); }
+.webgeods-log-success { color: var(--success); }
+
+/* Optional detail line (second argument of CellOutput.log()). */
+.webgeods-log-detail {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* Output area — same shade as the editor body, one step darker than
+   the page background so the whole cell reads as a distinct panel. */
+.webgeods-output {
+  background: var(--surface-muted);
+  border-top: 1px solid var(--border);
+  padding: 12px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  min-height: 45px;
+  white-space: pre-wrap;
+  color: var(--text);
+}
+
+.webgeods-map-container {
+  width: 100%;
+  height: 500px; /* explicit height required for MapLibre to render */
+  border: 1px solid var(--border);
+  border-radius: 0;
+  margin-top: 20px;
+  background-color: var(--surface);
+}
+/* A map directly under a .webgeods-panel (every tool page: panel of
+   controls, then the map they act on) sits flush against it instead
+   of floating a second 20px gap below the panel's own margin — the
+   two read as one connected instrument, panel on top, map below. */
+.webgeods-panel + .webgeods-map-container {
+  margin-top: 0;
+}
+
+/* WebGeoDS.Table (shared/table.js) — plain hand-built table, no
+   library. Same "Field Atlas" palette/sharp-corner language as the
+   rest of the page (.webgeods-editor-container above). */
+.webgeods-table {
+  min-width: 100%; /* NOT width: 100% — that caps the table at the
+    scroll container's width, so a table with enough columns (nowrap
+    cells, see below) to need it never actually triggers
+    .webgeods-table-scroll's horizontal scrollbar. min-width still
+    fills a narrow table out to the container, but lets a wide one
+    grow past it instead of being squeezed back in. */
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.webgeods-table th,
+.webgeods-table td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+/* .webgeods-table-scroll .webgeods-table th (not just .webgeods-table
+   th): found while verifying this file's token pass — Quarto's own
+   compiled CSS ships `div.observablehq table thead tr th {
+   background-color: var(--bs-body-bg) }`, a generic rule meant for
+   Observable's native table output that also matches ours (any table
+   inside an OJS cell's output div) and outranks a single-class
+   selector on specificity (1 class + 5 elements beats 1 class + 1
+   element) regardless of load order. The two extra classes here beat
+   it back. Pre-existing (the difference between carta/carta-scura is
+   subtle enough that it went unnoticed until compared programmatically,
+   not something this pass introduced). */
+.webgeods-table-scroll .webgeods-table th {
+  background-color: var(--surface-muted);
+  color: var(--text);
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: bold;
+  /* Stays visible while scrolling — the scroll ancestor is
+     .webgeods-table-scroll below, which wraps this table directly. */
+  position: sticky;
+  top: 0;
+}
+.webgeods-table tbody tr:hover {
+  background-color: rgba(90, 79, 62, 0.08); /* --inchiostro-tenue at 8% */
+}
+/* Zebra striping now that whole-row validity coloring is opt-in
+   (iconColumns is the default for new tables — see
+   geojson-shapefile-validator.qmd) rather than automatic: excludes
+   rows that DO still carry a color of their own (topology-checker.qmd,
+   the selected-row accent) so this never overrides those. */
+.webgeods-table tbody tr:nth-child(even):not(.webgeods-row-invalid):not(.webgeods-row-fixed) {
+  background-color: rgba(90, 79, 62, 0.04); /* --inchiostro-tenue at 4% */
+}
+.webgeods-table-scroll {
+  max-height: 340px;
+  overflow: auto;
+  margin-top: 12px;
+  border: 1px solid var(--border);
+}
+.webgeods-table-empty {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Row-level coloring for WebGeoDS.Map.table()'s rowClassName option —
+   the data-visualization red/green tones (not the UI danger/success
+   ones — see the --dataviz-* comment in the tokens block above),
+   already used for MapLibre fill paint throughout the topology-fix
+   examples, so the table and the map speak the same color language. */
+.webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); } /* --dataviz-invalid at 15% */
+.webgeods-row-fixed   { background-color: rgba(46, 164, 79, 0.15); } /* --dataviz-valid at 15% */
+
+/* WebGeoDS.Table's iconColumns (shared/table.js) — ✓/✗/✓ fixed text,
+   colored with the same dataviz tones as the row classes above (and
+   the map's own VALIDITY_PAINT fill), so a green ✓ in the table and a
+   green polygon on the map read as the same "valid" signal. */
+.webgeods-icon-valid   { color: var(--dataviz-valid); font-weight: bold; }
+.webgeods-icon-invalid { color: var(--dataviz-invalid); font-weight: bold; }
+
+/* Selected row (WebGeoDS.Map.tableCell()'s row-select ↔ map zoomTo/
+   highlight linking) — a left accent, not a background tint, so it
+   stays visible whether or not webgeods-row-invalid/-fixed already
+   colors the same row. Uses --info (matches .webgeods-log-running
+   elsewhere), kept distinct from the red/green validity tones on
+   purpose. */
+.webgeods-row-clickable {
+  cursor: pointer;
+}
+.webgeods-row-selected {
+  box-shadow: inset 4px 0 0 var(--info);
+}
+
+/* Standalone-tool action buttons (Validate/Fix/Check, see
+   geojson-shapefile-validator.qmd and topology-checker.qmd): a cold
+   run loads a whole Python runtime + packages first, 30-40s with
+   nothing else happening on the page — a static "⌛ Validating..."
+   button alone reads as stalled/broken. A slow, gentle opacity pulse
+   is enough to signal "still working", added/removed via JS
+   alongside the disabled state, not left permanently on. */
+@keyframes webgeods-btn-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.webgeods-btn-loading {
+  animation: webgeods-btn-pulse 1.4s ease-in-out infinite;
+}
+
+/* Dashboard-style control panel (geojson-shapefile-validator.qmd,
+   topology-checker.qmd): groups the upload widget, action buttons and
+   live status into one bordered panel instead of scattering them
+   under separate article headings — same "Field Atlas" palette as the
+   code editor's own toolbar (.webgeods-toolbar above), reused here at
+   page level so the tool reads as an app control bar, not an article
+   section. */
+.webgeods-panel {
+  border: 1px solid var(--border);
+  background-color: var(--surface-muted);
+  padding: 10px 20px;
+  margin: 20px 0 0 0;
+}
+.webgeods-panel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.webgeods-panel-row + .webgeods-panel-row {
+  margin-top: 8px;
+}
+/* A readout, not body text — smaller and more clearly "instrument
+   panel" than the buttons next to it (eyebrow-label treatment, same
+   idea as .webgeods-label). webgeods-btn-loading (existing pulse
+   keyframe, above) doubles as the "something's happening" signal for
+   status text, not just buttons. */
+.webgeods-panel-status {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Action buttons inside .webgeods-panel — same look as the code
+   editor's own Run button (.webgeods-run-btn), reused at page level so
+   the control bar and the code cells speak one visual language.
+   [data-variant="outline"] de-emphasizes secondary actions
+   (Download/Reset) relative to the primary Validate/Fix ones. */
+.webgeods-panel-btn {
+  display: flex; /* NOT inline-flex: browsers "blockify" a <button>'s
+    display from inline-flex to flex automatically (a documented
+    form-control quirk — <label> isn't a form control, so it would
+    stay inline-flex, computing a different box height than <button>
+    despite identical CSS otherwise). Setting flex directly makes
+    both elements compute the same box, no mismatch left to blockify.
+    Harmless as a flex ITEM of .webgeods-panel-row: a child's own
+    inner display (flex vs inline-flex) doesn't change how its
+    parent's flex layout positions it. */
+  align-items: center;
+  box-sizing: border-box;
+  background: var(--action);
+  color: var(--surface);
+  border: 1px solid transparent; /* reserves the same 2px the outline
+    variant's real border takes, so solid and outline buttons (and the
+    upload <label>, which shares this class) come out the same height */
+  border-radius: 0;
+  padding: 7px 16px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: normal; /* a <label> (the upload control) inherits the
+    page's prose line-height by default, taller than a <button>'s own
+    UA default — pinned explicitly so both compute the same box height */
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.webgeods-panel-btn:hover:not(:disabled) {
+  background: var(--action-hover);
+}
+.webgeods-panel-btn:disabled {
+  background: var(--action-disabled-bg);
+  cursor: not-allowed;
+}
+.webgeods-panel-btn[data-variant="outline"] {
+  background: transparent;
+  color: var(--border);
+  border: 1px solid var(--border);
+}
+.webgeods-panel-btn[data-variant="outline"]:hover:not(:disabled) {
+  background: rgba(90, 79, 62, 0.1); /* --inchiostro-tenue at 10% */
+}
+
+/* The upload control (WebGeoDS.Upload.createControl(), shared/upload.js)
+   is a native <input type="file"> wrapped in a <label
+   class="webgeods-panel-btn"> — the label already gets the full
+   button look from the rule above for free, so only the actual
+   <input> needs hiding here. A <label> wrapping its own <input>
+   opens the file picker on click with no JS and no visible "Choose
+   file" control needed — the page's own upload-status text already
+   shows the current filename/state, more informatively than the
+   browser's native "no file chosen" text this replaces. */
+.webgeods-panel-btn input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Key/value summary card (geospatial-file-inspector.qmd) — same
+   bordered-surface language as .webgeods-panel, but a 2-column grid
+   instead of a button row: this tool's whole point is a scannable
+   dataset summary, not an action bar. Flush against the panel above
+   and the map below (same reasoning as .webgeods-panel +
+   .webgeods-map-container), so panel → summary → map reads as one
+   connected instrument, not three separate boxes. */
+.webgeods-stat-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 20px;
+  row-gap: 8px;
+  border: 1px solid var(--border);
+  background-color: var(--surface-muted);
+  padding: 16px 20px;
+  margin: 20px 0 0 0;
+}
+.webgeods-panel + .webgeods-stat-grid {
+  margin-top: 0;
+}
+.webgeods-stat-grid + .webgeods-map-container {
+  margin-top: 0;
+}
+.webgeods-stat-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.webgeods-stat-value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* Color-ramp legend for a colored raster overlay
+   (WebGeoDS.Map#setRasterImage(), shared/map.js) — a horizontal
+   gradient bar sampling the same ramp the canvas overlay itself was
+   built from (set inline per-instance: the stops depend on which ramp
+   a given tool actually uses), with min/max labels either side. Same
+   bordered-surface language and flush-stacking reasoning as
+   .webgeods-stat-grid above. */
+.webgeods-legend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  background-color: var(--surface-muted);
+  padding: 12px 20px;
+  margin: 20px 0 0 0;
+}
+.webgeods-panel + .webgeods-legend,
+.webgeods-stat-grid + .webgeods-legend {
+  margin-top: 0;
+}
+.webgeods-legend + .webgeods-map-container {
+  margin-top: 0;
+}
+.webgeods-legend-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.webgeods-legend-bar {
+  flex: 1;
+  height: 14px;
+  border: 1px solid var(--border-hairline);
+}
+
+/* Closing cross-link to the full article — previously butted straight
+   up against the table/style block above it with only a bare <hr>;
+   more breathing room and a touch more visual weight so it reads as
+   an intentional next step, not an afterthought. */
+/* A full bordered box (not just a top rule) — reads as a distinct
+   disclaimer/next-step callout, same "bordered surface" language as
+   .webgeods-panel above, instead of a paragraph that happens to sit
+   near the table and the newsletter form on either side of it.
+   Margin on both sides keeps it clear of both neighbors. */
+.webgeods-closing-note {
+  margin: 40px 0 32px 0;
+  padding: 16px 20px;
+  border: 1px solid var(--border-hairline);
+  background-color: var(--surface-muted);
+  font-size: 15px;
+}

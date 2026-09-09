@@ -1,0 +1,91 @@
+---
+title: "About"
+description: "Spatial Data Science, learned and used directly in your browser — no installation, no upload."
+---
+
+## What it is
+
+web<span class="webgeods-wordmark-geo">Geo</span>Ds brings spatial data analysis, interactive examples, and
+free tools together in one place — Python and R side by side, running
+entirely in your browser. Nothing to install, nothing uploaded
+anywhere.
+
+## Who it's for
+
+For anyone whose work touches spatial data: checking whether a
+dataset is actually correct, not just correctly shaped. Comparing how
+Python and R handle the same problem, instead of trusting one
+implementation blindly. Understanding a method well enough to know
+when it applies, not just how to call it.
+
+You don't need to be an expert programmer — the emphasis is on
+spatial reasoning you can actually verify, not just read about.
+
+## Why it's different
+
+Most spatial data resources pick a side: Python or R. web<span class="webgeods-wordmark-geo">Geo</span>Ds treats
+them as complementary — the same problem, shown in both, using the
+tools each ecosystem actually uses (GeoPandas, Shapely, sf). Seeing
+where they agree, and where they don't, teaches more than either one
+alone.
+
+**Your data stays yours.** Where a tool runs in the browser, your file
+is processed locally — never uploaded, not even to us. That's not a
+setting to enable; it's how the tools are built.
+
+## What you can do here
+
+Three things, connected:
+
+**Read** — articles that explain a spatial problem properly, with
+interactive examples built in, not just diagrams.
+
+**Use** — free standalone tools for the same checks, when you just
+need an answer, not the full explanation.
+
+**Learn more** — the articles and tools are pieces of a larger,
+ongoing effort to teach spatial data science end to end. Where that
+leads next depends partly on what turns out to be useful — the
+newsletter below is the way to follow it.
+
+## Start here
+
+[Explore the tools →](/tools/index.html) · [Read the articles →](/index.html)
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
+<script>
+  // Kit's embed script injects the actual <form data-uid="31051e3ca1">
+  // asynchronously (it isn't in the DOM at page load) -- a
+  // MutationObserver catches it whenever it lands instead of guessing
+  // a fixed delay. "view" = the form finished rendering for this
+  // visitor (same sense as tool_loaded, not scroll-into-view).
+  // "signup" fires on the form's own submit event: Kit's own script
+  // also listens on this same event (to AJAX-submit inline instead of
+  // navigating), and multiple listeners on one event don't interfere
+  // with each other -- this only observes the click-through intent,
+  // same approximation download_clicked/tool_click already make
+  // elsewhere, not a server-confirmed subscription.
+  (() => {
+    const onFormFound = (form) => {
+      window.WebGeoDS?.track?.("newsletter_view");
+      form.addEventListener("submit", () => {
+        window.WebGeoDS?.track?.("newsletter_signup");
+      });
+    };
+
+    const existing = document.querySelector('form[data-uid="31051e3ca1"]');
+    if (existing) {
+      onFormFound(existing);
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      const form = document.querySelector('form[data-uid="31051e3ca1"]');
+      if (form) {
+        observer.disconnect();
+        onFormFound(form);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  })();
+</script>

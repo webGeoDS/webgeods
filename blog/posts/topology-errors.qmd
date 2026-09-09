@@ -1,0 +1,1252 @@
+---
+title: "Topology Errors in a GeoJSON: Detect Without Fixing"
+date: 2026-08-31
+categories: [tool, geometry, bilingual]
+description: "Upload a GeoJSON and find overlaps, gaps, slivers, duplicates and dangles — a report, not an automatic repair, in Python and R on the same map."
+---
+
+In [Geometry validity of a GeoJSON](geometry-validity.qmd) we repaired
+polygons that were **individually** invalid with
+`make_valid()`/`st_make_valid()`.
+Here the problem is different: every single feature's geometry can be
+perfectly valid, and the dataset can still be **broken** — two
+polygons that overlap, a gap between two areas that should touch, a
+line that ends a millimeter from another without connecting.
+
+**This tool doesn't fix anything.** It detects, describes and locates
+the errors — closing a gap or assigning an overlap is a semantic
+decision (which polygon is the "correct" one?) that no algorithm can
+make for you. It's a data-quality report, not an automatic repair
+tool.
+
+On load, the code detects whether your data is **polygons** or
+**lines** and runs only the checks that make sense for that type:
+
+- **Polygons** → overlap, gap, sliver, duplicates
+- **Lines** → dangle, duplicates
+
+Just want to quickly check a file, without the rest of the reading?
+Use the [standalone tool](/tools/topology-checker.html) — same
+engine, less prose.
+
+## 1. Upload your file
+
+A `.geojson`, or a shapefile: either as a single `.zip`, or as the
+individual `.shp`/`.dbf`/`.shx` files (and optionally `.prj`) selected
+together.
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+// A native <input type="file"> (WebGeoDS.Upload.createControl(), see
+// shared/upload.js) instead of Observable Inputs' `viewof`-bound
+// Inputs.file() widget used here previously — see its doc comment
+// there for why (a `viewof` cell's element turned out to be unsafe
+// to relocate in Quarto's OJS runtime; this plain `mutable` +
+// onChange callback doesn't have that fragility).
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+## 2. What we look for
+
+Five recurring categories, drawn from the
+[USGS](https://www.usgs.gov/ngp-standards-and-specifications/topology-and-network-errors)
+catalog and from the
+[QGIS Topology Checker](https://docs.qgis.org/3.44/en/docs/user_manual/plugins/core_plugins/plugins_topology_checker.html):
+
+::: {style="display: flex; flex-direction: column; gap: 0.9rem; margin: 1.2rem 0;"}
+::: {style="display: flex; align-items: center; gap: 1rem;"}
+<svg viewBox="0 0 110 90" style="width: 80px; height: auto; flex: none;" role="img" aria-label="Two overlapping polygons">
+  <rect x="10" y="20" width="55" height="50" fill="#42583c" fill-opacity="0.25" stroke="#2a2117" stroke-width="2"/>
+  <rect x="45" y="35" width="55" height="50" fill="#42583c" fill-opacity="0.25" stroke="#2a2117" stroke-width="2"/>
+  <rect x="45" y="35" width="20" height="35" fill="#e05252" fill-opacity="0.75"/>
+</svg>
+<div>**Overlap** — two polygons that should be adjacent instead overlap
+over a portion of surface.</div>
+:::
+
+::: {style="display: flex; align-items: center; gap: 1rem;"}
+<svg viewBox="0 0 110 90" style="width: 80px; height: auto; flex: none;" role="img" aria-label="A gap between two polygons">
+  <rect x="8" y="20" width="35" height="50" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
+  <rect x="67" y="20" width="35" height="50" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
+  <rect x="43" y="20" width="24" height="50" fill="#c48a2e" fill-opacity="0.5" stroke="#c48a2e" stroke-width="1.5" stroke-dasharray="3 2"/>
+</svg>
+<div>**Gap** — a gap remains between polygons that should continuously
+cover an area.</div>
+:::
+
+::: {style="display: flex; align-items: center; gap: 1rem;"}
+<svg viewBox="0 0 110 90" style="width: 80px; height: auto; flex: none;" role="img" aria-label="A regular polygon next to a thin sliver">
+  <rect x="8" y="20" width="45" height="50" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
+  <rect x="62" y="40" width="42" height="7" fill="#e05252" fill-opacity="0.85" stroke="#2a2117" stroke-width="1.2"/>
+</svg>
+<div>**Sliver** — a leftover polygon, thin and with no real geographic
+meaning, often the result of an overlay.</div>
+:::
+
+::: {style="display: flex; align-items: center; gap: 1rem;"}
+<svg viewBox="0 0 110 90" style="width: 80px; height: auto; flex: none;" role="img" aria-label="Two identical, overlapping polygons">
+  <rect x="25" y="18" width="55" height="50" fill="#e05252" fill-opacity="0.25" stroke="#2a2117" stroke-width="2"/>
+  <rect x="31" y="24" width="55" height="50" fill="#e05252" fill-opacity="0.5" stroke="#2a2117" stroke-width="2" stroke-dasharray="4 3"/>
+</svg>
+<div>**Duplicates** — two features with identical geometry (applies to
+both polygons and lines).</div>
+:::
+
+::: {style="display: flex; align-items: center; gap: 1rem;"}
+<svg viewBox="0 0 110 90" style="width: 80px; height: auto; flex: none;" role="img" aria-label="A line network with one unconnected end">
+  <path d="M 15 70 L 55 30 L 95 70" fill="none" stroke="#2a2117" stroke-width="3"/>
+  <path d="M 55 30 L 55 8" fill="none" stroke="#e05252" stroke-width="3"/>
+  <circle cx="15" cy="70" r="3.5" fill="#2a2117"/>
+  <circle cx="95" cy="70" r="3.5" fill="#2a2117"/>
+  <circle cx="55" cy="8" r="4.5" fill="#e05252" stroke="#2a2117" stroke-width="1.2"/>
+</svg>
+<div>**Dangle** — the end of a line that should connect to another line
+stays isolated.</div>
+:::
+:::
+
+## 3. Shared map and table
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+// Which results the table shows — "features" (real per-feature rows)
+// or "gaps" (the synthetic gap polygons check_gap() finds between
+// nearby features). Two truly separate map sources per language
+// instead of one merged collection: a gap has no corresponding row in
+// the uploaded file, so merging it in made the feature COUNT lie (a
+// real 10-feature file was reported as 54) — same fix as
+// topology-checker.qmd. The map itself always shows both layers
+// together (no visibility toggle) since that already matches how it
+// looked before this fix; only the table — and the count — needed the
+// split.
+mutable topologyView = "features"
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The color is decided by JS, not by Python/R: the Python/R cells
+// only return GeoJSON with properties like "has_error" — neither
+// language knows or needs to know who's going to draw it.
+//
+// Unlike geometry-validity.qmd (always polygons, a single static
+// VALIDITY_PAINT), here the geometry type changes from one example to
+// the next (polygons for overlap/gap/sliver/duplicates, lines for
+// dangle) — so the paint itself depends on the data: setGeoJSON()
+// (shared/map.js) detects on its own when the layer's TYPE needs to
+// change and recreates the layer, but the color/style for that type
+// remains a presentation choice, so it stays here.
+errorPaint = (data) => {
+  const geometryType = data?.features?.find((f) => f?.geometry?.type)?.geometry?.type ?? "";
+  const colorExpr = ["case", ["==", ["get", "has_error"], true], "#e05252", "#3d5a73"];
+  if (geometryType === "LineString" || geometryType === "MultiLineString") {
+    return { "line-color": colorExpr, "line-width": 4 };
+  }
+  if (geometryType === "Point" || geometryType === "MultiPoint") {
+    return { "circle-color": colorExpr, "circle-radius": 6 };
+  }
+  return { "fill-color": colorExpr, "fill-opacity": 0.55 };
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Gaps are always polygons (check_gap()/gap_geom is built from a
+// convex-hull difference) — no per-geometry-type branching needed,
+// unlike errorPaint above. Amber, matching topology-checker.qmd's own
+// gapPaint and the "severity": "warning" both languages already tag
+// every gap feature with.
+gapPaint = ({
+  "fill-color": "#c48a2e",
+  "fill-opacity": 0.45
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Two independent, stable tableCell()s (never re-created — only their
+// .style.display is toggled by tabbedResultsView below) instead of
+// one table whose sourceIds swap reactively with topologyView — keeps
+// each one's own "sourcedata" subscription alive and correctly
+// reacting to its own sources the whole time. Each merges BOTH
+// languages, same as the original single table did.
+featuresTableCell = sharedMap.tableCell(
+  ["topology-errors-py", "topology-errors-r"],
+  null,
+  Generators,
+  {
+    rowClassName: (row) => row.has_error === "true" ? "webgeods-row-invalid" : "",
+    emptyMessage: "No results yet"
+  }
+)
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// No rowClassName here: every row IS a gap (has_error is always true
+// for them), so coloring every row the same would add nothing.
+gapsTableCell = sharedMap.tableCell(
+  ["topology-errors-gaps-py", "topology-errors-gaps-r"],
+  null,
+  Generators,
+  { emptyMessage: "No gaps found" }
+)
+```
+
+```{ojs}
+//| echo: false
+// Tab bar + both panes in one cell, physically positioned here where
+// the table should display (plain buttons, no .webgeods-panel-btn
+// styling — this article's own established button convention, see
+// resetMapButton/loadExampleButton below, not the standalone tool's
+// dashboard look). Reactive on topologyView, but only ever recreates
+// this thin wrapper + tab buttons — featuresTableCell/gapsTableCell
+// above are NEVER re-created, only shown/hidden, so their own
+// reactivity (and any current row selection) survives a tab switch
+// untouched.
+topologyErrorsTable = {
+  const tab = (key, label) => {
+    const button = document.createElement("button");
+    button.textContent = topologyView === key ? `● ${label}` : label;
+    button.onclick = () => { mutable topologyView = key; };
+    return button;
+  };
+
+  const tabs = document.createElement("div");
+  tabs.append(tab("features", "Original geometries"), tab("gaps", "Gaps"));
+
+  featuresTableCell.style.display = topologyView === "features" ? "" : "none";
+  gapsTableCell.style.display = topologyView === "gaps" ? "" : "none";
+
+  const wrap = document.createElement("div");
+  wrap.append(tabs, featuresTableCell, gapsTableCell);
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// total/errors/gaps for lastResult only (see its own doc comment
+// above) — NOT a merge of both map sources. An earlier version
+// flattened topology-errors-py + -r (and the two gaps sources)
+// together, reading the map via a 'sourcedata' listener since
+// MapLibre's own source state isn't natively OJS-reactive — correct
+// as "how many rows are currently drawn", wrong as "how many features
+// did I upload": with both languages detecting on the SAME uploaded
+// features independently, that merge double-counted every one of
+// them (and every gap). Reading lastResult directly is also simpler:
+// a plain OJS mutable needs no event-listener bridge to the map.
+topologyErrorsStats = {
+  const features = lastResult?.features?.features ?? [];
+  const gaps = lastResult?.gaps?.features ?? [];
+  const total = features.length;
+  const errors = features.filter((f) => f.properties?.has_error === true).length;
+  return { total, errors, gaps: gaps.length };
+}
+```
+
+```{ojs}
+//| echo: false
+// Combines whichever of pyCrsWarning/rCrsWarning is currently set —
+// at most one in practice (both languages read the same uploaded
+// file), but shown separately just in case they ever disagree.
+crsWarningNotice = {
+  const warnings = [pyCrsWarning, rCrsWarning].filter(Boolean);
+  return warnings.length ? ` ⚠️ ${[...new Set(warnings)].join(" ")}` : "";
+}
+```
+
+```{ojs}
+//| echo: false
+// A single JS-built element, not four adjacent `${...}` markdown
+// interpolations on one line — same bug found and fixed the same way
+// in geometry-validity.qmd: Pandoc's math-dollar parser reads a `$`
+// not followed by whitespace as opening inline math and looks for the
+// next `$` to close it, so a row of `${a} ... ${b} ... ${c}.${d}`
+// gets some of its interpolations swallowed as literal "$...$" text
+// instead of real OJS values.
+topologyStatusLine = {
+  const p = document.createElement("p");
+  const strong = document.createElement("strong");
+  strong.textContent = "Topology check";
+  p.append(strong, ` — ${topologyErrorsStats.total} feature, ${topologyErrorsStats.errors} with an error, ${topologyErrorsStats.gaps} total gaps.${crsWarningNotice}`);
+  return p;
+}
+```
+
+${topologyStatusLine}
+
+```{ojs}
+//| echo: false
+// Download payloads in each language's own original CRS, not the
+// WGS84 working copy the map/table show — kept in sync with whichever
+// of the example cells or the "apply to your file" cells ran most
+// recently (pyErrors/rErrors and pyErrorsUploaded/rErrorsUploaded
+// below all write to the SAME map sources and must all update these
+// together, or downloading after loading a plain example would
+// wrongly reuse a stale reprojection from an earlier upload).
+mutable pyExportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+mutable rExportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+mutable pyCrsWarning = null
+```
+
+```{ojs}
+//| echo: false
+mutable rCrsWarning = null
+```
+
+```{ojs}
+//| echo: false
+// Whichever of the four detection cells (either language, either
+// entry point — the fixed examples in section 4 or "apply to your
+// file" in section 5) most recently produced a result —
+// { features, gaps, exportFeatures, crsWarning, source }. The four
+// map sources stay separate and ALL stay visible — same as
+// geometry-validity.qmd, that side-by-side comparison is the point —
+// but topologyErrorsStats and downloadButton below read only this,
+// not a merge of both languages: with both sources holding
+// independently-computed results for the SAME uploaded features,
+// flatMap-ing them (the previous approach) double-counted every
+// feature and every gap, and downloaded each real feature twice.
+// Cleared by resetTopologyErrors.
+mutable lastResult = null
+```
+
+```{ojs}
+//| echo: false
+resetTopologyErrors = async () => {
+  const ids = ["topology-errors-py", "topology-errors-r", "topology-errors-gaps-py", "topology-errors-gaps-r"];
+  for (const id of ids) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
+  }
+  mutable pyExportFeatures = null;
+  mutable rExportFeatures = null;
+  mutable pyCrsWarning = null;
+  mutable rCrsWarning = null;
+  mutable lastResult = null;
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and table";
+  button.onclick = () => resetTopologyErrors();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+// WebGeoDS.downloadBlob (shared/download.js) — the same helper the
+// standalone tool uses. Downloads lastResult only — whichever
+// language most recently ran, a fixed example or "apply to your
+// file" — not a merge of both (see lastResult's own doc comment:
+// merging duplicated every feature, once per language). Original
+// features only, no gaps — same reasoning as topology-checker.qmd's
+// own downloadButton: a gap has no corresponding row in the uploaded
+// file, so a "here's your data plus its topology report" download
+// shouldn't reintroduce synthetic rows the source data never had.
+downloadButton = {
+  const button = document.createElement("button");
+  button.textContent = "⬇ Download";
+  button.onclick = () => {
+    const features = lastResult?.exportFeatures?.features ?? [];
+    if (features.length === 0) return;
+    const base = WebGeoDS.Upload.baseName(uploadedFiles);
+    WebGeoDS.downloadBlob(
+      JSON.stringify({ type: "FeatureCollection", features }, null, 2),
+      base ? `${base}-topology-report.geojson` : "topology-report.geojson",
+      "application/geo+json",
+      { tool: "topology-errors-article" }
+    );
+  };
+  return button;
+}
+```
+
+
+### 3.1 First run (once only)
+
+Defines all the detection functions — no Python/R map here, that's
+already ready above and knows nothing about these calculations. Run it
+once before the examples below.
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #topology-errors-setup-py}
+#| package: geopandas, shapely
+import math
+from shapely.geometry import mapping
+
+def geom_family(gdf):
+    types = set(gdf.geometry.geom_type)
+    if types <= {"Polygon", "MultiPolygon"}:
+        return "polygon"
+    if types <= {"LineString", "MultiLineString"}:
+        return "line"
+    if types <= {"Point", "MultiPoint"}:
+        return "point"
+    return "mixed"
+
+def check_overlap(gdf):
+    n = len(gdf)
+    results = [[] for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            gi, gj = gdf.geometry.iloc[i], gdf.geometry.iloc[j]
+            if gi.overlaps(gj):
+                area = gi.intersection(gj).area
+                results[i].append(("overlap", j, area))
+                results[j].append(("overlap", i, area))
+    return results
+
+def check_duplicate(gdf):
+    n = len(gdf)
+    results = [[] for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            if gdf.geometry.iloc[i].equals(gdf.geometry.iloc[j]):
+                results[i].append(("duplicate", j, 0))
+                results[j].append(("duplicate", i, 0))
+    return results
+
+def check_sliver(gdf, compactness_threshold=0.15):
+    results = [[] for _ in range(len(gdf))]
+    for i, geom in enumerate(gdf.geometry):
+        perim = geom.length
+        area = geom.area
+        if perim > 0:
+            compactness = 4 * math.pi * area / (perim ** 2)
+            if compactness < compactness_threshold:
+                results[i].append(("sliver", None, compactness))
+    return results
+
+def check_gap(gdf, min_area=1e-6, proximity=0.06):
+    # Per pair, not on the whole dataset: a single convex hull over
+    # all features would flag as "gap" even the simple fact that two
+    # unaligned shapes leave space outside their union (false positive
+    # verified empirically on the overlap/sliver examples). Here we
+    # only look at pairs that are CLOSE (within `proximity`) and not
+    # already overlapping, and use the convex hull of the pair alone.
+    n = len(gdf)
+    gaps = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            gi, gj = gdf.geometry.iloc[i], gdf.geometry.iloc[j]
+            if gi.overlaps(gj):
+                continue
+            if gi.equals(gj):
+                # Identical geometries (e.g. a duplicate): difference
+                # always empty, and some GEOS convex_hull/difference
+                # combinations on a degenerate pair can raise an error
+                # instead of returning a clean empty result — verified
+                # empirically on the R side, avoided here upstream.
+                continue
+            if gi.distance(gj) > proximity:
+                continue
+            pair_union = gi.union(gj)
+            gap_geom = pair_union.convex_hull.difference(pair_union)
+            if not gap_geom.is_empty:
+                parts = gap_geom.geoms if hasattr(gap_geom, "geoms") else [gap_geom]
+                for part in parts:
+                    if part.area > min_area:
+                        gaps.append(part)
+    return gaps
+
+def check_dangle(gdf, tolerance=1e-9):
+    endpoints = []
+    for i, geom in enumerate(gdf.geometry):
+        coords = list(geom.coords)
+        endpoints.append((i, "start", coords[0]))
+        endpoints.append((i, "end", coords[-1]))
+    results = [[] for _ in range(len(gdf))]
+    for i, which, (x, y) in endpoints:
+        connected = False
+        for j, which2, (x2, y2) in endpoints:
+            if j == i:
+                continue
+            if ((x - x2) ** 2 + (y - y2) ** 2) ** 0.5 <= tolerance:
+                connected = True
+                break
+        if not connected:
+            results[i].append(("dangle", which, 0))
+    return results
+
+def detect_and_check(gdf):
+    family = geom_family(gdf)
+    n = len(gdf)
+    per_feature = [[] for _ in range(n)]
+    extra_features = []
+
+    dup = check_duplicate(gdf)
+    for i in range(n):
+        per_feature[i].extend(dup[i])
+
+    if family == "polygon":
+        ov = check_overlap(gdf)
+        sl = check_sliver(gdf)
+        for i in range(n):
+            per_feature[i].extend(ov[i])
+            per_feature[i].extend(sl[i])
+        for gap_geom in check_gap(gdf):
+            extra_features.append({
+                "type": "Feature",
+                "properties": {
+                    "name": "gap", "error_type": "gap", "has_error": True,
+                    "partner": "", "metric": round(gap_geom.area, 6), "severity": "warning"
+                },
+                "geometry": mapping(gap_geom)
+            })
+    elif family == "line":
+        dg = check_dangle(gdf)
+        for i in range(n):
+            per_feature[i].extend(dg[i])
+
+    # Report columns assigned onto gdf itself (then gdf.__geo_interface__
+    # below), instead of building each feature's properties dict from
+    # scratch the way an earlier version did — that discarded every
+    # other column the uploaded file had, keeping only "name". Same
+    # fix as topology-checker.qmd (the standalone tool built on this
+    # same engine).
+    if "name" not in gdf.columns:
+        gdf["name"] = [f"geometry {i+1}" for i in range(n)]
+    names = gdf["name"]
+
+    error_types, has_errors, partners, metrics, severities = [], [], [], [], []
+    for i in range(n):
+        errs = per_feature[i]
+        has_error = len(errs) > 0
+        partner_idx = errs[0][1] if has_error and isinstance(errs[0][1], int) else None
+        error_types.append(errs[0][0] if has_error else "")
+        has_errors.append(has_error)
+        partners.append(str(names.iloc[partner_idx]) if partner_idx is not None else "")
+        metrics.append(round(errs[0][2], 6) if has_error else 0)
+        severities.append("error" if has_error else "")
+
+    gdf["error_type"] = error_types
+    gdf["has_error"] = has_errors
+    gdf["partner"] = partners
+    gdf["metric"] = metrics
+    gdf["severity"] = severities
+
+    for col in gdf.columns:
+        if col != "geometry":
+            gdf[col] = gdf[col].fillna("")
+
+    # Kept as two separate collections instead of one concatenated
+    # list (an earlier version merged them, the same bug fixed in
+    # topology-checker.qmd): a gap is synthetic — no corresponding row
+    # in the uploaded file — and merging it in inflates the feature
+    # count (a real 10-feature file was reported as 54, from 44
+    # pairwise "gap" candidates). JS puts each collection on its own
+    # map source (topology-errors-py / topology-errors-gaps-py, same
+    # per language for R).
+    return {
+        "features": gdf.__geo_interface__,
+        "gaps": {"type": "FeatureCollection", "features": extra_features}
+    }
+
+"detect_and_check() ready — run the examples below"
+```
+
+## R
+
+```{.webgeods-r #topology-errors-setup-r}
+#| package: sf, geojsonsf, jsonlite
+library(sf)
+library(geojsonsf)
+
+geom_family <- function(data) {
+  types <- unique(as.character(st_geometry_type(data)))
+  if (all(types %in% c("POLYGON", "MULTIPOLYGON"))) return("polygon")
+  if (all(types %in% c("LINESTRING", "MULTILINESTRING"))) return("line")
+  if (all(types %in% c("POINT", "MULTIPOINT"))) return("point")
+  "mixed"
+}
+
+check_overlap <- function(data) {
+  n <- nrow(data)
+  results <- vector("list", n)
+  for (i in seq_len(n)) results[[i]] <- list()
+  if (n > 1) {
+    for (i in 1:(n - 1)) {
+      for (j in (i + 1):n) {
+        if (isTRUE(st_overlaps(data[i, ], data[j, ], sparse = FALSE)[1, 1])) {
+          inter <- st_intersection(st_geometry(data)[i], st_geometry(data)[j])
+          area <- as.numeric(st_area(inter))
+          results[[i]] <- append(results[[i]], list(list(type = "overlap", partner = j, metric = area)))
+          results[[j]] <- append(results[[j]], list(list(type = "overlap", partner = i, metric = area)))
+        }
+      }
+    }
+  }
+  results
+}
+
+check_duplicate <- function(data) {
+  n <- nrow(data)
+  results <- vector("list", n)
+  for (i in seq_len(n)) results[[i]] <- list()
+  if (n > 1) {
+    for (i in 1:(n - 1)) {
+      for (j in (i + 1):n) {
+        if (isTRUE(st_equals(data[i, ], data[j, ], sparse = FALSE)[1, 1])) {
+          results[[i]] <- append(results[[i]], list(list(type = "duplicate", partner = j, metric = 0)))
+          results[[j]] <- append(results[[j]], list(list(type = "duplicate", partner = i, metric = 0)))
+        }
+      }
+    }
+  }
+  results
+}
+
+check_sliver <- function(data, compactness_threshold = 0.15) {
+  # Per feature, with tryCatch: st_area()/st_length() on a
+  # geometrically INVALID geometry (self-intersecting — this check
+  # doesn't assume valid input, only correct relationships between
+  # valid features) can raise a real GEOS/s2 error ("Loop 0 is not
+  # valid") instead of returning a number — verified empirically by
+  # uploading a shapefile with a bowtie geometry. A feature like that
+  # is skipped for this check, it doesn't crash the whole cell.
+  n <- nrow(data)
+  results <- vector("list", n)
+  for (i in seq_len(n)) {
+    results[[i]] <- list()
+    metrics <- tryCatch({
+      area <- as.numeric(st_area(data[i, ]))
+      perim <- as.numeric(st_length(st_boundary(data[i, ])))
+      list(area = area, perim = perim)
+    }, error = function(e) NULL)
+    if (is.null(metrics) || metrics$perim <= 0) next
+    compactness <- 4 * pi * metrics$area / (metrics$perim^2)
+    if (compactness < compactness_threshold) {
+      results[[i]] <- append(results[[i]], list(list(type = "sliver", partner = NA, metric = compactness)))
+    }
+  }
+  results
+}
+
+check_gap <- function(data, min_area = 1e-6, proximity = 8000) {
+  # Per pair, not on the whole dataset — same reason as the Python
+  # side: a single convex hull over all features gives false positives
+  # for pairs that are simply not aligned with each other (overlap,
+  # sliver).
+  #
+  # `proximity` here is in METERS, not degrees: unlike shapely (which
+  # operates "planar" on raw lon/lat coordinates, in degrees), sf with
+  # s2 active (the default for a geographic CRS) computes st_distance
+  # geodetically, in meters — different thresholds per language, same
+  # practical meaning ("close enough to look like an oversight").
+  n <- nrow(data)
+  gaps <- list()
+  if (n > 1) {
+    for (i in 1:(n - 1)) {
+      for (j in (i + 1):n) {
+        if (isTRUE(st_overlaps(data[i, ], data[j, ], sparse = FALSE)[1, 1])) next
+        if (isTRUE(st_equals(data[i, ], data[j, ], sparse = FALSE)[1, 1])) next
+        # Identical geometries (e.g. a duplicate): difference always
+        # empty, and the st_convex_hull/st_difference combination on a
+        # degenerate pair can raise a GEOS error ("Edge is
+        # degenerate") instead of returning a clean empty result —
+        # verified empirically, avoided here upstream.
+        d <- as.numeric(st_distance(data[i, ], data[j, ]))
+        if (d > proximity) next
+        # BARE geometries (sf::st_geometry(...)[i], not data[i, ]) for
+        # union/convex_hull/difference: calling these functions on sf
+        # objects (data.frame) instead of plain sfc triggers the *.sf
+        # methods, which try to rebuild the attribute columns and fail
+        # here with a row-realignment error — verified empirically by
+        # isolating each step. Same pattern already used correctly in
+        # check_overlap() above.
+        gi <- st_geometry(data)[i]
+        gj <- st_geometry(data)[j]
+        pair_union <- st_union(gi, gj)
+        hull <- st_convex_hull(pair_union)
+        gap_geom <- st_difference(hull, pair_union)
+        if (length(gap_geom) > 0 && !isTRUE(st_is_empty(gap_geom)[1])) {
+          # st_difference between a hull and a union with nearly
+          # coincident edges can return a mixed GEOMETRYCOLLECTION (a
+          # tiny linear residue alongside the real polygon, due to
+          # GEOS imprecision) — st_collection_extract reliably isolates
+          # only the polygonal part, unlike st_cast (verified
+          # empirically: st_cast here produced a mixed-type object
+          # that broke the following assignment).
+          polys <- st_collection_extract(st_sfc(gap_geom, crs = st_crs(data)), "POLYGON", warn = FALSE)
+          for (k in seq_along(polys)) {
+            a <- as.numeric(st_area(polys[k]))
+            if (a > min_area) gaps[[length(gaps) + 1]] <- polys[k]
+          }
+        }
+      }
+    }
+  }
+  gaps
+}
+
+check_dangle <- function(data, tolerance = 1e-9) {
+  n <- nrow(data)
+  results <- vector("list", n)
+  for (i in seq_len(n)) results[[i]] <- list()
+  endpoints <- list()
+  for (i in seq_len(n)) {
+    p <- st_cast(st_geometry(data)[i], "POINT", warn = FALSE)
+    coords <- st_coordinates(p)
+    endpoints[[length(endpoints) + 1]] <- list(feature = i, which = "start", x = coords[1, 1], y = coords[1, 2])
+    endpoints[[length(endpoints) + 1]] <- list(feature = i, which = "end", x = coords[nrow(coords), 1], y = coords[nrow(coords), 2])
+  }
+  for (a in endpoints) {
+    connected <- FALSE
+    for (b in endpoints) {
+      if (b$feature == a$feature) next
+      d <- sqrt((a$x - b$x)^2 + (a$y - b$y)^2)
+      if (d <= tolerance) { connected <- TRUE; break }
+    }
+    if (!connected) {
+      results[[a$feature]] <- append(results[[a$feature]], list(list(type = "dangle", partner = a$which, metric = 0)))
+    }
+  }
+  results
+}
+
+detect_and_check <- function(data) {
+  family <- geom_family(data)
+  n <- nrow(data)
+  per_feature <- vector("list", n)
+  for (i in seq_len(n)) per_feature[[i]] <- list()
+  extra_features <- list()
+
+  dup <- check_duplicate(data)
+  for (i in seq_len(n)) per_feature[[i]] <- append(per_feature[[i]], dup[[i]])
+
+  if (family == "polygon") {
+    ov <- check_overlap(data)
+    sl <- check_sliver(data)
+    for (i in seq_len(n)) {
+      per_feature[[i]] <- append(per_feature[[i]], ov[[i]])
+      per_feature[[i]] <- append(per_feature[[i]], sl[[i]])
+    }
+    for (gap_geom in check_gap(data)) {
+      extra_features[[length(extra_features) + 1]] <- list(
+        type = "Feature",
+        properties = list(
+          name = "gap", error_type = "gap", has_error = TRUE,
+          partner = "", metric = round(as.numeric(st_area(gap_geom)), 6), severity = "warning"
+        ),
+        geometry = jsonlite::fromJSON(sf_geojson(st_sf(geometry = gap_geom)), simplifyVector = FALSE)$features[[1]]$geometry
+      )
+    }
+  } else if (family == "line") {
+    dg <- check_dangle(data)
+    for (i in seq_len(n)) per_feature[[i]] <- append(per_feature[[i]], dg[[i]])
+  }
+
+  # Report columns assigned onto `data` itself (then a single
+  # geojsonsf::sf_geojson(data) below), instead of building each
+  # feature's properties list from scratch per row the way an earlier
+  # version did — that discarded every other column the uploaded file
+  # had, keeping only "name". Same fix as the Python side above.
+  if (!("name" %in% names(data))) {
+    data$name <- paste("geometry", seq_len(n))
+  }
+  names_col <- data$name
+
+  error_type_col <- character(n)
+  has_error_col <- logical(n)
+  partner_col <- character(n)
+  metric_col <- numeric(n)
+  severity_col <- character(n)
+  for (i in seq_len(n)) {
+    errs <- per_feature[[i]]
+    has_error <- length(errs) > 0
+    first <- if (has_error) errs[[1]] else NULL
+    error_type_col[i] <- if (has_error) first$type else ""
+    partner_col[i] <- if (has_error && is.numeric(first$partner)) as.character(names_col[first$partner]) else ""
+    metric_col[i] <- if (has_error) round(first$metric, 6) else 0
+    has_error_col[i] <- has_error
+    severity_col[i] <- if (has_error) "error" else ""
+  }
+
+  data$error_type <- error_type_col
+  data$has_error <- has_error_col
+  data$partner <- partner_col
+  data$metric <- metric_col
+  data$severity <- severity_col
+
+  # Kept as two separate collections instead of one concatenated list
+  # — same reasoning as the Python side above.
+  list(
+    features = jsonlite::fromJSON(sf_geojson(data), simplifyVector = FALSE),
+    gaps = list(type = "FeatureCollection", features = extra_features)
+  )
+}
+
+"detect_and_check() ready — run the examples below"
+```
+
+:::
+
+### 3.2 Reusable cell pair
+
+The code below changes with every "Load this example" button further
+down.
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #topology-errors-example-py}
+import geopandas as gpd
+from shapely.geometry import shape
+
+a = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.52, 41.85], [12.52, 41.92], [12.45, 41.92], [12.45, 41.85]]]}
+b = {"type": "Polygon", "coordinates": [[[12.50, 41.87], [12.57, 41.87], [12.57, 41.94], [12.50, 41.94], [12.50, 41.87]]]}
+gdf = gpd.GeoDataFrame({"name": ["A", "B"]}, geometry=[shape(a), shape(b)], crs="EPSG:4326")
+
+detect_and_check(gdf)
+```
+
+## R
+
+```{.webgeods-r #topology-errors-example-r}
+a <- st_polygon(list(rbind(c(12.45, 41.85), c(12.52, 41.85), c(12.52, 41.92), c(12.45, 41.92), c(12.45, 41.85))))
+b <- st_polygon(list(rbind(c(12.50, 41.87), c(12.57, 41.87), c(12.57, 41.94), c(12.50, 41.94), c(12.50, 41.87))))
+data <- st_sf(name = c("A", "B"), geometry = st_sfc(a, b, crs = 4326))
+
+detect_and_check(data)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+//| output: false
+// No Map()/webgeods_map() involved: the cells above return plain
+// GeoJSON as their own value (no MapLibre API in their code).
+// WebGeoDS.getCellValue() reads it reactively, sharedMap.setGeoJSON()
+// draws it — no queue of calls to replay. errorPaint(data) picks
+// fill/line/circle based on the geometry type that arrives;
+// setGeoJSON() itself notices if the layer needs to be recreated with
+// a different type than the current one.
+pyErrors = WebGeoDS.getCellValue("topology-errors-example-py", Generators)
+{
+  if (pyErrors) {
+    await sharedMap.setGeoJSON("topology-errors-py", pyErrors.features, { paint: errorPaint(pyErrors.features) });
+    await sharedMap.setGeoJSON("topology-errors-gaps-py", pyErrors.gaps, { paint: gapPaint });
+    // Zooms to the real features' bounds — same as
+    // topology-checker.qmd's own pyErrors effect. A gap sits between
+    // two nearby features by construction, so fitting to the features
+    // alone already covers it in practice; a no-op on an empty
+    // FeatureCollection.
+    await sharedMap.fitToData(pyErrors.features);
+    // Always EPSG:4326 by construction (see the code above) — no
+    // reprojection needed, but still refreshed here (not just by
+    // pyErrorsUploaded below) so downloading after loading a plain
+    // example doesn't reuse a stale reprojection from an earlier
+    // upload.
+    mutable pyExportFeatures = pyErrors.features;
+    mutable pyCrsWarning = null;
+    mutable lastResult = { features: pyErrors.features, gaps: pyErrors.gaps, exportFeatures: pyErrors.features, crsWarning: null, source: "py" };
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rErrors = WebGeoDS.getCellValue("topology-errors-example-r", Generators)
+{
+  if (rErrors) {
+    await sharedMap.setGeoJSON("topology-errors-r", rErrors.features, { paint: errorPaint(rErrors.features) });
+    await sharedMap.setGeoJSON("topology-errors-gaps-r", rErrors.gaps, { paint: gapPaint });
+    await sharedMap.fitToData(rErrors.features);
+    mutable rExportFeatures = rErrors.features;
+    mutable rCrsWarning = null;
+    mutable lastResult = { features: rErrors.features, gaps: rErrors.gaps, exportFeatures: rErrors.features, crsWarning: null, source: "r" };
+  }
+}
+```
+
+## 4. Five errors, five examples
+
+### 4.1 Overlap
+
+Two polygons that should be adjacent instead overlap over a portion of
+surface — the example already loaded by default in the cell pair
+above.
+
+```{ojs}
+//| echo: false
+pyOverlapCode = `import geopandas as gpd
+from shapely.geometry import shape
+
+a = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.52, 41.85], [12.52, 41.92], [12.45, 41.92], [12.45, 41.85]]]}
+b = {"type": "Polygon", "coordinates": [[[12.50, 41.87], [12.57, 41.87], [12.57, 41.94], [12.50, 41.94], [12.50, 41.87]]]}
+gdf = gpd.GeoDataFrame({"name": ["A", "B"]}, geometry=[shape(a), shape(b)], crs="EPSG:4326")
+
+detect_and_check(gdf)`
+rOverlapCode = `a <- st_polygon(list(rbind(c(12.45, 41.85), c(12.52, 41.85), c(12.52, 41.92), c(12.45, 41.92), c(12.45, 41.85))))
+b <- st_polygon(list(rbind(c(12.50, 41.87), c(12.57, 41.87), c(12.57, 41.94), c(12.50, 41.94), c(12.50, 41.87))))
+data <- st_sf(name = c("A", "B"), geometry = st_sfc(a, b, crs = 4326))
+
+detect_and_check(data)`
+```
+
+```{ojs}
+//| echo: false
+loadOverlapButton = WebGeoDS.loadExampleButton("Load the overlap example", { pyId: "topology-errors-example-py", rId: "topology-errors-example-r", pyCode: pyOverlapCode, rCode: rOverlapCode })
+```
+
+### 4.2 Gap
+
+Two aligned polygons that should cover a single continuous area
+instead leave a gap between them — detected by comparing the union of
+the polygons with the convex hull containing both.[^gap-convex-hull]
+
+[^gap-convex-hull]: The gap is shown as its own feature (a synthetic
+geometry, not one of yours), colored like the other error rows. The
+check only looks at polygon pairs that are **close and not already
+overlapping**, using the convex hull of the single pair — not of the
+whole dataset, which would flag as "gap" even the simple fact that two
+distant or overlapping shapes aren't aligned with each other. For a
+real dataset with a known study area, that area is still the more
+correct reference, not a convex hull.
+
+```{ojs}
+//| echo: false
+pyGapCode = `import geopandas as gpd
+from shapely.geometry import shape
+
+a = {"type": "Polygon", "coordinates": [[[12.40, 41.85], [12.46, 41.85], [12.46, 41.92], [12.40, 41.92], [12.40, 41.85]]]}
+b = {"type": "Polygon", "coordinates": [[[12.50, 41.85], [12.56, 41.85], [12.56, 41.92], [12.50, 41.92], [12.50, 41.85]]]}
+gdf = gpd.GeoDataFrame({"name": ["A", "B"]}, geometry=[shape(a), shape(b)], crs="EPSG:4326")
+
+detect_and_check(gdf)`
+rGapCode = `a <- st_polygon(list(rbind(c(12.40, 41.85), c(12.46, 41.85), c(12.46, 41.92), c(12.40, 41.92), c(12.40, 41.85))))
+b <- st_polygon(list(rbind(c(12.50, 41.85), c(12.56, 41.85), c(12.56, 41.92), c(12.50, 41.92), c(12.50, 41.85))))
+data <- st_sf(name = c("A", "B"), geometry = st_sfc(a, b, crs = 4326))
+
+detect_and_check(data)`
+```
+
+```{ojs}
+//| echo: false
+loadGapButton = WebGeoDS.loadExampleButton("Load the gap example", { pyId: "topology-errors-example-py", rId: "topology-errors-example-r", pyCode: pyGapCode, rCode: rGapCode })
+```
+
+### 4.3 Sliver
+
+An extremely thin polygon — 0.1° wide, 0.001° tall — a typical leftover
+from an overlay between nearly coincident boundaries. Detected with
+the Polsby-Popper compactness index (4π·area/perimeter²): below 0.15
+is considered a sliver.[^compactness-scale]
+
+[^compactness-scale]: The index is bounded at the *most* compact shape
+possible for a given perimeter — a circle scores exactly 1 — so 0.15
+means "less than a sixth as compact as the roundest shape with the
+same perimeter would be," not an arbitrary cutoff. A perfect square
+scores about 0.785, for a sense of scale between the two.
+
+```{ojs}
+//| echo: false
+pySliverCode = `import geopandas as gpd
+from shapely.geometry import shape
+
+clean = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.50, 41.85], [12.50, 41.90], [12.45, 41.90], [12.45, 41.85]]]}
+sliver = {"type": "Polygon", "coordinates": [[[12.75, 41.87], [12.85, 41.87], [12.85, 41.871], [12.75, 41.871], [12.75, 41.87]]]}
+gdf = gpd.GeoDataFrame({"name": ["regular polygon", "sliver"]}, geometry=[shape(clean), shape(sliver)], crs="EPSG:4326")
+
+detect_and_check(gdf)`
+rSliverCode = `clean <- st_polygon(list(rbind(c(12.45, 41.85), c(12.50, 41.85), c(12.50, 41.90), c(12.45, 41.90), c(12.45, 41.85))))
+sliver <- st_polygon(list(rbind(c(12.75, 41.87), c(12.85, 41.87), c(12.85, 41.871), c(12.75, 41.871), c(12.75, 41.87))))
+data <- st_sf(name = c("regular polygon", "sliver"), geometry = st_sfc(clean, sliver, crs = 4326))
+
+detect_and_check(data)`
+```
+
+```{ojs}
+//| echo: false
+loadSliverButton = WebGeoDS.loadExampleButton("Load the sliver example", { pyId: "topology-errors-example-py", rId: "topology-errors-example-r", pyCode: pySliverCode, rCode: rSliverCode })
+```
+
+### 4.4 Duplicates
+
+Two features with identical geometry — happens often during merges or
+repeated imports. The check applies the same way to polygons and lines
+(topological equality), shown here on polygons.
+
+```{ojs}
+//| echo: false
+pyDuplicateCode = `import geopandas as gpd
+from shapely.geometry import shape
+
+a = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.50, 41.85], [12.50, 41.90], [12.45, 41.90], [12.45, 41.85]]]}
+c = {"type": "Polygon", "coordinates": [[[12.75, 41.85], [12.80, 41.85], [12.80, 41.90], [12.75, 41.90], [12.75, 41.85]]]}
+gdf = gpd.GeoDataFrame({"name": ["A", "copy of A", "C"]}, geometry=[shape(a), shape(a), shape(c)], crs="EPSG:4326")
+
+detect_and_check(gdf)`
+rDuplicateCode = `a <- st_polygon(list(rbind(c(12.45, 41.85), c(12.50, 41.85), c(12.50, 41.90), c(12.45, 41.90), c(12.45, 41.85))))
+c <- st_polygon(list(rbind(c(12.75, 41.85), c(12.80, 41.85), c(12.80, 41.90), c(12.75, 41.90), c(12.75, 41.85))))
+data <- st_sf(name = c("A", "copy of A", "C"), geometry = st_sfc(a, a, c, crs = 4326))
+
+detect_and_check(data)`
+```
+
+```{ojs}
+//| echo: false
+loadDuplicateButton = WebGeoDS.loadExampleButton("Load the duplicates example", { pyId: "topology-errors-example-py", rId: "topology-errors-example-r", pyCode: pyDuplicateCode, rCode: rDuplicateCode })
+```
+
+### 4.5 Dangle
+
+A line network where three segments form a closed loop — each end
+touches exactly the next segment's end, no dangle — and a fourth stays
+isolated, with both ends "dangling". Notice how the layer on the map
+switches from fill to line: the code itself decides that, based on the
+geometry type you feed it.
+
+```{ojs}
+//| echo: false
+pyDangleCode = `import geopandas as gpd
+from shapely.geometry import shape
+
+# L1-L2-L3 form a closed loop (each end touches the next one): no
+# dangle. An OPEN path would still have two free ends by definition —
+# it wouldn't be a clean example of "everything connected".
+l1 = {"type": "LineString", "coordinates": [[12.45, 41.85], [12.50, 41.85]]}
+l2 = {"type": "LineString", "coordinates": [[12.50, 41.85], [12.50, 41.90]]}
+l3 = {"type": "LineString", "coordinates": [[12.50, 41.90], [12.45, 41.85]]}
+l4 = {"type": "LineString", "coordinates": [[12.52, 41.87], [12.56, 41.87]]}
+gdf = gpd.GeoDataFrame({"name": ["L1", "L2", "L3", "L4 isolated"]}, geometry=[shape(l1), shape(l2), shape(l3), shape(l4)], crs="EPSG:4326")
+
+detect_and_check(gdf)`
+rDangleCode = `l1 <- st_linestring(rbind(c(12.45, 41.85), c(12.50, 41.85)))
+l2 <- st_linestring(rbind(c(12.50, 41.85), c(12.50, 41.90)))
+l3 <- st_linestring(rbind(c(12.50, 41.90), c(12.45, 41.85)))
+l4 <- st_linestring(rbind(c(12.52, 41.87), c(12.56, 41.87)))
+data <- st_sf(name = c("L1", "L2", "L3", "L4 isolated"), geometry = st_sfc(l1, l2, l3, l4, crs = 4326))
+
+detect_and_check(data)`
+```
+
+```{ojs}
+//| echo: false
+loadDangleButton = WebGeoDS.loadExampleButton("Load the dangle example", { pyId: "topology-errors-example-py", rId: "topology-errors-example-r", pyCode: pyDangleCode, rCode: rDangleCode })
+```
+
+## 5. Apply to your file
+
+The cells below try to read `/uploaded.geojson`, then an uploaded
+shapefile (`/uploaded.shp`), then a zipped shapefile (or, without an
+upload, use the overlap example as test data), detect the geometry
+type and automatically apply only the relevant checks — same
+`detect_and_check()` function as every example above, no duplicated
+logic.
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #topology-errors-uploaded-py}
+import geopandas as gpd
+from shapely.geometry import shape
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+# check_gap()'s proximity/check_sliver()'s compactness above work in
+# gdf's OWN coordinate units — reprojected to WGS84 here (same units
+# every example on this page already uses) before detect_and_check()
+# runs, not just before the map draws it.
+crs_warning = None
+original_crs = None
+if gdf is not None:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    original_crs = gdf.crs
+    if original_crs != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+
+if gdf is not None and "name" not in gdf.columns:
+    gdf["name"] = [f"geometry {i+1}" for i in range(len(gdf))]
+
+if gdf is None:
+    a = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.52, 41.85], [12.52, 41.92], [12.45, 41.92], [12.45, 41.85]]]}
+    b = {"type": "Polygon", "coordinates": [[[12.50, 41.87], [12.57, 41.87], [12.57, 41.94], [12.50, 41.94], [12.50, 41.87]]]}
+    gdf = gpd.GeoDataFrame({"name": ["A (example)", "B (example)"]}, geometry=[shape(a), shape(b)], crs="EPSG:4326")
+    original_crs = gdf.crs
+
+result = detect_and_check(gdf)
+# Reprojects the now report-annotated gdf back to the CRS it was
+# uploaded in — used by the download button further up the page, so
+# what comes out matches what went in even though the checks above
+# always run in WGS84.
+result["originalCrsFeatures"] = (
+    gdf.to_crs(original_crs).__geo_interface__
+    if original_crs is not None and original_crs != "EPSG:4326"
+    else result["features"]
+)
+result["crsWarning"] = crs_warning
+result
+```
+
+## R
+
+```{.webgeods-r #topology-errors-uploaded-r}
+data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+
+# check_gap()'s proximity/check_sliver()'s compactness above work in
+# data's OWN coordinate units — reprojected to WGS84 here (same units
+# every example on this page already uses) before detect_and_check()
+# runs, not just before the map draws it.
+crs_warning <- NULL
+original_crs <- NULL
+if (!is.null(data)) {
+  if (is.na(st_crs(data))) {
+    st_crs(data) <- 4326
+    crs_warning <- "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+  }
+  original_crs <- st_crs(data)
+  if (!isTRUE(original_crs == st_crs(4326))) {
+    data <- st_transform(data, 4326)
+  }
+}
+
+if (!is.null(data) && !("name" %in% names(data))) {
+  data$name <- paste("geometry", seq_len(nrow(data)))
+}
+
+if (is.null(data)) {
+  a <- st_polygon(list(rbind(c(12.45, 41.85), c(12.52, 41.85), c(12.52, 41.92), c(12.45, 41.92), c(12.45, 41.85))))
+  b <- st_polygon(list(rbind(c(12.50, 41.87), c(12.57, 41.87), c(12.57, 41.94), c(12.50, 41.94), c(12.50, 41.87))))
+  data <- st_sf(name = c("A (example)", "B (example)"), geometry = st_sfc(a, b, crs = 4326))
+  original_crs <- st_crs(data)
+}
+
+result <- detect_and_check(data)
+# Reprojects the now report-annotated `data` back to the CRS it was
+# uploaded in — used by the download button further up the page, so
+# what comes out matches what went in even though the checks above
+# always run in WGS84.
+result$originalCrsFeatures <- if (!isTRUE(original_crs == st_crs(4326))) {
+  jsonlite::fromJSON(sf_geojson(st_transform(data, original_crs)), simplifyVector = FALSE)
+} else {
+  result$features
+}
+result$crsWarning <- crs_warning
+result
+```
+
+:::
+
+```{ojs}
+//| echo: false
+//| output: false
+pyErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-py", Generators)
+{
+  if (pyErrorsUploaded) {
+    await sharedMap.setGeoJSON("topology-errors-py", pyErrorsUploaded.features, { paint: errorPaint(pyErrorsUploaded.features) });
+    await sharedMap.setGeoJSON("topology-errors-gaps-py", pyErrorsUploaded.gaps, { paint: gapPaint });
+    await sharedMap.fitToData(pyErrorsUploaded.features);
+    mutable pyExportFeatures = pyErrorsUploaded.originalCrsFeatures ?? pyErrorsUploaded.features;
+    mutable pyCrsWarning = pyErrorsUploaded.crsWarning ?? null;
+    mutable lastResult = { features: pyErrorsUploaded.features, gaps: pyErrorsUploaded.gaps, exportFeatures: pyErrorsUploaded.originalCrsFeatures ?? pyErrorsUploaded.features, crsWarning: pyErrorsUploaded.crsWarning ?? null, source: "py" };
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-r", Generators)
+{
+  if (rErrorsUploaded) {
+    await sharedMap.setGeoJSON("topology-errors-r", rErrorsUploaded.features, { paint: errorPaint(rErrorsUploaded.features) });
+    await sharedMap.setGeoJSON("topology-errors-gaps-r", rErrorsUploaded.gaps, { paint: gapPaint });
+    await sharedMap.fitToData(rErrorsUploaded.features);
+    mutable rExportFeatures = rErrorsUploaded.originalCrsFeatures ?? rErrorsUploaded.features;
+    mutable rCrsWarning = rErrorsUploaded.crsWarning ?? null;
+    mutable lastResult = { features: rErrorsUploaded.features, gaps: rErrorsUploaded.gaps, exportFeatures: rErrorsUploaded.originalCrsFeatures ?? rErrorsUploaded.features, crsWarning: rErrorsUploaded.crsWarning ?? null, source: "r" };
+  }
+}
+```
+
+## 6. Knowing what's broken is already a result
+
+A report that says "23 overlaps, 8 gaps, 4 slivers" isn't half a tool:
+it's a legitimate, complete quality-assurance step in its own right.
+Fixing these errors almost always requires a human decision — which
+polygon to move, who to assign a gap to, whether a 2 m² sliver is
+noise or a real island. A future article may cover repair strategies;
+this one deliberately stops before that, where geometry alone can no
+longer answer the question.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

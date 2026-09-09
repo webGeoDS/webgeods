@@ -1,0 +1,784 @@
+---
+title: "Raster Band Math: Combining Two Bands Into One"
+date: 2026-09-07
+categories: [tool, raster, bilingual]
+description: "Pick two bands, an operation, and get a computed raster back — as a colored map and a downloadable GeoTIFF — in Python and R on the same map."
+---
+
+A single band answers one question per pixel — elevation, reflectance
+in one wavelength, a single sensor reading. Most useful raster
+questions need two: how much did this change between two dates, how
+different is band A from band B, is this pixel more one thing than
+another. Band math is the term for exactly that — pixel-by-pixel
+arithmetic between two bands of the same raster, producing a new
+single-band raster the same size as the inputs.
+
+Just want the computed result, without the rest of the reading? Use
+the [standalone tool](/tools/raster-calculator.html) — same engine,
+pick your bands and operator directly.
+
+## 1. Upload your file
+
+A single `.tif`/`.tiff` with two or more bands — band math has
+nothing to compute on a single-band file.
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+## 2. Why band math?
+
+Four things worth knowing before the first computed raster:
+
+- **It's pixel-by-pixel, not band-by-band.** Every output pixel comes
+  from exactly the two input pixels at the same row/column — a
+  computed raster is always the same width, height, and (usually)
+  resolution as its inputs, never a summary or a reduction.
+- **NoData has to propagate, not get treated as a real number.** If
+  either input pixel is NoData, the output pixel has to be NoData too
+  — otherwise a border of sentinel values (often `-9999` or `0`) quietly
+  drags a mean or a color ramp toward a value that was never a real
+  measurement.
+- **Division needs a plan for zero.** `A ÷ B` on a pixel where `B` is
+  `0` isn't a crash waiting to happen — it's `Inf` (or `NaN` for `0 ÷ 0`)
+  in both Python and R, and both are just as "not a real value" as
+  NoData is. Left unhandled, a single such pixel can make an entire
+  color ramp or `min`/`max` computation meaningless.
+- **A very common form has a name**: `(A − B) / (A + B)` —
+  *Normalized Difference* — bounds the result to roughly `-1..1`
+  regardless of the two bands' original units, which is exactly why
+  it shows up everywhere from vegetation indices to change detection.
+  This article computes a plain difference (`A − B`) as the running
+  example; try changing the formula in the code below to see how the
+  normalized form differs.
+
+## 3. Shared map and result
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+FOOTPRINT_PAINT = ({
+  "fill-color": "#42583c",
+  "fill-opacity": 0.35,
+  "fill-outline-color": "#2a2117"
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// base64 -> raw bytes, same pattern as the CRS Inspector/Validator's
+// binary downloads — here decoding computed float32 pixels instead of
+// a zip file.
+base64ToBytes = (base64Str) => {
+  const binary = atob(base64Str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+```
+
+```{ojs}
+//| echo: false
+// Same reasoning as raster-file-inspection.qmd's pySummary/rSummary:
+// separate mutable state so Reset can clear the cards even though
+// there's nothing to re-run.
+mutable pyResult = null
+```
+
+```{ojs}
+//| echo: false
+mutable rResult = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyCompute = WebGeoDS.getCellValue("bandmath-py", Generators)
+{
+  if (pyCompute && pyCompute.summary) {
+    const s = pyCompute.summary;
+    await sharedMap.setGeoJSON("bandmath-py-footprint", pyCompute.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(pyCompute.footprint);
+    if (s.min !== null) {
+      await sharedMap.setRasterImage("bandmath-py-result", {
+        bounds: s.wgs84Bounds,
+        width: s.width,
+        height: s.height,
+        values: new Float32Array(base64ToBytes(s.data).buffer),
+        min: s.min,
+        max: s.max
+      });
+    }
+    mutable pyResult = s;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rCompute = WebGeoDS.getCellValue("bandmath-r", Generators)
+{
+  if (rCompute && rCompute.summary) {
+    const s = rCompute.summary;
+    await sharedMap.setGeoJSON("bandmath-r-footprint", rCompute.footprint, { paint: FOOTPRINT_PAINT });
+    await sharedMap.fitToData(rCompute.footprint);
+    if (s.min !== null) {
+      await sharedMap.setRasterImage("bandmath-r-result", {
+        bounds: s.wgs84Bounds,
+        width: s.width,
+        height: s.height,
+        values: new Float32Array(base64ToBytes(s.data).buffer),
+        min: s.min,
+        max: s.max
+      });
+    }
+    mutable rResult = s;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+// Two cards side by side, same reasoning as the Inspector article: a
+// combined number wouldn't mean anything, but seeing the two engines'
+// results agree (or noticing where they don't) is itself the point —
+// see section 5.
+statCard = (label, s) => {
+  const wrap = document.createElement("div");
+  wrap.style.flex = "1";
+  wrap.style.minWidth = "260px";
+
+  const heading = document.createElement("div");
+  heading.className = "webgeods-label";
+  heading.textContent = label;
+  wrap.appendChild(heading);
+
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  wrap.appendChild(box);
+
+  const row = (rowLabel, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = rowLabel;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Result", "—");
+    return wrap;
+  }
+
+  row("Dimensions", `${s.width} × ${s.height} px`);
+  row("CRS", s.crs === null || s.crs === undefined ? `Unknown ⚠️ ${s.crsWarning}` : s.crs);
+  if (s.displayCrsAssumption) {
+    row("Display assumption", `${s.displayCrsAssumption} — map only, not a fact about the file`);
+  }
+  row("Output range", s.min !== null ? `${s.min} to ${s.max} (mean ${s.mean})` : "all NoData");
+  row("NoData pixels", `${s.nodataCount.toLocaleString()} / ${s.totalPixels.toLocaleString()}`);
+
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+statCardsRow = {
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "16px";
+  row.append(statCard("Python", pyResult), statCard("R", rResult));
+  return row;
+}
+```
+
+${statCardsRow}
+
+```{ojs}
+//| echo: false
+legendEl = {
+  const anyResult = (pyResult && pyResult.min !== null) || (rResult && rResult.min !== null);
+  const wrap = document.createElement("div");
+  wrap.className = "webgeods-legend";
+  if (!anyResult) {
+    wrap.hidden = true;
+    return wrap;
+  }
+  const stops = WebGeoDS.Map.DEFAULT_RASTER_RAMP
+    .map(([t, red, green, blue]) => `rgb(${red},${green},${blue}) ${t * 100}%`)
+    .join(", ");
+  const bar = document.createElement("div");
+  bar.className = "webgeods-legend-bar";
+  bar.style.background = `linear-gradient(to right, ${stops})`;
+  const note = document.createElement("span");
+  note.className = "webgeods-legend-label";
+  note.textContent = "low → high (each language's own min/max)";
+  wrap.append(note, bar);
+  return wrap;
+}
+```
+
+${legendEl}
+
+```{ojs}
+//| echo: false
+resetResult = async () => {
+  for (const id of ["bandmath-py-footprint", "bandmath-r-footprint"]) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
+  }
+  await sharedMap.removeRasterImage("bandmath-py-result");
+  await sharedMap.removeRasterImage("bandmath-r-result");
+  mutable pyResult = null;
+  mutable rResult = null;
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and result";
+  button.onclick = () => resetResult();
+  return button;
+}
+```
+
+## 4. Compute: run the same band math in Python or R
+
+Run the same computation on the current data (your file uploaded
+above, or the built-in example below) — edit `band_a`/`band_b`, or the
+formula itself, and re-run to see the map update.
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #bandmath-py}
+#| package: rasterio, numpy
+import base64
+import rasterio
+from rasterio.transform import from_origin
+from rasterio.io import MemoryFile
+from rasterio.warp import transform_bounds
+import numpy as np
+
+path = None
+for candidate in ["/uploaded.tif"]:
+    try:
+        with rasterio.open(candidate):
+            path = candidate
+            break
+    except Exception:
+        pass
+
+# No file uploaded yet: two small synthetic hills built directly in
+# memory, close enough together that A - B is a non-trivial pattern
+# rather than ~0 everywhere.
+memfile = None
+if path is None:
+    n = 20
+    xs = np.arange(n)
+    ys = np.arange(n)
+    X, Y = np.meshgrid(xs, ys)
+    band1 = (100 + 40 * np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)).astype("float32")
+    band2 = (100 + 25 * np.exp(-((X - 6) ** 2 + (Y - 14) ** 2) / 40)).astype("float32")
+    band1[0, 0] = -9999
+    band2[0, 0] = -9999
+    transform = from_origin(12.40, 41.95, 0.005, 0.005)
+    memfile = MemoryFile()
+    with memfile.open(
+        driver="GTiff", height=n, width=n, count=2,
+        dtype="float32", crs="EPSG:4326", transform=transform, nodata=-9999
+    ) as dst:
+        dst.write(band1, 1)
+        dst.write(band2, 2)
+    path = memfile.name
+
+band_a = 1
+band_b = 2
+
+with rasterio.open(path) as src:
+    a = src.read(band_a, masked=True).astype("float32").filled(np.nan)
+    b = src.read(band_b, masked=True).astype("float32").filled(np.nan)
+
+    # Plain difference — try (a - b) / (a + b) (Normalized Difference)
+    # instead, and re-run, to see how the result and its color range
+    # change.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = a - b
+
+    # Inf/NaN (from a formula that divides, on a zero pixel) folded
+    # into NoData the same way — the map/legend/stats below only ever
+    # have to reason about "finite" vs "not".
+    result[~np.isfinite(result)] = np.nan
+
+    valid = result[np.isfinite(result)]
+    has_valid = valid.size > 0
+
+    # Same missing-CRS convention as the other Raster tools: unknown
+    # stays unknown in "crs", never silently relabeled as WGS84.
+    crs_warning = None
+    display_crs_assumption = None
+    if src.crs is not None:
+        crs_for_transform = src.crs
+        crs_label = str(src.crs)
+    else:
+        crs_for_transform = "EPSG:4326"
+        crs_label = None
+        crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
+        display_crs_assumption = "EPSG:4326"
+
+    try:
+        wgs84_bounds = transform_bounds(crs_for_transform, "EPSG:4326", *src.bounds)
+    except Exception:
+        wgs84_bounds = src.bounds
+
+    minx, miny, maxx, maxy = wgs84_bounds
+    footprint = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"name": "band math footprint"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]
+            }
+        }]
+    }
+
+    data_b64 = base64.b64encode(result.astype("float32").tobytes()).decode("ascii")
+
+    summary = {
+        "width": src.width,
+        "height": src.height,
+        "data": data_b64,
+        "wgs84Bounds": [round(float(v), 6) for v in wgs84_bounds],
+        "crs": crs_label,
+        "crsWarning": crs_warning,
+        "displayCrsAssumption": display_crs_assumption,
+        "min": round(float(valid.min()), 4) if has_valid else None,
+        "max": round(float(valid.max()), 4) if has_valid else None,
+        "mean": round(float(valid.mean()), 4) if has_valid else None,
+        "nodataCount": int(result.size - valid.size),
+        "totalPixels": int(result.size),
+    }
+
+if memfile is not None:
+    memfile.close()
+
+{
+    "summary": summary,
+    "footprint": footprint
+}
+```
+
+## R
+
+```{.webgeods-r #bandmath-r}
+#| package: terra, jsonlite, codetools
+library(terra)
+
+path <- NULL
+for (candidate in c("/uploaded.tif")) {
+  ok <- tryCatch({ rast(candidate); TRUE }, error = function(e) FALSE)
+  if (ok) { path <- candidate; break }
+}
+
+if (is.null(path)) {
+  # Same synthetic pair as the Python fallback.
+  n <- 20
+  xs <- 0:(n - 1)
+  ys <- 0:(n - 1)
+  band1 <- outer(ys, xs, function(y, x) 100 + 40 * exp(-((x - 10)^2 + (y - 10)^2) / 30))
+  band2 <- outer(ys, xs, function(y, x) 100 + 25 * exp(-((x - 6)^2 + (y - 14)^2) / 40))
+  band1[1, 1] <- NA
+  band2[1, 1] <- NA
+  r <- c(
+    rast(band1, crs = "EPSG:4326"),
+    rast(band2, crs = "EPSG:4326")
+  )
+  ext(r) <- c(12.40, 12.40 + n * 0.005, 41.95 - n * 0.005, 41.95)
+} else {
+  r <- rast(path)
+}
+
+band_a <- 1
+band_b <- 2
+
+a <- r[[band_a]]
+b <- r[[band_b]]
+
+# Plain difference — try (a - b) / (a + b) (Normalized Difference)
+# instead, and re-run.
+result <- a - b
+
+# terra's SpatRaster supports Ops/Math group generics directly, so
+# is.finite() works elementwise here exactly like it does on a plain
+# numeric vector; ifel() is terra's own vectorized if/else, replacing
+# every non-finite cell (from a divide, if you try Normalized
+# Difference above) with NA — same reasoning as the Python cell's
+# np.errstate + isfinite mask.
+result <- ifel(is.finite(result), result, NA)
+
+# Same missing-CRS convention as the Python side. terra reports a
+# missing CRS as an empty string, not NA.
+was_missing_crs <- crs(r) == ""
+crs_warning <- NULL
+display_crs_assumption <- NULL
+if (was_missing_crs) {
+  crs_warning <- "No CRS declared — spatial location cannot be reliably interpreted."
+  display_crs_assumption <- "EPSG:4326"
+  crs(r) <- "EPSG:4326"
+}
+crs_label <- if (was_missing_crs) {
+  NULL
+} else {
+  crs_desc <- crs(r, describe = TRUE)
+  if (!is.na(crs_desc$authority) && !is.na(crs_desc$code)) {
+    paste0(crs_desc$authority, ":", crs_desc$code)
+  } else {
+    crs(r, proj = TRUE)
+  }
+}
+
+e <- ext(r)
+bounds <- c(e$xmin, e$ymin, e$xmax, e$ymax)
+
+bbox_wkt <- paste0(
+  "POLYGON((",
+  e$xmin, " ", e$ymin, ", ", e$xmax, " ", e$ymin, ", ",
+  e$xmax, " ", e$ymax, ", ", e$xmin, " ", e$ymax, ", ",
+  e$xmin, " ", e$ymin, "))"
+)
+bbox_vect <- vect(bbox_wkt, crs = crs(r))
+bbox_wgs84 <- tryCatch(project(bbox_vect, "EPSG:4326"), error = function(err) bbox_vect)
+bbox_geom <- geom(bbox_wgs84)
+footprint_coords <- lapply(seq_len(nrow(bbox_geom)), function(i) c(bbox_geom[i, "x"], bbox_geom[i, "y"]))
+e_wgs84 <- ext(bbox_wgs84)
+
+footprint <- list(
+  type = jsonlite::unbox("FeatureCollection"),
+  features = list(list(
+    type = jsonlite::unbox("Feature"),
+    properties = list(name = jsonlite::unbox("band math footprint")),
+    geometry = list(
+      type = jsonlite::unbox("Polygon"),
+      coordinates = list(footprint_coords)
+    )
+  ))
+)
+
+# Row-major flat vector, same cell order terra itself reads/writes a
+# raster in (matches rasterio's own row-major convention on the
+# Python side) -- values(mat = FALSE) returns exactly that order.
+vals <- values(result, mat = FALSE)
+valid <- vals[is.finite(vals)]
+has_valid <- length(valid) > 0
+
+con <- rawConnection(raw(0), "wb")
+writeBin(as.numeric(ifelse(is.finite(vals), vals, NaN)), con, size = 4, endian = "little")
+raw_bytes <- rawConnectionValue(con)
+close(con)
+data_b64 <- jsonlite::base64_enc(raw_bytes)
+
+# jsonlite::toJSON() treats every length-1 vector as a single-element
+# array by default — a genuine scalar (a width, a CRS string) needs an
+# explicit jsonlite::unbox() to serialize as one. ub()/ub_if() below
+# are just that, plus a NULL passthrough for optional fields (see
+# geospatial-file-inspection.qmd for the full reasoning on why this,
+# not toJSON(auto_unbox = TRUE), is the safer default).
+ub <- function(x) if (is.null(x)) NULL else jsonlite::unbox(x)
+ub_if <- function(cond, x) if (cond) jsonlite::unbox(x) else NULL
+
+summary_out <- list(
+  width = jsonlite::unbox(ncol(r)),
+  height = jsonlite::unbox(nrow(r)),
+  data = jsonlite::unbox(data_b64),
+  wgs84Bounds = round(c(e_wgs84$xmin, e_wgs84$ymin, e_wgs84$xmax, e_wgs84$ymax), 6),
+  crs = ub(crs_label),
+  crsWarning = ub(crs_warning),
+  displayCrsAssumption = ub(display_crs_assumption),
+  min = ub_if(has_valid, round(min(valid), 4)),
+  max = ub_if(has_valid, round(max(valid), 4)),
+  mean = ub_if(has_valid, round(mean(valid), 4)),
+  nodataCount = jsonlite::unbox(length(vals) - length(valid)),
+  totalPixels = jsonlite::unbox(length(vals))
+)
+
+result_out <- list(summary = summary_out, footprint = footprint)
+jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)
+```
+
+:::
+
+## 5. Same spatial question, two languages
+
+Both engines agree on the arithmetic itself (elementwise subtraction
+is elementwise subtraction), but differ in how NoData and
+non-finite results are handled:
+
+**Python** (rasterio + numpy)
+
+```python
+src.read(i, masked=True).astype("float32").filled(np.nan)  # NoData -> NaN up front
+a - b                                                        # plain numpy arithmetic
+result[~np.isfinite(result)] = np.nan                        # Inf/NaN from division -> NaN
+```
+
+**R** (terra)
+
+```r
+r[[i]]                              # one band as its own SpatRaster
+a - b                                # terra overloads +-*/ directly on SpatRaster
+ifel(is.finite(result), result, NA)  # Inf/NaN from division -> NA
+```
+
+The shape of the fix is identical in both languages — mask out
+non-finite values after the arithmetic, don't try to prevent them
+from occurring — but the *mechanism* differs: numpy needs an explicit
+`np.errstate` context to suppress the runtime warning a division by
+zero would otherwise print (the computation itself still produces
+`Inf`/`NaN` either way), while terra's `ifel()` is a single vectorized
+call with no equivalent warning to suppress.
+
+## 6. A raster with no declared CRS
+
+The reusable cell pair above already builds two small synthetic hills
+whenever nothing has been uploaded — click **▶ Run** on both languages
+in section 4 to see it. This button swaps in the same pair, minus the
+CRS, to see the CRS row switch to "Unknown" and a separate "Display
+assumption" row appear below it — same convention as every other
+Raster tool on this site.[^bandmath-crs-missing]
+
+[^bandmath-crs-missing]: Band math doesn't change anything about this
+— the two input bands either both carry a real CRS or don't, and the
+computed output inherits whichever is true. A missing CRS says
+nothing about whether the arithmetic itself is trustworthy, only about
+where the result sits on the earth.
+
+
+```{ojs}
+//| echo: false
+pyNoCrsExampleCode = `import base64
+import rasterio
+from rasterio.transform import from_origin
+from rasterio.io import MemoryFile
+import numpy as np
+
+n = 20
+xs = np.arange(n)
+ys = np.arange(n)
+X, Y = np.meshgrid(xs, ys)
+band1 = (100 + 40 * np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)).astype("float32")
+band2 = (100 + 25 * np.exp(-((X - 6) ** 2 + (Y - 14) ** 2) / 40)).astype("float32")
+band1[0, 0] = -9999
+band2[0, 0] = -9999
+transform = from_origin(12.40, 41.95, 0.005, 0.005)
+
+# crs deliberately omitted -- the whole point of this example.
+memfile = MemoryFile()
+with memfile.open(
+    driver="GTiff", height=n, width=n, count=2,
+    dtype="float32", transform=transform, nodata=-9999
+) as dst:
+    dst.write(band1, 1)
+    dst.write(band2, 2)
+
+band_a, band_b = 1, 2
+
+with rasterio.open(memfile.name) as src:
+    a = src.read(band_a, masked=True).astype("float32").filled(np.nan)
+    b = src.read(band_b, masked=True).astype("float32").filled(np.nan)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        result = a - b
+    result[~np.isfinite(result)] = np.nan
+
+    valid = result[np.isfinite(result)]
+    has_valid = valid.size > 0
+
+    crs_warning = None
+    display_crs_assumption = None
+    if src.crs is not None:
+        crs_label = str(src.crs)
+    else:
+        crs_label = None
+        crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
+        display_crs_assumption = "EPSG:4326"
+
+    minx, miny, maxx, maxy = src.bounds
+    footprint = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"name": "band math footprint"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[minx, miny], [maxx, miny], [maxx, maxy], [minx, maxy], [minx, miny]]]
+            }
+        }]
+    }
+
+    data_b64 = base64.b64encode(result.astype("float32").tobytes()).decode("ascii")
+
+    summary = {
+        "width": src.width, "height": src.height, "data": data_b64,
+        "wgs84Bounds": [round(float(v), 6) for v in src.bounds],
+        "crs": crs_label, "crsWarning": crs_warning,
+        "displayCrsAssumption": display_crs_assumption,
+        "min": round(float(valid.min()), 4) if has_valid else None,
+        "max": round(float(valid.max()), 4) if has_valid else None,
+        "mean": round(float(valid.mean()), 4) if has_valid else None,
+        "nodataCount": int(result.size - valid.size), "totalPixels": int(result.size),
+    }
+
+memfile.close()
+
+{"summary": summary, "footprint": footprint}`
+rNoCrsExampleCode = `library(terra)
+
+n <- 20
+xs <- 0:(n - 1)
+ys <- 0:(n - 1)
+band1 <- outer(ys, xs, function(y, x) 100 + 40 * exp(-((x - 10)^2 + (y - 10)^2) / 30))
+band2 <- outer(ys, xs, function(y, x) 100 + 25 * exp(-((x - 6)^2 + (y - 14)^2) / 40))
+band1[1, 1] <- NA
+band2[1, 1] <- NA
+# crs deliberately omitted from rast() -- the whole point of this example.
+r <- c(rast(band1), rast(band2))
+ext(r) <- c(12.40, 12.40 + n * 0.005, 41.95 - n * 0.005, 41.95)
+
+band_a <- 1
+band_b <- 2
+a <- r[[band_a]]
+b <- r[[band_b]]
+result <- a - b
+result <- ifel(is.finite(result), result, NA)
+
+crs_warning <- NULL
+display_crs_assumption <- NULL
+if (crs(r) == "") {
+  crs_warning <- "No CRS declared — spatial location cannot be reliably interpreted."
+  display_crs_assumption <- "EPSG:4326"
+  crs(r) <- "EPSG:4326"
+}
+
+e <- ext(r)
+bbox_wkt <- paste0(
+  "POLYGON((",
+  e$xmin, " ", e$ymin, ", ", e$xmax, " ", e$ymin, ", ",
+  e$xmax, " ", e$ymax, ", ", e$xmin, " ", e$ymax, ", ",
+  e$xmin, " ", e$ymin, "))"
+)
+bbox_vect <- vect(bbox_wkt, crs = crs(r))
+bbox_geom <- geom(bbox_vect)
+footprint_coords <- lapply(seq_len(nrow(bbox_geom)), function(i) c(bbox_geom[i, "x"], bbox_geom[i, "y"]))
+
+footprint <- list(
+  type = jsonlite::unbox("FeatureCollection"),
+  features = list(list(
+    type = jsonlite::unbox("Feature"),
+    properties = list(name = jsonlite::unbox("band math footprint")),
+    geometry = list(type = jsonlite::unbox("Polygon"), coordinates = list(footprint_coords))
+  ))
+)
+
+vals <- values(result, mat = FALSE)
+valid <- vals[is.finite(vals)]
+has_valid <- length(valid) > 0
+
+con <- rawConnection(raw(0), "wb")
+writeBin(as.numeric(ifelse(is.finite(vals), vals, NaN)), con, size = 4, endian = "little")
+raw_bytes <- rawConnectionValue(con)
+close(con)
+data_b64 <- jsonlite::base64_enc(raw_bytes)
+
+summary_out <- list(
+  width = jsonlite::unbox(ncol(r)), height = jsonlite::unbox(nrow(r)), data = jsonlite::unbox(data_b64),
+  wgs84Bounds = round(c(e$xmin, e$ymin, e$xmax, e$ymax), 6),
+  crs = NULL, crsWarning = jsonlite::unbox(crs_warning),
+  displayCrsAssumption = jsonlite::unbox(display_crs_assumption),
+  min = if (has_valid) jsonlite::unbox(round(min(valid), 4)) else NULL,
+  max = if (has_valid) jsonlite::unbox(round(max(valid), 4)) else NULL,
+  mean = if (has_valid) jsonlite::unbox(round(mean(valid), 4)) else NULL,
+  nodataCount = jsonlite::unbox(length(vals) - length(valid)), totalPixels = jsonlite::unbox(length(vals))
+)
+
+result_out <- list(summary = summary_out, footprint = footprint)
+jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)`
+```
+
+```{ojs}
+//| echo: false
+loadNoCrsExampleButton = WebGeoDS.loadExampleButton("📋 Load a no-CRS example", { pyId: "bandmath-py", rId: "bandmath-r", pyCode: pyNoCrsExampleCode, rCode: rNoCrsExampleCode })
+```
+
+${loadNoCrsExampleButton}
+
+## 7. Where to next
+
+- **Just needed the computed raster?** The
+  [standalone Raster Calculator](/tools/raster-calculator.html) picks
+  bands and an operator from a dropdown, no editing required.
+- **Not sure what's in the file yet?** Start with
+  [Raster Inspector](/tools/raster-inspector.html) — dimensions,
+  bands, CRS, NoData, before computing anything.
+- **Working with vector data instead?** See
+  [First Look at a Geospatial File](geospatial-file-inspection.qmd).
+- **Vegetation index specifically?** See
+  [NDVI: Measuring Vegetation from Two Bands](raster-ndvi.qmd), or the
+  standalone [NDVI Calculator](/tools/ndvi-calculator.html) — this
+  same Normalized Difference operation, with red/near-infrared band
+  presets and a vegetation color scale.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

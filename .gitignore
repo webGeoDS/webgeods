@@ -1,0 +1,27 @@
+# Build/render output
+_site/
+.quarto/
+blog/_site/
+blog/.quarto/
+lessons/_site/
+lessons/.quarto/
+
+# Dependencies (reproducible via npm install)
+node_modules/
+codemirror-build/node_modules/
+
+# R / RStudio project state
+.Rproj.user/
+.Rhistory
+.RData
+
+# Logs and scratch files from previous sessions
+*.log
+_blog-server.log
+.claude/
+
+# Internal roadmap/plan/strategy docs — local-only, never public
+roadmap-acquisizione.md
+piano-separazione-blog-lezioni.md
+Analisi_Critica_e_Roadmap
+Piano_Operativo_e_Architetturale
