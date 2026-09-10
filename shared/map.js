@@ -1613,6 +1613,56 @@
             )
           );
 
+          // Same layer, same geometry type -- addGeoJSON() is never
+          // reached, so options.paint/layout must be applied here
+          // too, or a caller re-styling an already-added layer (e.g.
+          // spatial-clustering-explorer.qmd going from the neutral
+          // preview paint to per-cluster colors on Compute, same
+          // source, same "circle" type) silently keeps the OLD paint
+          // forever. Guarded on options.paint/layout being present so
+          // a caller that omits them (e.g. geojson-shapefile-
+          // validator.qmd's repair step, which intentionally keeps
+          // whatever paint diagnose already set) is unaffected.
+          if (
+            existingLayer &&
+            options.paint
+          ) {
+
+            for (
+              const [key, value]
+              of Object.entries(options.paint)
+            ) {
+
+              this.map.setPaintProperty(
+                layerId,
+                key,
+                value
+              );
+
+            }
+
+          }
+
+          if (
+            existingLayer &&
+            options.layout
+          ) {
+
+            for (
+              const [key, value]
+              of Object.entries(options.layout)
+            ) {
+
+              this.map.setLayoutProperty(
+                layerId,
+                key,
+                value
+              );
+
+            }
+
+          }
+
         }
 
       }

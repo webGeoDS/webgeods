@@ -297,6 +297,41 @@ async function main() {
     if (!info.hasSource) throw new Error("source 'switching' missing after the type change");
   });
 
+  // ------------------------------------------------------------
+  // setGeoJSON() — applies a new options.paint to an EXISTING layer
+  // when the geometry type is unchanged (e.g.
+  // spatial-clustering-explorer.qmd: neutral preview paint on upload,
+  // then per-cluster colors on Compute, same "circle" source/layer
+  // both times). Before this fix, the "same type" branch called only
+  // source.setData() and silently dropped options.paint/layout,
+  // leaving the map stuck on whatever paint the layer was first
+  // created with. Also checks the converse: a call that omits
+  // options.paint (e.g. geojson-shapefile-validator.qmd's repair
+  // step reusing diagnose's paint) must leave the existing paint
+  // untouched, not reset it to the type default.
+  // ------------------------------------------------------------
+
+  await check("setGeoJSON() — updates paint on an existing same-type layer, and leaves it alone when paint is omitted", async () => {
+    const info = await page.evaluate(async (point) => {
+      const m = new window.WebGeoDS.Map({});
+      await m.ready();
+
+      await m.setGeoJSON("repaint", point, { paint: { "circle-color": "#111111", "circle-radius": 6 } });
+      const colorAfterFirst = m.map.getPaintProperty("repaint", "circle-color");
+
+      await m.setGeoJSON("repaint", point, { paint: { "circle-color": "#e05252", "circle-radius": 6 } });
+      const colorAfterRepaint = m.map.getPaintProperty("repaint", "circle-color");
+
+      await m.setGeoJSON("repaint", point); // no paint option -- must not reset to default
+      const colorAfterNoPaintOption = m.map.getPaintProperty("repaint", "circle-color");
+
+      return { colorAfterFirst, colorAfterRepaint, colorAfterNoPaintOption };
+    }, POINT);
+    if (info.colorAfterFirst !== "#111111") throw new Error(`expected initial paint "#111111", got "${info.colorAfterFirst}"`);
+    if (info.colorAfterRepaint !== "#e05252") throw new Error(`setGeoJSON() did not apply the new paint to the existing layer (still "${info.colorAfterRepaint}")`);
+    if (info.colorAfterNoPaintOption !== "#e05252") throw new Error(`omitting options.paint should preserve the current paint, got "${info.colorAfterNoPaintOption}"`);
+  });
+
   await browser.close();
   server.close();
 
