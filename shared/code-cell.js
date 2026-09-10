@@ -149,9 +149,24 @@
       this._language =
         language;
 
+      // setInterval id for waiting()'s live elapsed-time ticking —
+      // null when nothing is currently waiting().
+      this._waitingTimer =
+        null;
+
     }
 
     clear() {
+
+      // Stops any live elapsed-time ticking from a previous waiting()
+      // call — the one choke point for this, since log() (below)
+      // always starts by calling clear(), so every transition away
+      // from "waiting" (a new waiting(), a success()/error(), or a
+      // direct external .clear()) passes through here.
+      if (this._waitingTimer) {
+        clearInterval(this._waitingTimer);
+        this._waitingTimer = null;
+      }
 
       this._element.textContent =
         "";
@@ -202,12 +217,64 @@
 
     }
 
+    // Live elapsed-time counter instead of a static "this usually
+    // takes 30-40s" prediction: a cold engine boot measured 40-220s+
+    // in real testing (see roadmap-acquisizione.md, 2026-09-10), and
+    // any single number is wrong for someone — a first-time Pyodide/
+    // webR boot is genuinely one of the slower things this site does,
+    // varying by device/network far more than a typical page load.
+    // Ticking text (not just a spinner) is what actually answers the
+    // question a reader stuck on "Running..." has: still working, or
+    // dead? A reassurance line is appended once, the first time
+    // elapsed time crosses 20s, rather than shown from the start —
+    // most runs (a warm cell, a fast cold boot) finish well before
+    // that and never need it.
     waiting(text) {
 
-      return this.log(
-        text,
-        "webgeods-log-waiting"
-      );
+      const span =
+        this.log(
+          text,
+          "webgeods-log-waiting"
+        );
+
+      const start =
+        Date.now();
+
+      let reassuranceShown =
+        false;
+
+      this._waitingTimer =
+        setInterval(() => {
+
+          const elapsedSeconds =
+            Math.round((Date.now() - start) / 1000);
+
+          span.textContent =
+            `${text} (${elapsedSeconds}s)`;
+
+          if (elapsedSeconds >= 20 && !reassuranceShown) {
+
+            reassuranceShown =
+              true;
+
+            const detailLine =
+              document.createElement("div");
+
+            detailLine.className =
+              "webgeods-log-detail";
+
+            detailLine.textContent =
+              "Still working — a first-time Python/R engine boot can take a minute or more, especially on a slower device or with several browser tabs open.";
+
+            this._element.appendChild(
+              detailLine
+            );
+
+          }
+
+        }, 1000);
+
+      return span;
 
     }
 
