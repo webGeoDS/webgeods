@@ -32,7 +32,8 @@ mutable uploadedFiles = null
 //| output: false
 uploadControl = WebGeoDS.Upload.createControl({
   label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
+  onChange: (files) => { mutable uploadedFiles = files; },
+  kind: "raster"
 })
 ```
 

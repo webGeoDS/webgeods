@@ -42,8 +42,27 @@
     window.WebGeoDS || {};
 
 
-  const ACCEPT =
-    ".geojson,.json,.shp,.shx,.dbf,.prj,.cpg,.zip,.tif,.tiff";
+  // Split by kind, not one list for every tool: .tif/.tiff is
+  // registered at the OS level as an image type (image/tiff — the
+  // same family as a phone photo, not just GeoTIFF), and on mobile
+  // that makes the native file picker offer Photo Library/Camera
+  // alongside Files. Every tool used to share ONE combined list, so
+  // even a purely vector tool (which never reads a raster) still
+  // triggered that photo-picker behavior — narrowing vector tools'
+  // accept to drop .tif/.tiff entirely removes the trigger for them.
+  // Raster tools still need it (can't drop what they actually read);
+  // image/tiff is added explicitly alongside the extensions there —
+  // standard practice (MDN), giving the browser an unambiguous MIME
+  // type instead of making it infer one from the extension — but this
+  // doesn't remove the browser's own tendency to also offer Photos
+  // for a genuinely image-typed accept list, which is OS/browser
+  // behavior outside this page's control, not something markup alone
+  // guarantees away.
+  const VECTOR_ACCEPT =
+    ".geojson,.json,.shp,.shx,.dbf,.prj,.cpg,.zip";
+
+  const RASTER_ACCEPT =
+    ".tif,.tiff,image/tiff";
 
   // Same `window.WEBGEODS_ASSET_BASE` convention as map.js's
   // MAPLIBRE_JS_URL/table.js's GRIDJS_JS_URL — see the comment in
@@ -252,7 +271,7 @@
   // instead.
   // ============================================================
 
-  function createControl({ label = "Upload", variant = null, onChange } = {}) {
+  function createControl({ label = "Upload", variant = null, onChange, kind = "vector" } = {}) {
 
     const wrapper =
       document.createElement("label");
@@ -266,7 +285,7 @@
 
     input.type = "file";
     input.multiple = true;
-    input.accept = ACCEPT;
+    input.accept = kind === "raster" ? RASTER_ACCEPT : VECTOR_ACCEPT;
 
     input.addEventListener("change", () => onChange(input.files));
 
@@ -587,7 +606,8 @@
     ensurePending,
     baseName,
     createControl,
-    accept: ACCEPT,
+    accept: VECTOR_ACCEPT,
+    rasterAccept: RASTER_ACCEPT,
     defaultStatus: DEFAULT_STATUS
   };
 
