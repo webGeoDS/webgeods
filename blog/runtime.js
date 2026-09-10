@@ -740,6 +740,29 @@
 
         });
 
+        // Init succeeded — the `{ once: true }` listener above is
+        // scoped to that race and has either already fired or never
+        // will again. A SEPARATE, lasting listener is needed for a
+        // fatal error during actual execution (observed in
+        // production: Pyodide's own WASM runtime can hit an
+        // unrecoverable trap — "RuntimeError: null function" — under
+        // memory/CPU pressure, unrelated to any specific cell's code;
+        // see roadmap-acquisizione.md, 2026-09-10). Once Pyodide
+        // itself is fatally wrecked, this worker can never complete
+        // another request — the only way out is exactly what the
+        // manual "Terminate Python" button already does and this
+        // project already tests (§12 of test-architettura.qmd): kill
+        // the worker and let the next run() transparently create a
+        // fresh one, instead of leaving the caller's Promise (and
+        // that cell's Run button) hung forever.
+        worker.addEventListener("error", (event) => {
+          console.error(
+            "WebGeoDS.Runtime: Python worker hit a fatal error after init — recreating it.",
+            event.message
+          );
+          this.terminatePython();
+        });
+
         return worker;
 
       } catch (err) {

@@ -56,13 +56,32 @@
   const HTL_JS_URL = ASSET_BASE + "htl.min.js";
   const OBSERVABLE_INPUTS_JS_URL = ASSET_BASE + "observable-inputs.min.js";
 
+  // navigator.deviceMemory (Chromium only — undefined in Firefox/
+  // Safari, never treated as "low" when absent) reports a coarse,
+  // ROUNDED device-capability tier (0.25/0.5/1/2/4/8 GB), not live
+  // available RAM — it can't detect transient pressure from other
+  // open tabs/apps (that's what actually caused the fatal Pyodide
+  // crash investigated 2026-09-10, see roadmap-acquisizione.md), only
+  // flag a genuinely low-spec device up front. Complementary to, not
+  // a fix for, that crash — real recovery from it is
+  // runtime.js's post-init worker error listener. <= 2 catches the
+  // three lowest reported tiers (0.25/0.5/1/2).
+  const LOW_DEVICE_MEMORY_GB = 2;
+  const lowMemoryWarning =
+    typeof navigator !== "undefined" &&
+    typeof navigator.deviceMemory === "number" &&
+    navigator.deviceMemory <= LOW_DEVICE_MEMORY_GB
+      ? ` ⚠️ This browser reports limited memory (~${navigator.deviceMemory}GB) — Python/R may run slowly or fail to start, especially with larger files. Closing other tabs first can help.`
+      : "";
+
   // Generic on purpose: this message is shared by both articles
   // (where the next step is pressing "Run" on a visible code cell)
   // and standalone tools (where it's clicking a Validate/Check
   // button, no visible cell at all) — each page's own surrounding
   // prose already says which, so this only needs to state the fact.
   const DEFAULT_STATUS =
-    "No file uploaded yet — you can still try it with the built-in example data.";
+    "No file uploaded yet — you can still try it with the built-in example data." +
+    lowMemoryWarning;
 
   // Every path a page's Python/R "read the uploaded file" try-loop
   // might look for, across all upload kinds this helper supports —
