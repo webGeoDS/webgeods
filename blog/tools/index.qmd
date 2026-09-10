@@ -40,3 +40,11 @@ different question — what's visible from a point, given the terrain
 in between — and runs on R (Python is shown only as reference in its
 [companion article](/posts/raster-viewshed.html), since no viewshed
 implementation is available in this browser's Python runtime).
+
+## GeoML Toolkit
+
+Machine learning on spatial data, starting with unsupervised
+clustering. **[Cluster](spatial-clustering-explorer.qmd)**: upload a
+point file, set a distance radius and a minimum group size, and find
+which points form dense groups — powered by DBSCAN, colored on the
+map, downloadable. First tool in this family; more are planned.

@@ -30,3 +30,12 @@ Python is shown as reference, with the reason explained plainly).
 **[Calculate](posts/raster-band-math.qmd)** →
 **[NDVI](posts/raster-ndvi.qmd)** →
 **[Viewshed](posts/raster-viewshed.qmd)**
+
+## GeoML
+
+Machine learning on spatial data, starting with unsupervised
+clustering — runnable Python and R code side by side, including where
+the two languages disagree on something as basic as how a result is
+labeled.
+
+**[Spatial Clustering](posts/spatial-clustering.qmd)**

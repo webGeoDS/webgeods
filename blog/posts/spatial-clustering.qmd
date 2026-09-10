@@ -1,0 +1,297 @@
+---
+title: "Finding Spatial Clusters with DBSCAN"
+date: 2026-09-09
+categories: [tool, geoml, bilingual]
+description: "An interactive lab with Python, R and MapLibre — run DBSCAN on a set of points, see how a distance in meters requires picking a real coordinate system first, and why the two languages label the exact same groups with different numbers."
+---
+
+Some questions aren't "is this one point inside that polygon" — they're
+"which of these points belong together, and which don't belong
+anywhere." DBSCAN (Density-Based Spatial Clustering of Applications
+with Noise) answers that by density: a point belongs to a cluster if
+enough other points sit close enough to it — no need to decide the
+number of clusters in advance, and no need to force every point into
+a group. A point too far from everything else stays *noise*, not a
+cluster of one.
+
+Want to try it on your own file instead of reading through the code?
+Use the [standalone tool](/tools/spatial-clustering-explorer.html) —
+same engine, less prose.
+
+## 1. Why the coordinate system matters here
+
+DBSCAN takes one distance, ε (`eps`): how close two points need to be
+to count as neighbors. For that distance to mean anything, it has to
+be in real units — meters — not degrees of longitude/latitude, where
+the same number of degrees covers very different real distances
+depending on where on Earth you are. Both languages below pick a
+working UTM zone from the data's own bounding-box center and
+reproject into it first — same reasoning, same formula, as this
+site's [Viewshed](raster-viewshed.qmd) tool: a reasonable default for
+one local dataset, not a universally correct choice for points
+spanning multiple UTM zones or very large areas.
+
+## 2. Same spatial question, two languages
+
+Fourteen points, laid out on purpose: two tight groups of six, and two
+points far from everything — including each other. Fixed coordinates,
+not uploaded or randomly generated: the point here is the algorithm
+and how the two languages report it, not file handling (the
+[standalone tool](/tools/spatial-clustering-explorer.html) covers
+uploading a real file).
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #spatial-clustering-py}
+#| package: scikit-learn, pyproj
+import numpy as np
+from pyproj import Transformer
+from sklearn.cluster import DBSCAN
+
+POINTS = [
+    [12.4500, 41.9000], [12.4503, 41.9002], [12.4498, 41.8998],
+    [12.4501, 41.9001], [12.4499, 41.8999], [12.4502, 41.9003],
+    [12.4700, 41.9050], [12.4703, 41.9052], [12.4698, 41.9048],
+    [12.4701, 41.9051], [12.4699, 41.9049], [12.4702, 41.9053],
+    [12.4300, 41.8800],
+    [12.5000, 41.9300]
+]
+
+lons = np.array([p[0] for p in POINTS])
+lats = np.array([p[1] for p in POINTS])
+
+# UTM auto-pick from the bounding-box center -- see section 1 above.
+center_lon = (lons.min() + lons.max()) / 2
+center_lat = (lats.min() + lats.max()) / 2
+utm_zone = int((center_lon + 180) // 6) + 1
+calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
+
+transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{calc_epsg}", always_xy=True)
+xs, ys = transformer.transform(lons, lats)
+coords = np.column_stack([xs, ys])
+
+# scikit-learn's own convention: noise is -1, real clusters start at 0.
+labels = DBSCAN(eps=100, min_samples=4).fit(coords).labels_
+
+{
+    "calculationCrs": f"EPSG:{calc_epsg}",
+    "labels": [int(l) for l in labels],
+    "uniqueLabels": sorted(int(l) for l in set(labels)),
+    "noiseCount": int((labels == -1).sum())
+}
+```
+
+## R
+
+```{.webgeods-r #spatial-clustering-r}
+#| package: dbscan, sf, jsonlite
+library(dbscan)
+library(sf)
+
+points <- rbind(
+  c(12.4500, 41.9000), c(12.4503, 41.9002), c(12.4498, 41.8998),
+  c(12.4501, 41.9001), c(12.4499, 41.8999), c(12.4502, 41.9003),
+  c(12.4700, 41.9050), c(12.4703, 41.9052), c(12.4698, 41.9048),
+  c(12.4701, 41.9051), c(12.4699, 41.9049), c(12.4702, 41.9053),
+  c(12.4300, 41.8800),
+  c(12.5000, 41.9300)
+)
+
+# UTM auto-pick from the bounding-box center -- see section 1 above.
+center_lon <- (min(points[, 1]) + max(points[, 1])) / 2
+center_lat <- (min(points[, 2]) + max(points[, 2])) / 2
+utm_zone <- floor((center_lon + 180) / 6) + 1
+calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
+
+pts_sf <- st_as_sf(data.frame(lon = points[, 1], lat = points[, 2]), coords = c("lon", "lat"), crs = 4326)
+coords_calc <- st_coordinates(st_transform(pts_sf, calc_epsg))
+
+# dbscan's own convention: noise is 0, real clusters start at 1 -- a
+# real point of divergence from scikit-learn, not a formatting detail.
+# See section 3 below.
+res <- dbscan(coords_calc, eps = 100, minPts = 4)
+
+result <- list(
+  calculationCrs = jsonlite::unbox(paste0("EPSG:", calc_epsg)),
+  labels = as.integer(res$cluster),
+  uniqueLabels = sort(unique(as.integer(res$cluster))),
+  noiseCount = jsonlite::unbox(as.integer(sum(res$cluster == 0)))
+)
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+mutable pySummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable rSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyResult = WebGeoDS.getCellValue("spatial-clustering-py", Generators)
+{
+  if (pyResult) mutable pySummary = pyResult;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rResult = WebGeoDS.getCellValue("spatial-clustering-r", Generators)
+{
+  if (rResult) mutable rSummary = rResult;
+}
+```
+
+```{ojs}
+//| echo: false
+// Same "two cards side by side, seeing them agree or diverge IS the
+// point" reasoning as this site's CRS Mismatch article.
+statCard = (label, s) => {
+  const wrap = document.createElement("div");
+  wrap.style.flex = "1";
+  wrap.style.minWidth = "260px";
+
+  const heading = document.createElement("div");
+  heading.className = "webgeods-label";
+  heading.textContent = label;
+  wrap.appendChild(heading);
+
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  wrap.appendChild(box);
+
+  const row = (rowLabel, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = rowLabel;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Calculation CRS", "—");
+    return wrap;
+  }
+
+  row("Calculation CRS", s.calculationCrs);
+  row("Labels used", s.uniqueLabels.join(", "));
+  row("Noise points", s.noiseCount);
+
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+statCardsRow = {
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "16px";
+  row.append(statCard("Python", pySummary), statCard("R", rSummary));
+  return row;
+}
+```
+
+${statCardsRow}
+
+## 3. A label is not a name
+
+Both cards above found the same thing: two groups of six, and two
+noise points. But the *numbers* don't match — and that's not a bug in
+either language.
+
+Two separate reasons, easy to conflate:
+
+- **DBSCAN's own cluster numbering is arbitrary.** Nothing about
+  "cluster 0" or "cluster 1" is meaningful on its own — it's just the
+  order the algorithm happened to visit points in. Run the same
+  algorithm again with the points in a different order (or on a
+  different implementation entirely) and the *groupings* can come out
+  identical while the *numbers* attached to them differ.
+- **scikit-learn and `dbscan` also disagree on noise, specifically.**
+  This one isn't arbitrary — it's a real, documented difference
+  between the two libraries: scikit-learn labels noise `-1` and starts
+  real clusters at `0`; R's `dbscan` package labels noise `0` and
+  starts real clusters at `1`. Every non-noise label is shifted by
+  exactly one.
+
+```{ojs}
+//| echo: false
+labelTable = {
+  const wrap = document.createElement("div");
+  if (!pySummary || !rSummary) {
+    wrap.textContent = "Run both cells above to compare.";
+    return wrap;
+  }
+  const table = document.createElement("table");
+  table.className = "webgeods-stat-grid";
+  table.style.display = "table";
+  table.style.width = "100%";
+
+  const headRow = document.createElement("tr");
+  ["Point #", "Python label", "R label"].forEach((h) => {
+    const th = document.createElement("th");
+    th.className = "webgeods-stat-label";
+    th.textContent = h;
+    headRow.appendChild(th);
+  });
+  table.appendChild(headRow);
+
+  pySummary.labels.forEach((pyLabel, i) => {
+    const tr = document.createElement("tr");
+    [String(i + 1), String(pyLabel), String(rSummary.labels[i])].forEach((text) => {
+      const td = document.createElement("td");
+      td.className = "webgeods-stat-value";
+      td.textContent = text;
+      tr.appendChild(td);
+    });
+    table.appendChild(tr);
+  });
+
+  wrap.appendChild(table);
+  return wrap;
+}
+```
+
+${labelTable}
+
+Read down the table: every point Python calls `0`, R calls `1`; every
+point Python calls `1`, R calls `2`; every point Python calls `-1`
+(noise), R calls `0`. The *partition* — which points end up
+together — is identical. The *labels* attached to it aren't, and
+never had to be.
+
+::: {.callout-note}
+This is why comparing two clustering results — across languages, or
+across two runs of the same algorithm — should compare **who's grouped
+with whom**, never raw label equality. In practice: pick any two
+points, and ask "does language A say they're in the same group, and
+does language B agree?" — repeat for every pair, and you're comparing
+partitions, not numbers that were never meant to match.
+:::
+
+## 4. Where to next
+
+- **Just needed to cluster a file?** → The
+  [standalone Spatial Clustering Explorer](/tools/spatial-clustering-explorer.html)
+  runs the same detection on an uploaded point file (or its own
+  example), with adjustable ε and minimum group size, colored on the
+  map, downloadable.
+- **Wondering why the coordinate system needed picking at all?** →
+  [Coordinate Reference Systems](crs-mismatch.qmd) covers the
+  geographic/projected distinction this article leaned on in section 1.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

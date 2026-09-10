@@ -1,0 +1,632 @@
+---
+title: "Spatial Clustering Explorer"
+date: 2026-09-09
+categories: [tool, geoml]
+description: "Upload a point dataset and find spatial clusters with DBSCAN — set a distance radius and a minimum group size, see clusters colored on the map, and download the result. Runs entirely in your browser, powered by Python."
+page-layout: full
+---
+
+Upload a point file — `.geojson`, or a shapefile as a single `.zip` or
+as `.shp`/`.dbf`/`.shx` selected together — set a distance radius
+(ε) and a minimum group size, and find which points cluster together
+in space. Points that don't belong to any dense-enough group are
+marked as noise, not forced into the nearest cluster.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (Python via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+```{ojs}
+//| echo: false
+mutable uploadBusy = false
+```
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "📁 Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  // Python-only tool (see the article for the same computation shown
+  // in R too): skip writing to R's filesystem entirely, so selecting
+  // a file doesn't also load webR in the background for no reason.
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
+    if (result.ok) {
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.45, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "spatial-clustering-explorer" });
+  return map;
+}
+```
+
+The code itself isn't shown here — it's a fixed, non-editable
+computation using scikit-learn's DBSCAN underneath. Want to see it
+built up step by step, in Python *and* R? Read
+[Finding Spatial Clusters with DBSCAN](/posts/spatial-clustering.html).
+
+```{ojs}
+//| echo: false
+//| output: false
+autoInspect = async () => {
+  await window.WebGeoDS.CodeCell.find("spatial-clustering-inspect-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Deterministic synthetic dataset -- three tight groups (~40-90m
+// across) a couple kilometers apart near Rome, plus six scattered
+// points kept well outside any group's reach, so the default ε/min
+// points below cleanly recover 3 clusters + 6 noise points on first
+// try. Fixed coordinates, not generated at runtime -- same reasoning
+// as the Validator's own EXAMPLE_GEOJSON: reviewable, reproducible,
+// no randomness to explain.
+EXAMPLE_POINTS = [
+  [12.450066, 41.900016], [12.450332, 41.900159], [12.450202, 41.900152],
+  [12.450017, 41.899721], [12.449639, 41.899781], [12.44983, 41.900398],
+  [12.450168, 41.900137], [12.44989, 41.899805], [12.449684, 41.90032],
+  [12.45028, 41.900272], [12.449961, 41.899825], [12.450273, 41.899636],
+  [12.472213, 41.905371], [12.472244, 41.904692], [12.47187, 41.90512],
+  [12.471645, 41.904815], [12.472004, 41.905215], [12.471817, 41.905013],
+  [12.471602, 41.905062], [12.472044, 41.905121], [12.472162, 41.905283],
+  [12.47225, 41.904784], [12.472269, 41.904942], [12.472334, 41.904712],
+  [12.455277, 41.884832], [12.454614, 41.884991], [12.454621, 41.884723],
+  [12.45535, 41.884793], [12.45486, 41.885091], [12.455187, 41.885068],
+  [12.455246, 41.885086], [12.455096, 41.884671], [12.454816, 41.884664],
+  [12.45532, 41.885381],
+  [12.43, 41.895], [12.49, 41.91], [12.46, 41.87],
+  [12.44, 41.92], [12.48, 41.88], [12.42, 41.905]
+]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+EXAMPLE_GEOJSON = JSON.stringify({
+  type: "FeatureCollection",
+  features: EXAMPLE_POINTS.map((coord, i) => ({
+    type: "Feature",
+    properties: { name: `point ${i + 1}` },
+    geometry: { type: "Point", coordinates: coord }
+  }))
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
+      await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = "✓ example data loaded — set ε/min points and Compute below.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
+}
+```
+
+```{.webgeods-python #spatial-clustering-inspect-py}
+#| package: geopandas
+import geopandas as gpd
+
+def export_crs(g):
+    # Reprojects `g` back to the CRS it was UPLOADED in (original_crs,
+    # set below and reused as a module-level global by the compute
+    # cell) -- every downloadable result goes through this, even
+    # though the map/clustering above always work in WGS84 (GeoJSON
+    # and MapLibre both assume it). Same pattern as this project's
+    # other vector tools (e.g. the Validator).
+    if g is None or original_crs is None or str(original_crs) == "EPSG:4326":
+        return g
+    return g.to_crs(original_crs)
+
+EMPTY_FC = {"type": "FeatureCollection", "features": []}
+
+# No built-in fallback: if nothing is readable, gdf stays None and the
+# result is an empty FeatureCollection -- this cell only ever runs
+# after a successful upload or "Load example".
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+crs_warning = None
+original_crs = None
+summary_out = None
+if gdf is not None:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    original_crs = gdf.crs
+    if str(original_crs) != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+
+    summary_out = {
+        "count": int(len(gdf)),
+        "crs": str(original_crs)
+    }
+
+{
+    "features": gdf.__geo_interface__ if gdf is not None else EMPTY_FC,
+    "crsWarning": crs_warning,
+    "summary": summary_out
+}
+```
+
+```{ojs}
+//| echo: false
+mutable inspectSummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable resultSummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable exportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+mutable crsWarning = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyInspect = WebGeoDS.getCellValue("spatial-clustering-inspect-py", Generators)
+{
+  if (pyInspect) {
+    // No paint override here -- the default circle style (shared/map.js's
+    // _defaultPaint) is exactly right for "uploaded, not yet clustered".
+    // Cluster colors only appear once Compute has actually run.
+    await sharedMap.setGeoJSON("spatial-clustering-py", pyInspect.features);
+    await sharedMap.fitToData(pyInspect.features);
+    mutable inspectSummary = pyInspect.summary;
+    mutable crsWarning = pyInspect.crsWarning;
+    // A fresh upload/example invalidates any previously computed
+    // clustering result -- same reasoning as clicking Reset.
+    mutable resultSummary = null;
+    mutable exportFeatures = null;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Warm-palette hues from shared/_brand.yml (terracotta, muschio, info,
+// attenzione, errore) -- the ones this palette actually has besides
+// its neutral ink/paper tones. Cycles if there are more than 5
+// clusters; noise always gets the same muted neutral (etichetta),
+// never one of the cluster hues.
+CLUSTER_PALETTE = ["#ab502b", "#42583c", "#3d5a73", "#c48a2e", "#8b2f24"]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+NOISE_COLOR = "#766851"
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// A function, not a static constant: the number of branches depends
+// on how many clusters DBSCAN actually found in this run -- same
+// pattern as topology-checker.qmd's errorPaint.
+clusterPaint = (clusterIds) => {
+  const expr = ["match", ["get", "cluster"]];
+  clusterIds.forEach((id, i) => {
+    expr.push(id, CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]);
+  });
+  expr.push(NOISE_COLOR);
+  return {
+    "circle-color": expr,
+    "circle-radius": 6,
+    "circle-stroke-width": 1,
+    "circle-stroke-color": "#2a2117"
+  };
+}
+```
+
+```{.webgeods-python #spatial-clustering-compute-py}
+#| inject: [epsMeters, minPts]
+#| package: geopandas, scikit-learn
+import numpy as np
+from sklearn.cluster import DBSCAN
+
+# Reuses the WGS84 `gdf` already read and CRS-normalized by the
+# inspect cell above (same session -- same pattern as the Validator's
+# Fix button reusing its own diagnose cell's `gdf`), rather than
+# re-reading the file.
+gdf_calc = gdf.copy()
+
+# Working/calculation CRS: DBSCAN's eps is a real distance, so
+# clustering must run on projected (metric) coordinates, never
+# degrees -- same reasoning, same UTM auto-pick formula, as this
+# project's Viewshed tool (raster-viewshed.qmd). Picked from the
+# uploaded data's own bounding-box center (not a per-feature centroid
+# mean -- that would make GeoPandas warn that "centroid" is unreliable
+# in a geographic CRS, a real warning for polygons even though it's a
+# false alarm for the point data this tool expects; total_bounds sidesteps
+# it entirely and matches Viewshed's own extent-center pattern): a
+# reasonable default for a single local dataset, not a universally
+# correct choice for data spanning multiple UTM zones, near the poles,
+# or very large extents.
+minx, miny, maxx, maxy = gdf_calc.total_bounds
+center_lon = float((minx + maxx) / 2)
+center_lat = float((miny + maxy) / 2)
+utm_zone = int((center_lon + 180) // 6) + 1
+calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
+calc_crs_label = f"EPSG:{calc_epsg}"
+
+gdf_proj = gdf_calc.to_crs(epsg=calc_epsg)
+coords = np.column_stack([gdf_proj.geometry.centroid.x, gdf_proj.geometry.centroid.y])
+
+# scikit-learn's DBSCAN labels noise as -1 -- a real point of
+# divergence from R's dbscan package (which uses 0), covered in the
+# companion article rather than papered over here.
+labels = DBSCAN(eps=float(epsMeters), min_samples=int(minPts)).fit(coords).labels_
+gdf_calc["cluster"] = [int(l) for l in labels]
+
+cluster_ids = sorted(int(c) for c in set(labels) if c != -1)
+n_noise = int((labels == -1).sum())
+
+{
+    "features": gdf_calc.__geo_interface__,
+    "originalCrsFeatures": export_crs(gdf_calc).__geo_interface__,
+    "summary": {
+        "calculationCrs": calc_crs_label,
+        "clusterIds": cluster_ids,
+        "clusterCount": len(cluster_ids),
+        "noiseCount": n_noise,
+        "totalCount": int(len(gdf_calc))
+    }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The ε/min-points inputs + Compute button, rebuilt whenever
+// inspectSummary changes -- same "disabled with an explanatory
+// message until there's data" pattern as Raster Calculator's own
+// band-math row.
+clusterControlsRow = {
+  const s = inspectSummary;
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+
+  if (!s) {
+    const status = document.createElement("span");
+    status.className = "webgeods-panel-status";
+    status.textContent = "Upload a point file or load the example to set parameters.";
+    row.append(status);
+    return row;
+  }
+
+  const label = (text) => {
+    const span = document.createElement("span");
+    span.className = "webgeods-panel-status";
+    span.textContent = text;
+    return span;
+  };
+
+  const makeNumberInput = (id, defaultValue, step, min, width) => {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.id = id;
+    input.step = String(step);
+    input.min = String(min);
+    input.value = String(defaultValue);
+    input.className = "webgeods-panel-status";
+    input.style.width = width;
+    return input;
+  };
+
+  const epsInput = makeNumberInput("eps-input", 100, 10, 1, "70px");
+  const minPtsInput = makeNumberInput("min-pts-input", 5, 1, 1, "50px");
+
+  const computeButton = document.createElement("button");
+  computeButton.className = "webgeods-panel-btn";
+  computeButton.textContent = "▶ Compute";
+  computeButton.onclick = async () => {
+    computeButton.disabled = true;
+    const originalText = computeButton.textContent;
+    computeButton.textContent = "⌛ Clustering...";
+    try {
+      const epsMeters = Number(epsInput.value);
+      const minPts = Number(minPtsInput.value);
+      window.epsMeters = epsMeters;
+      window.minPts = minPts;
+      await window.WebGeoDS.CodeCell.find("spatial-clustering-compute-py").run();
+      const result = document.getElementById("spatial-clustering-compute-py").value;
+      await sharedMap.setGeoJSON("spatial-clustering-py", result.features, {
+        paint: clusterPaint(result.summary.clusterIds)
+      });
+      mutable exportFeatures = result.originalCrsFeatures;
+      mutable resultSummary = { ...result.summary, epsMeters, minPts };
+      window.WebGeoDS.track?.("validation_completed", { tool: "spatial-clustering-explorer" });
+    } catch (err) {
+      console.error("spatial-clustering-explorer: Compute failed", err);
+      mutable uploadStatus = `⚠️ Compute failed: ${err.message}`;
+    } finally {
+      computeButton.disabled = false;
+      computeButton.textContent = originalText;
+    }
+  };
+
+  row.append(
+    label("ε (eps, meters):"), epsInput,
+    label("min points:"), minPtsInput,
+    computeButton
+  );
+  return row;
+}
+```
+
+```{ojs}
+//| echo: false
+resetExplorer = async () => {
+  if (sharedMap.getGeoJSON("spatial-clustering-py")) {
+    await sharedMap.setGeoJSON("spatial-clustering-py", { type: "FeatureCollection", features: [] });
+  }
+  mutable inspectSummary = null;
+  mutable resultSummary = null;
+  mutable exportFeatures = null;
+  mutable crsWarning = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
+  button.onclick = () => resetExplorer();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Gated on resultSummary (a completed Compute), not just an upload --
+// downloading an unclustered file wouldn't be this tool's own output.
+downloadButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "⬇ Download";
+  button.disabled = !resultSummary;
+  button.onclick = async () => {
+    if (!exportFeatures) return;
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "⌛ Preparing...";
+    try {
+      const base = WebGeoDS.Upload.baseName(uploadedFiles);
+      WebGeoDS.downloadBlob(
+        JSON.stringify(exportFeatures, null, 2),
+        base ? `${base}-clustered.geojson` : "clustered.geojson",
+        "application/geo+json",
+        { tool: "spatial-clustering-explorer" }
+      );
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
+  return row;
+}
+```
+
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+:::: {.webgeods-panel}
+
+::: {.webgeods-panel-row}
+${controlPanelRow}
+:::
+
+::: {.webgeods-panel-row}
+${uploadStatusEl}
+:::
+
+::: {.webgeods-panel-row}
+${clusterControlsRow}
+:::
+
+::::
+
+```{ojs}
+//| echo: false
+statCard = {
+  const s = inspectSummary;
+  const r = resultSummary;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Points", "—");
+    row("—", "Upload a point GeoJSON/Shapefile or load the example above");
+    return box;
+  }
+
+  row("Points", s.count.toLocaleString());
+  row("Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs);
+
+  if (r) {
+    row("Calculation CRS", r.calculationCrs);
+    row("ε (eps)", `${r.epsMeters} m`);
+    row("Min points", r.minPts);
+    row("Clusters found", r.clusterCount);
+    row("Noise points", r.noiseCount);
+  }
+
+  return box;
+}
+```
+
+${statCard}
+
+```{ojs}
+//| echo: false
+legendEl = {
+  const r = resultSummary;
+  const wrap = document.createElement("div");
+  wrap.className = "webgeods-legend";
+  if (!r) {
+    wrap.hidden = true;
+    return wrap;
+  }
+  wrap.style.flexWrap = "wrap";
+  wrap.style.rowGap = "8px";
+
+  const addSwatch = (color, text) => {
+    const swatch = document.createElement("div");
+    swatch.className = "webgeods-legend-bar";
+    swatch.style.flex = "0 0 24px";
+    swatch.style.background = color;
+    const label = document.createElement("span");
+    label.className = "webgeods-legend-label";
+    label.textContent = text;
+    wrap.append(swatch, label);
+  };
+
+  r.clusterIds.forEach((id, i) => {
+    addSwatch(CLUSTER_PALETTE[i % CLUSTER_PALETTE.length], `Cluster ${id}`);
+  });
+  if (r.noiseCount > 0) addSwatch(NOISE_COLOR, "Noise");
+
+  return wrap;
+}
+```
+
+${legendEl}
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+clusterTable = sharedMap.tableCell(["spatial-clustering-py"], null, Generators, {
+  emptyMessage: "No results yet"
+})
+```
+
+<style>
+#spatial-clustering-inspect-py, #spatial-clustering-compute-py {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+First tool in the GeoML family. Want to understand why noise points
+aren't forced into a cluster, see the actual code, or compare against
+R's independent `dbscan` implementation (and the label-numbering
+difference between the two)? Read the
+<a href="/posts/spatial-clustering.html">full article</a>.
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
