@@ -99,14 +99,14 @@ sharedMapEl = sharedMap.element
 // or needs to know who's going to draw it red or green.
 //
 // Used ONLY on the first setGeoJSON() call on a source (when it
-// creates the layer — setGeoJSON() on an already-existing source only
-// calls setData(), never setPaintProperty): the paint chosen at
-// diagnosis time stays fixed for the layer's whole lifetime, even
-// after Repair replaces the data with different properties
-// (valid_before/valid_after, no longer "valid"). That's why it checks
-// BOTH possible keys — not just "valid" — otherwise the color would
-// stay red forever after the repair (verified empirically: a real
-// bug, not a theoretical one).
+// creates the layer). setGeoJSON() on an already-existing source DOES
+// re-apply options.paint if one is given (fixed 2026-09-10 — it used
+// to silently drop it) -- but the repair call below never passes one,
+// so this paint stays fixed for the layer's whole lifetime by
+// omission, not because setGeoJSON() would ignore it if asked. That's
+// why it checks BOTH possible keys — not just "valid" — otherwise the
+// color would stay red forever after the repair (verified
+// empirically: a real bug, not a theoretical one).
 VALIDITY_PAINT = ({
   "fill-color": [
     "case",
@@ -963,10 +963,11 @@ list(
 ```{ojs}
 //| echo: false
 //| output: false
-// No `{ paint: ... }` here: the source already exists from the
-// diagnosis, so setGeoJSON() only calls setData() — the paint option
-// would only be read if it had to create the layer from scratch,
-// which never happens at this point.
+// Deliberately no `{ paint: ... }` here, so the layer keeps whatever
+// paint the diagnosis call set — setGeoJSON() DOES now re-apply a new
+// paint on an existing layer if one is passed, so this omission is
+// what keeps the color logic frozen at diagnosis time (see VALIDITY_PAINT's
+// own comment above), not a limitation of setGeoJSON() itself.
 pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
 {
   if (pyRepair) {
