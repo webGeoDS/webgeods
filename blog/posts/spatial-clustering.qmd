@@ -2,7 +2,7 @@
 title: "Finding Spatial Clusters with DBSCAN"
 date: 2026-09-09
 categories: [tool, geoml, bilingual]
-description: "An interactive lab with Python, R and MapLibre — run DBSCAN on a set of points, see how a distance in meters requires picking a real coordinate system first, and why the two languages label the exact same groups with different numbers."
+description: "An interactive lab with Python, R and MapLibre — upload a point file (or use the built-in example), run DBSCAN, see how a distance in meters requires picking a real coordinate system first, and why the two languages label the exact same groups with different numbers."
 ---
 
 Some questions aren't "is this one point inside that polygon" — they're
@@ -14,9 +14,14 @@ number of clusters in advance, and no need to force every point into
 a group. A point too far from everything else stays *noise*, not a
 cluster of one.
 
-Want to try it on your own file instead of reading through the code?
-Use the [standalone tool](/tools/spatial-clustering-explorer.html) —
-same engine, less prose.
+A `.geojson`, or a shapefile (either as a single `.zip`, or as
+`.shp`/`.dbf`/`.shx` selected together) — see the upload section
+below.
+
+Just want to cluster a file with adjustable settings and a download
+button, without the rest of the reading? Use the
+[standalone tool](/tools/spatial-clustering-explorer.html) — same
+engine, less prose.
 
 ## 1. Why the coordinate system matters here
 
@@ -31,55 +36,129 @@ site's [Viewshed](raster-viewshed.qmd) tool: a reasonable default for
 one local dataset, not a universally correct choice for points
 spanning multiple UTM zones or very large areas.
 
-## 2. Same spatial question, two languages
+## 2. Upload your points
 
-Fourteen points, laid out on purpose: two tight groups of six, and two
-points far from everything — including each other. Fixed coordinates,
-not uploaded or randomly generated: the point here is the algorithm
-and how the two languages report it, not file handling (the
-[standalone tool](/tools/spatial-clustering-explorer.html) covers
-uploading a real file).
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+No file uploaded? Both cells below fall back to the same small
+built-in example: two tight groups of six points, and two points far
+from everything — including each other — chosen to keep the
+point-by-point label comparison in section 4 readable. ε and the
+minimum group size are fixed at 100m/4 points here to keep the focus
+on *how the two languages report a result*, not on tuning — the
+[standalone tool](/tools/spatial-clustering-explorer.html) exposes
+both as adjustable controls.
+
+## 3. Same spatial question, two languages
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.45, 41.9], zoom: 10, height: "420px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
 
 ::: {.panel-tabset}
 
 ## Python
 
 ```{.webgeods-python #spatial-clustering-py}
-#| package: scikit-learn, pyproj
+#| package: geopandas, scikit-learn
+import geopandas as gpd
 import numpy as np
-from pyproj import Transformer
 from sklearn.cluster import DBSCAN
 
-POINTS = [
-    [12.4500, 41.9000], [12.4503, 41.9002], [12.4498, 41.8998],
-    [12.4501, 41.9001], [12.4499, 41.8999], [12.4502, 41.9003],
-    [12.4700, 41.9050], [12.4703, 41.9052], [12.4698, 41.9048],
-    [12.4701, 41.9051], [12.4699, 41.9049], [12.4702, 41.9053],
-    [12.4300, 41.8800],
-    [12.5000, 41.9300]
-]
+# Same 14-point layout as the article's original fixed dataset -- used
+# only when nothing was uploaded, so the point-by-point table in
+# section 4 stays readable by default.
+FALLBACK_LONS = [12.4500, 12.4503, 12.4498, 12.4501, 12.4499, 12.4502,
+                  12.4700, 12.4703, 12.4698, 12.4701, 12.4699, 12.4702,
+                  12.4300, 12.5000]
+FALLBACK_LATS = [41.9000, 41.9002, 41.8998, 41.9001, 41.8999, 41.9003,
+                  41.9050, 41.9052, 41.9048, 41.9051, 41.9049, 41.9053,
+                  41.8800, 41.9300]
 
-lons = np.array([p[0] for p in POINTS])
-lats = np.array([p[1] for p in POINTS])
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+crs_warning = None
+if gdf is None:
+    gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy(FALLBACK_LONS, FALLBACK_LATS), crs="EPSG:4326")
+else:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    elif str(gdf.crs) != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
 
 # UTM auto-pick from the bounding-box center -- see section 1 above.
-center_lon = (lons.min() + lons.max()) / 2
-center_lat = (lats.min() + lats.max()) / 2
+minx, miny, maxx, maxy = gdf.total_bounds
+center_lon = float((minx + maxx) / 2)
+center_lat = float((miny + maxy) / 2)
 utm_zone = int((center_lon + 180) // 6) + 1
 calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
 
-transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{calc_epsg}", always_xy=True)
-xs, ys = transformer.transform(lons, lats)
-coords = np.column_stack([xs, ys])
+# Centroid computed AFTER reprojecting into a projected CRS on
+# purpose -- the same call on the geographic gdf above would trigger a
+# real GeoPandas warning ("Results from 'centroid' are likely
+# incorrect"), same reasoning as this site's Spatial Clustering
+# Explorer tool.
+gdf_proj = gdf.to_crs(epsg=calc_epsg)
+coords = np.column_stack([gdf_proj.geometry.centroid.x, gdf_proj.geometry.centroid.y])
 
 # scikit-learn's own convention: noise is -1, real clusters start at 0.
 labels = DBSCAN(eps=100, min_samples=4).fit(coords).labels_
+gdf["cluster"] = [int(l) for l in labels]
 
 {
+    "features": gdf.__geo_interface__,
     "calculationCrs": f"EPSG:{calc_epsg}",
     "labels": [int(l) for l in labels],
     "uniqueLabels": sorted(int(l) for l in set(labels)),
-    "noiseCount": int((labels == -1).sum())
+    "noiseCount": int((labels == -1).sum()),
+    "crsWarning": crs_warning
 }
 ```
 
@@ -90,34 +169,50 @@ labels = DBSCAN(eps=100, min_samples=4).fit(coords).labels_
 library(dbscan)
 library(sf)
 
-points <- rbind(
-  c(12.4500, 41.9000), c(12.4503, 41.9002), c(12.4498, 41.8998),
-  c(12.4501, 41.9001), c(12.4499, 41.8999), c(12.4502, 41.9003),
-  c(12.4700, 41.9050), c(12.4703, 41.9052), c(12.4698, 41.9048),
-  c(12.4701, 41.9051), c(12.4699, 41.9049), c(12.4702, 41.9053),
-  c(12.4300, 41.8800),
-  c(12.5000, 41.9300)
-)
+FALLBACK_LONS <- c(12.4500, 12.4503, 12.4498, 12.4501, 12.4499, 12.4502,
+                    12.4700, 12.4703, 12.4698, 12.4701, 12.4699, 12.4702,
+                    12.4300, 12.5000)
+FALLBACK_LATS <- c(41.9000, 41.9002, 41.8998, 41.9001, 41.8999, 41.9003,
+                    41.9050, 41.9052, 41.9048, 41.9051, 41.9049, 41.9053,
+                    41.8800, 41.9300)
+
+data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+
+crs_warning <- NULL
+if (is.null(data)) {
+  data <- st_as_sf(data.frame(lon = FALLBACK_LONS, lat = FALLBACK_LATS), coords = c("lon", "lat"), crs = 4326)
+} else if (is.na(st_crs(data))) {
+  st_crs(data) <- 4326
+  crs_warning <- "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+} else if (!isTRUE(st_crs(data) == st_crs(4326))) {
+  data <- st_transform(data, 4326)
+}
 
 # UTM auto-pick from the bounding-box center -- see section 1 above.
-center_lon <- (min(points[, 1]) + max(points[, 1])) / 2
-center_lat <- (min(points[, 2]) + max(points[, 2])) / 2
+bnd <- st_bbox(data)
+center_lon <- (bnd[["xmin"]] + bnd[["xmax"]]) / 2
+center_lat <- (bnd[["ymin"]] + bnd[["ymax"]]) / 2
 utm_zone <- floor((center_lon + 180) / 6) + 1
 calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
 
-pts_sf <- st_as_sf(data.frame(lon = points[, 1], lat = points[, 2]), coords = c("lon", "lat"), crs = 4326)
-coords_calc <- st_coordinates(st_transform(pts_sf, calc_epsg))
+data_proj <- st_transform(data, calc_epsg)
+coords_calc <- st_coordinates(st_centroid(st_geometry(data_proj)))
 
 # dbscan's own convention: noise is 0, real clusters start at 1 -- a
 # real point of divergence from scikit-learn, not a formatting detail.
-# See section 3 below.
+# See section 4 below.
 res <- dbscan(coords_calc, eps = 100, minPts = 4)
 
 result <- list(
   calculationCrs = jsonlite::unbox(paste0("EPSG:", calc_epsg)),
   labels = as.integer(res$cluster),
   uniqueLabels = sort(unique(as.integer(res$cluster))),
-  noiseCount = jsonlite::unbox(as.integer(sum(res$cluster == 0)))
+  noiseCount = jsonlite::unbox(as.integer(sum(res$cluster == 0))),
+  crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning)
 )
 jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
 ```
@@ -136,10 +231,59 @@ mutable rSummary = null
 
 ```{ojs}
 //| echo: false
+mutable crsWarning = null
+```
+
+```{ojs}
+//| echo: false
+// Warm-palette hues from _brand.yml, same palette/roles as the
+// Spatial Clustering Explorer tool -- reused here rather than
+// invented fresh, so a reader who's seen the tool recognizes the
+// same visual language.
+CLUSTER_PALETTE = ["#ab502b", "#42583c", "#3d5a73", "#c48a2e", "#8b2f24"]
+```
+
+```{ojs}
+//| echo: false
+NOISE_COLOR = "#766851"
+```
+
+```{ojs}
+//| echo: false
+// The map shows Python's own partition/coloring only -- not because
+// R's result is somehow secondary, but because both languages agree
+// on WHICH points group together (that's the whole point of section
+// 4 below); drawing the same partition twice, in two different label
+// numberings, would just be two circle layers stacked on identical
+// coordinates with one hiding the other.
+clusterPaint = (clusterIds) => {
+  const expr = ["match", ["get", "cluster"]];
+  clusterIds.forEach((id, i) => {
+    expr.push(id, CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]);
+  });
+  expr.push(NOISE_COLOR);
+  return {
+    "circle-color": expr,
+    "circle-radius": 6,
+    "circle-stroke-width": 1,
+    "circle-stroke-color": "#2a2117"
+  };
+}
+```
+
+```{ojs}
+//| echo: false
 //| output: false
 pyResult = WebGeoDS.getCellValue("spatial-clustering-py", Generators)
 {
-  if (pyResult) mutable pySummary = pyResult;
+  if (pyResult) {
+    await sharedMap.setGeoJSON("spatial-clustering-map", pyResult.features, {
+      paint: clusterPaint(pyResult.uniqueLabels.filter((l) => l !== -1))
+    });
+    await sharedMap.fitToData(pyResult.features);
+    mutable pySummary = pyResult;
+    mutable crsWarning = pyResult.crsWarning;
+  }
 }
 ```
 
@@ -151,6 +295,18 @@ rResult = WebGeoDS.getCellValue("spatial-clustering-r", Generators)
   if (rResult) mutable rSummary = rResult;
 }
 ```
+
+```{ojs}
+//| echo: false
+crsWarningEl = {
+  const div = document.createElement("div");
+  div.className = "webgeods-panel-status";
+  if (crsWarning) div.textContent = `⚠️ ${crsWarning}`;
+  return div;
+}
+```
+
+${crsWarningEl}
 
 ```{ojs}
 //| echo: false
@@ -207,11 +363,36 @@ statCardsRow = {
 
 ${statCardsRow}
 
-## 3. A label is not a name
+```{ojs}
+//| echo: false
+resetClustering = async () => {
+  if (sharedMap.getGeoJSON("spatial-clustering-map")) {
+    await sharedMap.setGeoJSON("spatial-clustering-map", { type: "FeatureCollection", features: [] });
+  }
+  mutable pySummary = null;
+  mutable rSummary = null;
+  mutable crsWarning = null;
+}
+```
+
+```{ojs}
+//| echo: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.textContent = "🔄 Reset map and cards";
+  button.onclick = () => resetClustering();
+  return button;
+}
+```
+
+${resetMapButton}
+
+## 4. A label is not a name
 
 Both cards above found the same thing: two groups of six, and two
-noise points. But the *numbers* don't match — and that's not a bug in
-either language.
+noise points (with the built-in example — an upload of your own may
+find something different). But the *numbers* don't match — and that's
+not a bug in either language.
 
 Two separate reasons, easy to conflate:
 
@@ -283,9 +464,10 @@ does language B agree?" — repeat for every pair, and you're comparing
 partitions, not numbers that were never meant to match.
 :::
 
-## 4. Where to next
+## 5. Where to next
 
-- **Just needed to cluster a file?** → The
+- **Just needed to cluster a file, with adjustable settings and a
+  download button?** → The
   [standalone Spatial Clustering Explorer](/tools/spatial-clustering-explorer.html)
   runs the same detection on an uploaded point file (or its own
   example), with adjustable ε and minimum group size, colored on the
