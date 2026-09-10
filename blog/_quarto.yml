@@ -78,6 +78,10 @@ website:
             text: NDVI
           - href: tools/viewshed-calculator.qmd
             text: Viewshed
+          # Third group, same "---"-as-anchor mechanism as above.
+          - text: "---"
+          - href: tools/spatial-clustering-explorer.qmd
+            text: Cluster
       - text: Articles
         menu:
           - href: articles.qmd
@@ -100,10 +104,14 @@ website:
             text: NDVI
           - href: posts/raster-viewshed.qmd
             text: Viewshed
+          - text: "---"
+          - href: posts/spatial-clustering.qmd
+            text: Cluster
       - about.qmd
-    # Two groups per dropdown now: "Spatial Data Quality" (Fase 1) and
-    # "Raster" (Fase 2, started 2026-09-06) — see include-after-body's
-    # script for how the "---" dividers above become labeled headers.
+    # Three groups per dropdown now: "Spatial Data Quality" (Fase 1),
+    # "Raster" (Fase 2, started 2026-09-06), and "GeoML" (Fase 2,
+    # started 2026-09-09) — see include-after-body's script for how
+    # the "---" dividers above become labeled headers.
   open-graph: true
   # sitemap.xml is not a key of its own: Quarto generates it automatically in
   # _site/ when site-url is set. Placeholder to be confirmed — change it if
@@ -176,7 +184,7 @@ format:
             // in the same order, but this doesn't assume they always
             // will.
             document.addEventListener("DOMContentLoaded", () => {
-              const GROUP_LABELS = ["Spatial Data Quality", "Raster"];
+              const GROUP_LABELS = ["Spatial Data Quality", "Raster", "GeoML"];
               ["nav-menu-tools", "nav-menu-articles"].forEach((id) => {
                 const toggle = document.getElementById(id);
                 const dividers = toggle?.nextElementSibling?.querySelectorAll(".dropdown-divider");

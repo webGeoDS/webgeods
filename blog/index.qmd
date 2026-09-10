@@ -41,3 +41,14 @@ point given the terrain in between.
 [Calculate](/posts/raster-band-math.html) →
 [NDVI](/posts/raster-ndvi.html) →
 [Viewshed](/posts/raster-viewshed.html)
+
+## GeoML
+
+Machine learning on spatial data, starting with unsupervised
+clustering — runnable Python and R code side by side, including where
+the two languages disagree on something as basic as how a result is
+labeled.
+
+**Tools** — [Cluster](/tools/spatial-clustering-explorer.html)
+
+**Articles** — [Cluster](/posts/spatial-clustering.html)
