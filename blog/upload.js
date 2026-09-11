@@ -4,13 +4,14 @@
  * Shared "upload a vector or raster file into both runtimes' virtual
  * filesystems" helper, plus createControl() (the upload button
  * itself — a native <input type="file"> wrapped in a <label>, see
- * below) and loadObservableInputs() (see further below — lives here
- * because this file needed it first for the OLD Inputs.file()-based
- * control, but it's shared more broadly: topology-checker.qmd's
- * threshold sliders still use window.Inputs.range()). What's shared
- * and non-trivial is load()/baseName(): they accept a shapefile
- * (several sidecar files, or a single .zip bundling them) or a single
- * raster file, in addition to a single GeoJSON.
+ * below) and createSlider() (see further below — lives here for the
+ * same reason createControl() does: a small shared UI primitive with
+ * no bigger natural home, used by topology-checker.qmd's threshold
+ * sliders and, from here on, any tool needing a distance/threshold
+ * slider). What's shared and non-trivial is load()/baseName(): they
+ * accept a shapefile (several sidecar files, or a single .zip
+ * bundling them) or a single raster file, in addition to a single
+ * GeoJSON.
  *
  * A shapefile isn't one file: .shp (geometry) + .dbf (attributes) +
  * .shx (index), often .prj (CRS) — GDAL/OGR (used by both
@@ -63,17 +64,6 @@
 
   const RASTER_ACCEPT =
     ".tif,.tiff,image/tiff";
-
-  // Same `window.WEBGEODS_ASSET_BASE` convention as map.js's
-  // MAPLIBRE_JS_URL/table.js's GRIDJS_JS_URL — see the comment in
-  // map.js for why a bare relative path breaks on a page that isn't
-  // at the project root (verified the hard way once already, for
-  // these exact two files, before this loader existed: a page under
-  // /tools/ resolved a relative script src against that subfolder
-  // instead of the site root).
-  const ASSET_BASE = window.WEBGEODS_ASSET_BASE || "";
-  const HTL_JS_URL = ASSET_BASE + "htl.min.js";
-  const OBSERVABLE_INPUTS_JS_URL = ASSET_BASE + "observable-inputs.min.js";
 
   // navigator.deviceMemory (Chromium only — undefined in Firefox/
   // Safari, never treated as "low" when absent) reports a coarse,
@@ -130,115 +120,66 @@
 
 
   // ============================================================
-  // loadObservableInputs() — lazy-loads window.Inputs (Observable
-  // Inputs, vendored: shared/observable-inputs.min.js) plus its own
-  // runtime dependency window.htl (shared/htl.min.js — the UMD
-  // build's global-script branch reads window.htl directly; Quarto's
-  // own OJS runtime uses htl internally but never exposes it as a
-  // window global, verified empirically). Same "check window first,
-  // else create <script> tags, cache the in-flight promise" pattern
-  // as map.js's loadMapLibreScript()/table.js's loadGridJs() — kept
-  // here rather than folded into a bigger wrapper (unlike Map/Table,
-  // there's no natural bigger WebGeoDS function for Inputs.file()/
-  // Inputs.range() calls to hide inside; wrapping them just to hide
-  // this load step would recreate the createInput() indirection
-  // already removed once for being pointless). Callers `await` this
-  // directly, then call window.Inputs.* themselves.
+  // createSlider([min, max], { value, step, label, id }) — a plain
+  // native <input type="range"> with a label and a live value
+  // display, in one wrapper element (shared/styles.css:
+  // .webgeods-slider). Replaces Observable Inputs' Inputs.range()
+  // (removed 2026-09-11, along with its vendored runtime dependency
+  // htl.min.js — both existed in this project only to support this
+  // one widget, unused anywhere else by the time this was written):
+  // no async load step before the control can be created, no extra
+  // library, same "vanilla DOM, no library" choice table.js already
+  // made for its own table renderer.
+  //
+  // The wrapper's inner <input> carries `id` directly (not set by
+  // the caller afterward) — read its live value exactly like any
+  // other input, e.g. `document.getElementById(id).value`, same
+  // read-by-id pattern every caller already used with Inputs.range().
   // ============================================================
 
-  // Same "onload fired but the global never actually appeared, retry
-  // with a FRESH <script> element" workaround as map.js's own
-  // loadMapLibreScript() — verified empirically (this exact bug,
-  // this exact loader): the plain single-attempt version above
-  // worked in isolation (a blank page, nothing else going on) but
-  // reliably failed on the real pages, where several other things
-  // (MapLibre, CodeMirror, the Python/R runtimes) are also competing
-  // for the main thread right at load time — same root cause map.js
-  // already documented for maplibre-gl.js, not specific to
-  // display:none this time (these two scripts aren't hidden), just
-  // "page busy enough right after load". See map.js's own comment
-  // for the full reasoning (delay between retries, cache-busting
-  // query string on retries only).
-  const MAX_SCRIPT_ATTEMPTS = 8;
+  function createSlider([min, max], { value, step = 1, label, id } = {}) {
 
-  function loadScriptUntil(url, isReady, attempt = 1) {
+    const wrapper =
+      document.createElement("span");
 
-    if (isReady()) {
-      return Promise.resolve();
-    }
+    wrapper.className =
+      "webgeods-slider";
 
-    return new Promise((resolve, reject) => {
+    const labelEl =
+      document.createElement("span");
 
-      const append =
-        attempt === 1
-          ? (fn) => fn()
-          : (fn) => setTimeout(fn, 150 * (attempt - 1));
+    labelEl.className =
+      "webgeods-slider-label";
 
-      const script =
-        document.createElement("script");
+    labelEl.textContent =
+      `${label}:`;
 
-      script.src =
-        attempt === 1 ?
-          url :
-          `${url}?retry=${attempt}`;
+    const input =
+      document.createElement("input");
 
-      script.onload =
-        () => {
+    input.type = "range";
+    input.id = id;
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.value = String(value);
 
-          if (isReady()) {
+    const valueEl =
+      document.createElement("span");
 
-            resolve();
+    valueEl.className =
+      "webgeods-slider-value";
 
-          } else if (attempt < MAX_SCRIPT_ATTEMPTS) {
+    valueEl.textContent =
+      String(value);
 
-            resolve(loadScriptUntil(url, isReady, attempt + 1));
-
-          } else {
-
-            reject(
-              new Error(`WebGeoDS.Upload: ${url} loaded ${attempt} time(s) but the expected global never appeared.`)
-            );
-
-          }
-
-        };
-
-      script.onerror =
-        () => reject(
-          new Error(`WebGeoDS.Upload: failed to load ${url}.`)
-        );
-
-      append(() => document.head.appendChild(script));
-
+    input.addEventListener("input", () => {
+      valueEl.textContent = input.value;
     });
 
-  }
+    wrapper.append(labelEl, input, valueEl);
 
-  let observableInputsPromise = null;
-
-  function loadObservableInputs() {
-
-    if (
-      window.Inputs &&
-      window.htl
-    ) {
-
-      return Promise.resolve();
-
-    }
-
-    if (!observableInputsPromise) {
-
-      // htl before observable-inputs — the latter reads window.htl
-      // at its own load time, not lazily on first use.
-      observableInputsPromise =
-        loadScriptUntil(HTL_JS_URL, () => !!window.htl).then(() =>
-          loadScriptUntil(OBSERVABLE_INPUTS_JS_URL, () => !!window.Inputs)
-        );
-
-    }
-
-    return observableInputsPromise;
+    return wrapper;
 
   }
 
@@ -611,12 +552,12 @@
     defaultStatus: DEFAULT_STATUS
   };
 
-  // Top-level, not namespaced under .Upload: shared by the upload
-  // widget AND topology-checker.qmd's threshold sliders, not an
-  // upload-specific concern — just implemented here since this file
-  // already needed it first.
-  window.WebGeoDS.loadObservableInputs =
-    loadObservableInputs;
+  // Top-level, not namespaced under .Upload: createSlider() is a
+  // generic UI primitive, not an upload-specific concern — just
+  // implemented here since this file already needed one first (see
+  // its own doc comment above).
+  window.WebGeoDS.createSlider =
+    createSlider;
 
 
 })();

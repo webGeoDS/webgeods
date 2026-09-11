@@ -332,6 +332,34 @@
   margin-left: auto;
 }
 
+/* WebGeoDS.createSlider() (shared/upload.js) — a native <input
+   type="range">, label and live value in one inline group. Doesn't
+   reuse .webgeods-panel-status above for its own label/value text:
+   that class's margin-left:auto (meant to push a lone status span to
+   a row's far edge) would break the label/input/value inline flow
+   here. accent-color tints the native thumb/track without any
+   vendor-prefixed pseudo-element overrides. */
+.webgeods-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.webgeods-slider-label,
+.webgeods-slider-value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.webgeods-slider-value {
+  min-width: 2.5em;
+}
+input[type="range"] {
+  accent-color: var(--terracotta);
+}
+
 /* Action buttons inside .webgeods-panel — same look as the code
    editor's own Run button (.webgeods-run-btn), reused at page level so
    the control bar and the code cells speak one visual language.

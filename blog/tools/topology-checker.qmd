@@ -159,39 +159,31 @@ ${uploadStatusEl}
 ```{ojs}
 //| echo: false
 //| output: false
-// window.Inputs, lazy-loaded on demand (WebGeoDS.loadObservableInputs()
-// in shared/upload.js — awaited here directly, same reasoning as the
-// upload cell above: no bigger WebGeoDS wrapper exists to hide this
-// load step inside without recreating an indirection already removed
-// once). output:false: only ever shown via sliderRow below.
-sliverControl = {
-  await WebGeoDS.loadObservableInputs();
-  const el = window.Inputs.range([0.01, 0.9], {
-    value: 0.15,
-    step: 0.01,
-    label: "Sliver threshold"
-  });
-  // Read imperatively by id in checkButton's onclick below, not by
-  // referencing this OJS variable directly — doing the latter would
-  // make OJS recreate checkButton's whole cell on every drag tick.
-  el.id = "sliver-threshold-control";
-  return el;
-}
+// Native <input type="range"> (WebGeoDS.createSlider(), shared/
+// upload.js) — no async load step needed before the control exists,
+// unlike the Observable Inputs widget this replaced (2026-09-11).
+// output:false: only ever shown via sliderRow below.
+//
+// Read imperatively by id in checkButton's onclick below, not by
+// referencing this OJS variable directly — doing the latter would
+// make OJS recreate checkButton's whole cell on every drag tick.
+sliverControl = WebGeoDS.createSlider([0.01, 0.9], {
+  value: 0.15,
+  step: 0.01,
+  label: "Sliver threshold",
+  id: "sliver-threshold-control"
+})
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
-gapControl = {
-  await WebGeoDS.loadObservableInputs();
-  const el = window.Inputs.range([0.01, 0.5], {
-    value: 0.06,
-    step: 0.01,
-    label: "Gap search distance"
-  });
-  el.id = "gap-proximity-control";
-  return el;
-}
+gapControl = WebGeoDS.createSlider([0.01, 0.5], {
+  value: 0.06,
+  step: 0.01,
+  label: "Gap search distance",
+  id: "gap-proximity-control"
+})
 ```
 
 ```{ojs}

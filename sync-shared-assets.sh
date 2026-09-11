@@ -27,8 +27,6 @@ FILES=(
   maplibre-gl.css
   fonts.css
   codemirror-bundle.js
-  htl.min.js
-  observable-inputs.min.js
 )
 
 for target in "${TARGET_DIRS[@]}"; do

@@ -26,8 +26,6 @@ project:
     - "fonts/*.woff2"
     - "codemirror-bundle.js"
     - "downloads/*.pdf"
-    - "htl.min.js"
-    - "observable-inputs.min.js"
 
 website:
   title: "webGeoDs"
