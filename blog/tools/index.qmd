@@ -10,21 +10,22 @@ listing:
     filename: "index.qmd"
 ---
 
-## Spatial Data Quality Toolkit
+## Vector Toolkit
 
-A small, focused suite for checking geospatial data before you trust
-it. Free, no account, nothing ever leaves your browser. Want the full
-explanation instead of just the tool? The
-[interactive articles](/articles.html) walk through the same checks
-in Python and R.
+Checking a vector file before you trust it, and doing real analysis
+with it once you do. Free, no account, nothing ever leaves your
+browser. Want the full explanation instead of just the tool? The
+[interactive articles](/articles.html) walk through the same
+computations in Python and R.
 
 **[Inspect](geospatial-file-inspector.qmd)** →
 **[Validate](geojson-shapefile-validator.qmd)** →
 **[Check Topology](topology-checker.qmd)** →
-**[CRS](crs-inspector.qmd)**
+**[CRS](crs-inspector.qmd)** →
+**[Buffer](buffer-proximity.qmd)**
 
-All four are live — Inspect, Validate geometry, Check Topology, and
-find/convert a CRS.
+Five tools are live — Inspect, Validate geometry, Check Topology,
+find/convert a CRS, and buffer points/lines/polygons at any distance.
 
 ## Raster Toolkit
 

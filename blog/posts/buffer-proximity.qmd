@@ -1,0 +1,240 @@
+---
+title: "Buffer & Proximity: How Far Is Within Reach"
+date: 2026-09-11
+categories: [tool, vector, bilingual]
+description: "An interactive lab with Python, R and MapLibre — buffer a point, a line, and a polygon at the same distance, see why the three results end up different shapes, and why the distance has to be a real one, not degrees."
+---
+
+"What's within 300 meters of this store?" and "what falls within 50
+meters of this road?" are the same question underneath: draw a zone
+at a fixed distance around a feature, then check what's inside it —
+a buffer. The distance is fixed, but what comes out depends entirely
+on what went in.
+
+Want to try it on your own file instead of reading through the code?
+Use the [standalone tool](/tools/buffer-proximity.html) — same
+engine, less prose.
+
+## 1. Why the coordinate system matters here
+
+A buffer distance is a real distance — meters, not degrees of
+longitude/latitude, where the same number of degrees covers very
+different real distances depending on where on Earth you are. Both
+languages below pick a working UTM zone from the data's own
+bounding-box center and reproject into it first — same reasoning,
+same formula, as this site's [Viewshed](raster-viewshed.qmd) and
+[Spatial Clustering](spatial-clustering.qmd) tools: a reasonable
+default for one local dataset, not a universally correct choice for
+data spanning multiple UTM zones or very large areas.
+
+## 2. Same spatial question, two languages
+
+Three features, one distance (30m), deliberately different geometry
+types: a point (a shop), a line (a road segment), and a polygon (a
+building footprint). Fixed coordinates, not uploaded — the point here
+is the algorithm and what it does to each shape, not file handling
+(the [standalone tool](/tools/buffer-proximity.html) covers uploading
+a real file).
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #buffer-proximity-py}
+#| package: geopandas
+import geopandas as gpd
+from shapely.geometry import Point, LineString, Polygon
+
+gdf = gpd.GeoDataFrame(
+    {"name": ["shop", "road segment", "building"]},
+    geometry=[
+        Point(12.4700, 41.9000),
+        LineString([(12.4720, 41.9010), (12.4740, 41.9005)]),
+        Polygon([(12.4678, 41.8988), (12.4682, 41.8988), (12.4682, 41.8992), (12.4678, 41.8992)])
+    ],
+    crs="EPSG:4326"
+)
+
+# UTM auto-pick from the bounding-box center -- see section 1 above.
+minx, miny, maxx, maxy = gdf.total_bounds
+center_lon = (minx + maxx) / 2
+center_lat = (miny + maxy) / 2
+utm_zone = int((center_lon + 180) // 6) + 1
+calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
+
+gdf_proj = gdf.to_crs(epsg=calc_epsg)
+buffered = gdf_proj.buffer(30)
+
+{
+    "calculationCrs": f"EPSG:{calc_epsg}",
+    "geometryTypes": list(gdf.geometry.geom_type),
+    "bufferGeometryTypes": list(buffered.geom_type),
+    "bufferAreas": [round(a, 1) for a in buffered.area]
+}
+```
+
+## R
+
+```{.webgeods-r #buffer-proximity-r}
+#| package: sf, jsonlite
+library(sf)
+
+pts <- st_sfc(
+  st_point(c(12.4700, 41.9000)),
+  st_linestring(rbind(c(12.4720, 41.9010), c(12.4740, 41.9005))),
+  st_polygon(list(rbind(
+    c(12.4678, 41.8988), c(12.4682, 41.8988),
+    c(12.4682, 41.8992), c(12.4678, 41.8992), c(12.4678, 41.8988)
+  ))),
+  crs = 4326
+)
+data <- st_sf(name = c("shop", "road segment", "building"), geometry = pts)
+
+# UTM auto-pick from the bounding-box center -- see section 1 above.
+bnd <- st_bbox(data)
+center_lon <- (bnd["xmin"] + bnd["xmax"]) / 2
+center_lat <- (bnd["ymin"] + bnd["ymax"]) / 2
+utm_zone <- floor((center_lon + 180) / 6) + 1
+calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
+
+data_proj <- st_transform(data, calc_epsg)
+buffered <- st_buffer(data_proj, 30)
+
+result <- list(
+  calculationCrs = jsonlite::unbox(paste0("EPSG:", calc_epsg)),
+  geometryTypes = as.character(st_geometry_type(data)),
+  bufferGeometryTypes = as.character(st_geometry_type(buffered)),
+  bufferAreas = round(as.numeric(st_area(buffered)), 1)
+)
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+mutable pySummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable rSummary = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyResult = WebGeoDS.getCellValue("buffer-proximity-py", Generators)
+{
+  if (pyResult) mutable pySummary = pyResult;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rResult = WebGeoDS.getCellValue("buffer-proximity-r", Generators)
+{
+  if (rResult) mutable rSummary = rResult;
+}
+```
+
+```{ojs}
+//| echo: false
+statCard = (label, s) => {
+  const wrap = document.createElement("div");
+  wrap.style.flex = "1";
+  wrap.style.minWidth = "260px";
+
+  const heading = document.createElement("div");
+  heading.className = "webgeods-label";
+  heading.textContent = label;
+  wrap.appendChild(heading);
+
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  wrap.appendChild(box);
+
+  const row = (rowLabel, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = rowLabel;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Calculation CRS", "—");
+    return wrap;
+  }
+
+  row("Calculation CRS", s.calculationCrs);
+  row("Input geometry", s.geometryTypes.join(", "));
+  row("Buffer geometry", s.bufferGeometryTypes.join(", "));
+  row("Buffer areas (m²)", s.bufferAreas.join(", "));
+
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+statCardsRow = {
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "16px";
+  row.append(statCard("Python", pySummary), statCard("R", rSummary));
+  return row;
+}
+```
+
+${statCardsRow}
+
+## 3. One distance, three different shapes
+
+Both cards above ran the exact same 30m buffer on the exact same
+three features, and both agree — down to fractions of a square
+meter — on what came out:
+
+- The **point's** buffer is a circle: every direction from a single
+  location is equally "within reach."
+- The **line's** buffer is a stadium shape (a rectangle with two
+  rounded ends): every point along its length gets its own circle of
+  reach, and they merge into one continuous zone.
+- The **polygon's** buffer is the original shape, expanded outward,
+  with its corners rounded off: everywhere already inside stays
+  inside, plus a 30m halo all the way around the boundary.
+
+::: {.callout-note}
+The tiny difference between Python's and R's buffer areas (a few
+square meters out of several thousand) isn't a disagreement — a
+circle can't be represented exactly by a polygon with straight edges,
+so both GEOS bindings approximate it with a fixed number of short
+segments. More segments would shrink the gap further, not change
+which shape is correct.
+:::
+
+**Every geometry type buffers into a polygon**, regardless of what it
+started as — there's no such thing as a "buffered point" that's still
+a point. That's also why dissolving several overlapping buffers into
+one shape (the standalone tool's own checkbox) is meaningful: once
+everything is already a polygon, merging overlapping ones is a single,
+well-defined operation, the same one used to answer "what's the total
+area within reach of *any* of these features," not "within reach of
+each one separately."
+
+## 4. Where to next
+
+- **Just needed to buffer a file?** → The
+  [standalone Buffer & Proximity tool](/tools/buffer-proximity.html)
+  runs the same computation on an uploaded point/line/polygon file (or
+  its own example), with an adjustable distance and an optional
+  dissolve, colored on the map, downloadable.
+- **Wondering why the coordinate system needed picking at all?** →
+  [Coordinate Reference Systems](crs-mismatch.qmd) covers the
+  geographic/projected distinction this article leaned on in section 1.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

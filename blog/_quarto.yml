@@ -54,7 +54,7 @@ website:
           # `menu:` here ("this menu does not support sub-menus",
           # confirmed by quarto render itself) — so this divider is
           # the anchor a small script (see include-after-body below)
-          # attaches a "Spatial Data Quality" header to at runtime.
+          # attaches a "Vector" header to at runtime.
           - text: "---"
           - href: tools/geospatial-file-inspector.qmd
             text: Inspect
@@ -64,6 +64,8 @@ website:
             text: Check Topology
           - href: tools/crs-inspector.qmd
             text: CRS
+          - href: tools/buffer-proximity.qmd
+            text: Buffer
           # Second group, same "---"-as-anchor mechanism as above —
           # the include-after-body script now labels dividers by
           # position instead of just the first one (see its comment).
@@ -93,6 +95,8 @@ website:
             text: Check Topology
           - href: posts/crs-mismatch.qmd
             text: CRS
+          - href: posts/buffer-proximity.qmd
+            text: Buffer
           - text: "---"
           - href: posts/raster-file-inspection.qmd
             text: Inspect
@@ -106,10 +110,12 @@ website:
           - href: posts/spatial-clustering.qmd
             text: Cluster
       - about.qmd
-    # Three groups per dropdown now: "Spatial Data Quality" (Fase 1),
-    # "Raster" (Fase 2, started 2026-09-06), and "GeoML" (Fase 2,
-    # started 2026-09-09) — see include-after-body's script for how
-    # the "---" dividers above become labeled headers.
+    # Three groups per dropdown: "Vector" (renamed 2026-09-11 from
+    # "Spatial Data Quality" once Buffer joined it as this group's
+    # first non-quality-check tool — see roadmap-acquisizione.md),
+    # "Raster" (started 2026-09-06), and "GeoML" (started 2026-09-09)
+    # — see include-after-body's script for how the "---" dividers
+    # above become labeled headers.
   open-graph: true
   # sitemap.xml is not a key of its own: Quarto generates it automatically in
   # _site/ when site-url is set. Placeholder to be confirmed — change it if
@@ -182,7 +188,7 @@ format:
             // in the same order, but this doesn't assume they always
             // will.
             document.addEventListener("DOMContentLoaded", () => {
-              const GROUP_LABELS = ["Spatial Data Quality", "Raster", "GeoML"];
+              const GROUP_LABELS = ["Vector", "Raster", "GeoML"];
               ["nav-menu-tools", "nav-menu-articles"].forEach((id) => {
                 const toggle = document.getElementById(id);
                 const dividers = toggle?.nextElementSibling?.querySelectorAll(".dropdown-divider");

@@ -10,20 +10,22 @@ diagrams. [Explore the articles →](/articles.html)
 **Use** — free standalone tools for the same checks, when you just
 need an answer, not the full explanation. [Explore the tools →](/tools/index.html)
 
-## Spatial Data Quality
+## Vector
 
-A small, focused toolkit for checking geospatial data before you trust
-it. Free, no account, nothing leaves your browser.
+Checking a vector file before you trust it, and doing real analysis
+with it once you do. Free, no account, nothing leaves your browser.
 
 **Tools** — [Inspect](/tools/geospatial-file-inspector.html) ·
 [Validate](/tools/geojson-shapefile-validator.html) ·
 [Check Topology](/tools/topology-checker.html) ·
-[CRS](/tools/crs-inspector.html)
+[CRS](/tools/crs-inspector.html) ·
+[Buffer](/tools/buffer-proximity.html)
 
 **Articles** — [Inspect](/posts/geospatial-file-inspection.html) ·
 [Validate](/posts/geometry-validity.html) ·
 [Check Topology](/posts/topology-errors.html) ·
-[CRS](/posts/crs-mismatch.html)
+[CRS](/posts/crs-mismatch.html) ·
+[Buffer](/posts/buffer-proximity.html)
 
 ## Raster
 
