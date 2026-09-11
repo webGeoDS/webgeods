@@ -303,45 +303,57 @@ ring_distances = [max_distance * i / ring_count for i in range(1, ring_count + 1
 # ring 2 is "within 200m but not already within 100m", and so on.
 # ring_count=1 collapses to exactly the original single-buffer
 # behaviour (one ring, no differencing needed).
+#
+# dissolveBuffers changes WHERE the union happens, not just whether
+# it happens, and the order matters: dissolving each feature's own
+# rings first and only unioning same-numbered rings together
+# afterwards (the first version of this) breaks down the moment two
+# features are close enough for their rings to reach past EACH OTHER,
+# not just their own -- a sliver of "close to feature B" area could
+# get labelled ring 2 (from feature A's perspective) even though it's
+# genuinely within ring 1 of feature B, visually inverting near/far
+# colors exactly where two features interact. Dissolving the FULL
+# buffer at each distance first, across every feature, THEN
+# differencing consecutive dissolved levels, avoids that by
+# construction: ring i is always "within ring i of ANY feature, not
+# already within ring i-1 of ANY feature" -- the actually-intended
+# meaning of a dissolved ring.
 ring_rows = []
-for _, row in gdf_proj.iterrows():
+if dissolveBuffers:
     previous_geometry = None
     for i, distance in enumerate(ring_distances):
-        buffer_geometry = row.geometry.buffer(distance)
+        level_geometry = gdf_proj.geometry.buffer(distance).union_all()
         ring_geometry = (
-            buffer_geometry.difference(previous_geometry)
+            level_geometry.difference(previous_geometry)
             if previous_geometry is not None
-            else buffer_geometry
+            else level_geometry
         )
         ring_rows.append({
-            "name": row["name"],
+            "name": f"ring {i + 1}",
             "ring": i + 1,
             "ringDistance": distance,
             "geometry": ring_geometry
         })
-        previous_geometry = buffer_geometry
+        previous_geometry = level_geometry
+else:
+    for _, row in gdf_proj.iterrows():
+        previous_geometry = None
+        for i, distance in enumerate(ring_distances):
+            buffer_geometry = row.geometry.buffer(distance)
+            ring_geometry = (
+                buffer_geometry.difference(previous_geometry)
+                if previous_geometry is not None
+                else buffer_geometry
+            )
+            ring_rows.append({
+                "name": row["name"],
+                "ring": i + 1,
+                "ringDistance": distance,
+                "geometry": ring_geometry
+            })
+            previous_geometry = buffer_geometry
 
 ring_gdf = gpd.GeoDataFrame(ring_rows, crs=gdf_proj.crs)
-
-if dissolveBuffers:
-    # Dissolved WITHIN each ring level, across every feature -- "the
-    # total area within ring N of ANY feature", not of each one
-    # separately. A simplification worth naming: two features close
-    # enough for their rings to overlap EACH OTHER (not just their own
-    # rings) can leave a sliver double-counted between ring colors --
-    # a full pairwise overlay would resolve it exactly, at a cost not
-    # worth paying for this tool's scope.
-    dissolved_rows = []
-    for i, distance in enumerate(ring_distances):
-        level = ring_gdf[ring_gdf["ring"] == i + 1]
-        dissolved_geometry = level.geometry.union_all()
-        dissolved_rows.append({
-            "name": f"ring {i + 1}",
-            "ring": i + 1,
-            "ringDistance": distance,
-            "geometry": dissolved_geometry
-        })
-    ring_gdf = gpd.GeoDataFrame(dissolved_rows, crs=gdf_proj.crs)
 
 ring_gdf_wgs84 = ring_gdf.to_crs("EPSG:4326")
 
