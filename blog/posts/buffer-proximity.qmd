@@ -196,8 +196,8 @@ ${statCardsRow}
 ## 3. One distance, three different shapes
 
 Both cards above ran the exact same 30m buffer on the exact same
-three features, and both agree — down to fractions of a square
-meter — on what came out:
+three features. The shapes agree exactly; the areas don't — by a
+small, fully explainable margin, not a disagreement about the answer:
 
 - The **point's** buffer is a circle: every direction from a single
   location is equally "within reach."
@@ -209,12 +209,18 @@ meter — on what came out:
   inside, plus a 30m halo all the way around the boundary.
 
 ::: {.callout-note}
-The tiny difference between Python's and R's buffer areas (a few
-square meters out of several thousand) isn't a disagreement — a
-circle can't be represented exactly by a polygon with straight edges,
-so both GEOS bindings approximate it with a fixed number of short
-segments. More segments would shrink the gap further, not change
-which shape is correct.
+**Why the point buffer's area isn't quite identical.** A circle can't
+be drawn exactly with straight line segments — every buffer
+implementation approximates it with a many-sided polygon, and *how*
+closely depends on how many segments it uses per quarter-circle.
+GeoPandas' `.buffer()` defaults to `resolution=16`; `sf::st_buffer()`
+defaults to `nQuadSegs=30` — almost double. A true 30m-radius circle
+has an area of 2827.4 m² (`π × 30²`). Python's 16-segment
+approximation lands at 2822.9 m²; R's 30-segment one at 2826.1 m² —
+closer to the true value, because it's a finer approximation of the
+*same* circle, not a different formula. Passing `resolution=30` in
+Python reproduces R's default result almost exactly (2826.1416 m²,
+verified) — the defaults just don't happen to agree out of the box.
 :::
 
 **Every geometry type buffers into a polygon**, regardless of what it
