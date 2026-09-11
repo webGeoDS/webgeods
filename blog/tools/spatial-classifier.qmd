@@ -365,12 +365,31 @@ if len(class_labels) < 2:
         "after projection -- need at least 2 classes to train a classifier."
     )
 class_counts = {c: int((y == c).sum()) for c in class_labels}
-can_split = len(class_labels) >= 2 and min(class_counts.values()) >= 2 and len(y) >= 6
+
+# A class with exactly 1 member can never be held out for testing --
+# there's no way to keep at least one example in training AND set one
+# aside. Excluding just THOSE classes from the split (rather than
+# vetoing it for the whole dataset the moment any single class is
+# that small, the previous behavior) matters on real data: a long
+# tail of rare categories is normal, and hundreds of well-populated
+# points shouldn't lose their held-out accuracy because of one
+# singleton elsewhere in the same column.
+splittable_classes = {c for c in class_labels if class_counts[c] >= 2}
+splittable_mask = np.isin(y, list(splittable_classes))
+can_split = len(splittable_classes) >= 2 and int(splittable_mask.sum()) >= 6
 
 if can_split:
+    X_split, y_split = X[splittable_mask], y[splittable_mask]
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, stratify=y, random_state=0
+        X_split, y_split, test_size=0.2, stratify=y_split, random_state=0
     )
+    # Singleton-class points never entered the split above -- always
+    # trained on, never tested (there's nothing meaningful to test a
+    # 1-example class against).
+    X_always_train, y_always_train = X[~splittable_mask], y[~splittable_mask]
+    if len(X_always_train) > 0:
+        X_train = np.vstack([X_train, X_always_train])
+        y_train = np.concatenate([y_train, y_always_train])
 else:
     X_train, y_train = X, y
     X_test, y_test = None, None
