@@ -2,14 +2,16 @@
 title: "Buffer & Proximity Tool"
 date: 2026-09-11
 categories: [tool, vector]
-description: "Upload points, lines, or polygons and generate a buffer at any distance — see what's within reach of each feature, optionally dissolved into one shape, colored on the map, downloadable. Runs entirely in your browser, powered by Python."
+description: "Upload points, lines, or polygons and generate a buffer at any distance — as a single zone or several concentric rings — see what's within reach of each feature, optionally dissolved into one shape, colored on the map, downloadable. Runs entirely in your browser, powered by Python."
 page-layout: full
 ---
 
 Upload a point, line, or polygon file, set a distance, and see the
 area within that reach of every feature — a buffer. Works the same
 way whether you're asking "what's within 300m of this store" or
-"what falls within 50m of this road."
+"what falls within 50m of this road." Set more than one ring to break
+that reach into distance bands instead of one zone — "within 100m",
+"100–300m", "300–500m" — each shown as its own shade on the map.
 
 ::: {.callout-tip}
 **Private by design.** Your file is processed entirely in your
@@ -250,15 +252,30 @@ pyInspect = WebGeoDS.getCellValue("buffer-inspect-py", Generators)
 ```{ojs}
 //| echo: false
 //| output: false
-BUFFER_PAINT = ({
-  "fill-color": "#42583c",
-  "fill-opacity": 0.35,
-  "fill-outline-color": "#2a2117"
-})
+// A function, not a static constant: the number of rings is chosen
+// per run. Opacity fades from 0.6 (closest ring) down to ~0.15
+// (farthest) via a match expression on each feature's own "ring"
+// property -- same "match" mechanism as Spatial Clustering's cluster
+// colors, applied to opacity instead of hue since these are ordered
+// distance bands, not unrelated categories. ringCount=1 resolves to
+// the single 0.35 opacity this tool always used before rings existed.
+ringPaint = (ringCount) => {
+  const opacityExpr = ["match", ["get", "ring"]];
+  for (let i = 1; i <= ringCount; i++) {
+    const opacity = ringCount === 1 ? 0.35 : 0.6 - (i - 1) * (0.45 / (ringCount - 1));
+    opacityExpr.push(i, Number(opacity.toFixed(2)));
+  }
+  opacityExpr.push(0.35);
+  return {
+    "fill-color": "#42583c",
+    "fill-opacity": opacityExpr,
+    "fill-outline-color": "#2a2117"
+  };
+}
 ```
 
 ```{.webgeods-python #buffer-compute-py}
-#| inject: [bufferDistance, dissolveBuffers]
+#| inject: [bufferDistance, dissolveBuffers, ringCount]
 #| package: geopandas
 gdf_calc = gdf.copy()
 
@@ -277,23 +294,67 @@ calc_crs_label = f"EPSG:{calc_epsg}"
 
 gdf_proj = gdf_calc.to_crs(epsg=calc_epsg)
 
-buffered = gdf_proj.copy()
-buffered["geometry"] = gdf_proj.geometry.buffer(float(bufferDistance))
+ring_count = max(1, int(ringCount))
+max_distance = float(bufferDistance)
+ring_distances = [max_distance * i / ring_count for i in range(1, ring_count + 1)]
+
+# Each ring is an ANNULUS (the difference from the previous, closer
+# ring), not a repeat of the full buffer -- ring 1 is "within 100m",
+# ring 2 is "within 200m but not already within 100m", and so on.
+# ring_count=1 collapses to exactly the original single-buffer
+# behaviour (one ring, no differencing needed).
+ring_rows = []
+for _, row in gdf_proj.iterrows():
+    previous_geometry = None
+    for i, distance in enumerate(ring_distances):
+        buffer_geometry = row.geometry.buffer(distance)
+        ring_geometry = (
+            buffer_geometry.difference(previous_geometry)
+            if previous_geometry is not None
+            else buffer_geometry
+        )
+        ring_rows.append({
+            "name": row["name"],
+            "ring": i + 1,
+            "ringDistance": distance,
+            "geometry": ring_geometry
+        })
+        previous_geometry = buffer_geometry
+
+ring_gdf = gpd.GeoDataFrame(ring_rows, crs=gdf_proj.crs)
 
 if dissolveBuffers:
-    dissolved = buffered.geometry.union_all()
-    buffered = gpd.GeoDataFrame({"name": ["dissolved buffer"]}, geometry=[dissolved], crs=gdf_proj.crs)
+    # Dissolved WITHIN each ring level, across every feature -- "the
+    # total area within ring N of ANY feature", not of each one
+    # separately. A simplification worth naming: two features close
+    # enough for their rings to overlap EACH OTHER (not just their own
+    # rings) can leave a sliver double-counted between ring colors --
+    # a full pairwise overlay would resolve it exactly, at a cost not
+    # worth paying for this tool's scope.
+    dissolved_rows = []
+    for i, distance in enumerate(ring_distances):
+        level = ring_gdf[ring_gdf["ring"] == i + 1]
+        dissolved_geometry = level.geometry.union_all()
+        dissolved_rows.append({
+            "name": f"ring {i + 1}",
+            "ring": i + 1,
+            "ringDistance": distance,
+            "geometry": dissolved_geometry
+        })
+    ring_gdf = gpd.GeoDataFrame(dissolved_rows, crs=gdf_proj.crs)
 
-buffered_wgs84 = buffered.to_crs("EPSG:4326")
+ring_gdf_wgs84 = ring_gdf.to_crs("EPSG:4326")
 
 {
-    "features": buffered_wgs84.__geo_interface__,
-    "originalCrsFeatures": export_crs(buffered_wgs84).__geo_interface__,
+    "features": ring_gdf_wgs84.__geo_interface__,
+    "originalCrsFeatures": export_crs(ring_gdf_wgs84).__geo_interface__,
     "summary": {
         "calculationCrs": calc_crs_label,
-        "bufferDistance": float(bufferDistance),
+        "bufferDistance": max_distance,
+        "ringCount": ring_count,
+        "ringDistances": [round(d, 1) for d in ring_distances],
         "dissolved": bool(dissolveBuffers),
-        "bufferCount": int(len(buffered))
+        "bufferCount": int(len(ring_gdf))
     }
 }
 ```
@@ -325,6 +386,13 @@ bufferControlsRow = {
     id: "buffer-distance-control"
   });
 
+  const ringSlider = WebGeoDS.createSlider([1, 5], {
+    value: 1,
+    step: 1,
+    label: "Rings",
+    id: "ring-count-control"
+  });
+
   const dissolveLabel = document.createElement("label");
   dissolveLabel.className = "webgeods-panel-status";
   const dissolveCheckbox = document.createElement("input");
@@ -341,15 +409,17 @@ bufferControlsRow = {
     computeButton.textContent = "⌛ Computing...";
     try {
       const bufferDistance = Number(document.getElementById("buffer-distance-control").value);
+      const ringCount = Number(document.getElementById("ring-count-control").value);
       const dissolveBuffers = document.getElementById("dissolve-buffers-control").checked;
       window.bufferDistance = bufferDistance;
+      window.ringCount = ringCount;
       window.dissolveBuffers = dissolveBuffers;
       await window.WebGeoDS.CodeCell.find("buffer-compute-py").run();
       const result = document.getElementById("buffer-compute-py").value;
-      await sharedMap.setGeoJSON("buffer-result-py", result.features, { paint: BUFFER_PAINT });
+      await sharedMap.setGeoJSON("buffer-result-py", result.features, { paint: ringPaint(ringCount) });
       await sharedMap.fitToData(result.features);
       mutable exportFeatures = result.originalCrsFeatures;
-      mutable resultSummary = { ...result.summary, bufferDistance, dissolveBuffers };
+      mutable resultSummary = { ...result.summary, bufferDistance, ringCount, dissolveBuffers };
       window.WebGeoDS.track?.("validation_completed", { tool: "buffer-proximity" });
     } catch (err) {
       console.error("buffer-proximity: Compute failed", err);
@@ -360,7 +430,7 @@ bufferControlsRow = {
     }
   };
 
-  row.append(slider, dissolveLabel, computeButton);
+  row.append(slider, ringSlider, dissolveLabel, computeButton);
   return row;
 }
 ```
@@ -486,6 +556,7 @@ statCard = {
   if (r) {
     row("Calculation CRS", r.calculationCrs);
     row("Buffer distance", `${r.bufferDistance} m`);
+    row("Rings", r.ringCount === 1 ? "1 (no ring split)" : `${r.ringCount} (at ${r.ringDistances.join(", ")} m)`);
     row("Dissolved", r.dissolveBuffers ? "Yes" : "No");
     row("Buffer features", r.bufferCount);
   }
@@ -506,14 +577,31 @@ legendEl = {
     wrap.hidden = true;
     return wrap;
   }
-  const swatch = document.createElement("div");
-  swatch.className = "webgeods-legend-bar";
-  swatch.style.flex = "0 0 32px";
-  swatch.style.background = "rgba(66,88,60,0.6)";
-  const label = document.createElement("span");
-  label.className = "webgeods-legend-label";
-  label.textContent = `Buffer (${r.bufferDistance} m)`;
-  wrap.append(swatch, label);
+  wrap.style.flexWrap = "wrap";
+  wrap.style.rowGap = "8px";
+
+  const addSwatch = (opacity, text) => {
+    const swatch = document.createElement("div");
+    swatch.className = "webgeods-legend-bar";
+    swatch.style.flex = "0 0 32px";
+    swatch.style.background = `rgba(66,88,60,${opacity})`;
+    const label = document.createElement("span");
+    label.className = "webgeods-legend-label";
+    label.textContent = text;
+    wrap.append(swatch, label);
+  };
+
+  if (r.ringCount === 1) {
+    addSwatch(0.6, `Buffer (${r.bufferDistance} m)`);
+    return wrap;
+  }
+
+  let previousDistance = 0;
+  r.ringDistances.forEach((distance, i) => {
+    const opacity = 0.6 - i * (0.45 / (r.ringCount - 1));
+    addSwatch(opacity.toFixed(2), `${previousDistance}–${distance} m`);
+    previousDistance = distance;
+  });
   return wrap;
 }
 ```
