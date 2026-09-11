@@ -246,7 +246,31 @@ pyResult = WebGeoDS.getCellValue("buffer-proximity-py", Generators)
   if (pyResult) {
     mutable pySummary = pyResult;
     mutable crsWarning = pyResult.crsWarning;
-    await sharedMap.setGeoJSON("buffer-proximity-py-original", pyResult.originalFeatures);
+
+    // One map source renders as one MapLibre layer type, detected
+    // from its first feature -- fine for a real upload (typically one
+    // geometry type throughout) but not for the built-in fallback,
+    // which deliberately mixes point/line/polygon to show all three
+    // buffer shapes in one run. Split by geometry family into
+    // separate sources so none of them get silently dropped, and
+    // clear any family that no longer applies after a re-run.
+    const originalByFamily = { point: [], line: [], polygon: [] };
+    for (const feature of pyResult.originalFeatures.features) {
+      const t = feature.geometry.type;
+      if (t === "Point" || t === "MultiPoint") originalByFamily.point.push(feature);
+      else if (t === "LineString" || t === "MultiLineString") originalByFamily.line.push(feature);
+      else originalByFamily.polygon.push(feature);
+    }
+    for (const family of ["point", "line", "polygon"]) {
+      const id = `buffer-proximity-py-original-${family}`;
+      const features = originalByFamily[family];
+      if (features.length > 0) {
+        await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features });
+      } else {
+        await sharedMap.removeGeoJSON(id).catch(() => {});
+      }
+    }
+
     await sharedMap.setGeoJSON("buffer-proximity-py", pyResult.features, { paint: BUFFER_MAP_PAINT });
     await sharedMap.fitToData(pyResult.features);
   }
