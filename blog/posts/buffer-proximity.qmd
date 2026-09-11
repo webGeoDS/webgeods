@@ -2,7 +2,7 @@
 title: "Buffer & Proximity: How Far Is Within Reach"
 date: 2026-09-11
 categories: [tool, vector, bilingual]
-description: "An interactive lab with Python, R and MapLibre — buffer a point, a line, and a polygon at the same distance, see why the three results end up different shapes, and why the distance has to be a real one, not degrees."
+description: "An interactive lab with Python, R and MapLibre — upload a point/line/polygon file (or use the built-in example), buffer it at a fixed distance, see why the same distance produces different shapes, and why it has to be a real distance, not degrees."
 ---
 
 "What's within 300 meters of this store?" and "what falls within 50
@@ -11,9 +11,10 @@ at a fixed distance around a feature, then check what's inside it —
 a buffer. The distance is fixed, but what comes out depends entirely
 on what went in.
 
-Want to try it on your own file instead of reading through the code?
-Use the [standalone tool](/tools/buffer-proximity.html) — same
-engine, less prose.
+Just want to buffer a file with an adjustable distance, rings, and a
+download button, without the rest of the reading? Use the
+[standalone tool](/tools/buffer-proximity.html) — same engine, less
+prose.
 
 ## 1. Why the coordinate system matters here
 
@@ -27,14 +28,62 @@ same formula, as this site's [Viewshed](raster-viewshed.qmd) and
 default for one local dataset, not a universally correct choice for
 data spanning multiple UTM zones or very large areas.
 
-## 2. Same spatial question, two languages
+## 2. Upload your data
 
-Three features, one distance (30m), deliberately different geometry
-types: a point (a shop), a line (a road segment), and a polygon (a
-building footprint). Fixed coordinates, not uploaded — the point here
-is the algorithm and what it does to each shape, not file handling
-(the [standalone tool](/tools/buffer-proximity.html) covers uploading
-a real file).
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+No file uploaded? Both cells below fall back to the same three fixed
+features: a point (a shop), a line (a road segment), and a polygon (a
+building footprint) — deliberately different geometry types, chosen
+to show all three buffer shapes in section 4 with one run. Upload
+your own point, line, or polygon file to see the same computation on
+real data instead.
+
+## 3. Same spatial question, two languages
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.47, 41.9], zoom: 12, height: "420px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
 
 ::: {.panel-tabset}
 
@@ -45,31 +94,55 @@ a real file).
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon
 
-gdf = gpd.GeoDataFrame(
-    {"name": ["shop", "road segment", "building"]},
-    geometry=[
-        Point(12.4700, 41.9000),
-        LineString([(12.4720, 41.9010), (12.4740, 41.9005)]),
-        Polygon([(12.4678, 41.8988), (12.4682, 41.8988), (12.4682, 41.8992), (12.4678, 41.8992)])
-    ],
-    crs="EPSG:4326"
-)
+# Same three-feature layout as the article's original fixed example --
+# used only when nothing was uploaded, chosen specifically to show all
+# three buffer shapes (point/line/polygon) in one run.
+FALLBACK_NAMES = ["shop", "road segment", "building"]
+FALLBACK_GEOMETRIES = [
+    Point(12.4700, 41.9000),
+    LineString([(12.4720, 41.9010), (12.4740, 41.9005)]),
+    Polygon([(12.4678, 41.8988), (12.4682, 41.8988), (12.4682, 41.8992), (12.4678, 41.8992)])
+]
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+crs_warning = None
+if gdf is None:
+    gdf = gpd.GeoDataFrame({"name": FALLBACK_NAMES}, geometry=FALLBACK_GEOMETRIES, crs="EPSG:4326")
+else:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    elif str(gdf.crs) != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+    if "name" not in gdf.columns:
+        gdf["name"] = [f"feature {i + 1}" for i in range(len(gdf))]
 
 # UTM auto-pick from the bounding-box center -- see section 1 above.
 minx, miny, maxx, maxy = gdf.total_bounds
-center_lon = (minx + maxx) / 2
-center_lat = (miny + maxy) / 2
+center_lon = float((minx + maxx) / 2)
+center_lat = float((miny + maxy) / 2)
 utm_zone = int((center_lon + 180) // 6) + 1
 calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
 
 gdf_proj = gdf.to_crs(epsg=calc_epsg)
-buffered = gdf_proj.buffer(30)
+buffered_proj = gdf_proj.buffer(30)
+
+buffered_wgs84 = gpd.GeoDataFrame({"name": gdf["name"].values}, geometry=buffered_proj, crs=calc_epsg).to_crs("EPSG:4326")
 
 {
+    "features": buffered_wgs84.__geo_interface__,
     "calculationCrs": f"EPSG:{calc_epsg}",
     "geometryTypes": list(gdf.geometry.geom_type),
-    "bufferGeometryTypes": list(buffered.geom_type),
-    "bufferAreas": [round(a, 1) for a in buffered.area]
+    "bufferGeometryTypes": list(buffered_proj.geom_type),
+    "bufferAreas": [round(a, 1) for a in buffered_proj.area],
+    "crsWarning": crs_warning
 }
 ```
 
@@ -79,7 +152,8 @@ buffered = gdf_proj.buffer(30)
 #| package: sf, jsonlite
 library(sf)
 
-pts <- st_sfc(
+FALLBACK_NAMES <- c("shop", "road segment", "building")
+fallback_geom <- st_sfc(
   st_point(c(12.4700, 41.9000)),
   st_linestring(rbind(c(12.4720, 41.9010), c(12.4740, 41.9005))),
   st_polygon(list(rbind(
@@ -88,12 +162,30 @@ pts <- st_sfc(
   ))),
   crs = 4326
 )
-data <- st_sf(name = c("shop", "road segment", "building"), geometry = pts)
+
+data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+
+crs_warning <- NULL
+if (is.null(data)) {
+  data <- st_sf(name = FALLBACK_NAMES, geometry = fallback_geom)
+} else if (is.na(st_crs(data))) {
+  st_crs(data) <- 4326
+  crs_warning <- "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+} else if (!isTRUE(st_crs(data) == st_crs(4326))) {
+  data <- st_transform(data, 4326)
+}
+if (!("name" %in% names(data))) {
+  data$name <- paste("feature", seq_len(nrow(data)))
+}
 
 # UTM auto-pick from the bounding-box center -- see section 1 above.
 bnd <- st_bbox(data)
-center_lon <- (bnd["xmin"] + bnd["xmax"]) / 2
-center_lat <- (bnd["ymin"] + bnd["ymax"]) / 2
+center_lon <- (bnd[["xmin"]] + bnd[["xmax"]]) / 2
+center_lat <- (bnd[["ymin"]] + bnd[["ymax"]]) / 2
 utm_zone <- floor((center_lon + 180) / 6) + 1
 calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
 
@@ -104,7 +196,8 @@ result <- list(
   calculationCrs = jsonlite::unbox(paste0("EPSG:", calc_epsg)),
   geometryTypes = as.character(st_geometry_type(data)),
   bufferGeometryTypes = as.character(st_geometry_type(buffered)),
-  bufferAreas = round(as.numeric(st_area(buffered)), 1)
+  bufferAreas = round(as.numeric(st_area(buffered)), 1),
+  crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning)
 )
 jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
 ```
@@ -123,10 +216,35 @@ mutable rSummary = null
 
 ```{ojs}
 //| echo: false
+mutable crsWarning = null
+```
+
+```{ojs}
+//| echo: false
 //| output: false
+BUFFER_MAP_PAINT = ({
+  "fill-color": "#42583c",
+  "fill-opacity": 0.35,
+  "fill-outline-color": "#2a2117"
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Draws only Python's own buffer (not both languages stacked on
+// identical coordinates, which would just hide one under the other):
+// the two languages agree on the shapes and positions, differing only
+// in the small area discrepancy section 4 covers -- the map isn't the
+// place that distinction is legible, the stat cards above already are.
 pyResult = WebGeoDS.getCellValue("buffer-proximity-py", Generators)
 {
-  if (pyResult) mutable pySummary = pyResult;
+  if (pyResult) {
+    mutable pySummary = pyResult;
+    mutable crsWarning = pyResult.crsWarning;
+    await sharedMap.setGeoJSON("buffer-proximity-py", pyResult.features, { paint: BUFFER_MAP_PAINT });
+    await sharedMap.fitToData(pyResult.features);
+  }
 }
 ```
 
@@ -138,6 +256,18 @@ rResult = WebGeoDS.getCellValue("buffer-proximity-r", Generators)
   if (rResult) mutable rSummary = rResult;
 }
 ```
+
+```{ojs}
+//| echo: false
+crsWarningEl = {
+  const div = document.createElement("div");
+  div.className = "webgeods-panel-status";
+  if (crsWarning) div.textContent = `⚠️ ${crsWarning}`;
+  return div;
+}
+```
+
+${crsWarningEl}
 
 ```{ojs}
 //| echo: false
@@ -193,11 +323,15 @@ statCardsRow = {
 
 ${statCardsRow}
 
-## 3. One distance, three different shapes
+## 4. One distance, three different shapes
 
-Both cards above ran the exact same 30m buffer on the exact same
-three features. The shapes agree exactly; the areas don't — by a
-small, fully explainable margin, not a disagreement about the answer:
+The numbers below describe the built-in fallback specifically (a
+point, a line, and a polygon, buffered 30m) — if you uploaded your
+own file instead, the areas will differ, but the same three rules
+still explain whatever shape came out. Both cards above ran the exact
+same 30m buffer on the exact same three features. The shapes agree
+exactly; the areas don't — by a small, fully explainable margin, not
+a disagreement about the answer:
 
 - The **point's** buffer is a circle: every direction from a single
   location is equally "within reach."
@@ -232,13 +366,13 @@ well-defined operation, the same one used to answer "what's the total
 area within reach of *any* of these features," not "within reach of
 each one separately."
 
-## 4. Where to next
+## 5. Where to next
 
-- **Just needed to buffer a file?** → The
+- **Want adjustable settings, rings, and a download button?** → The
   [standalone Buffer & Proximity tool](/tools/buffer-proximity.html)
-  runs the same computation on an uploaded point/line/polygon file (or
-  its own example), with an adjustable distance and an optional
-  dissolve, colored on the map, downloadable.
+  runs the same computation with a distance you control, optional
+  concentric rings, and an optional dissolve, colored on the map,
+  downloadable.
 - **Wondering why the coordinate system needed picking at all?** →
   [Coordinate Reference Systems](crs-mismatch.qmd) covers the
   geographic/projected distinction this article leaned on in section 1.
