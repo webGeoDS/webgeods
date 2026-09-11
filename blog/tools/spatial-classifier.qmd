@@ -332,10 +332,38 @@ calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
 calc_crs_label = f"EPSG:{calc_epsg}"
 
 labeled_proj = labeled.to_crs(epsg=calc_epsg)
-X = np.column_stack([labeled_proj.geometry.x, labeled_proj.geometry.y])
+# .centroid, not .x/.y directly -- handles any geometry type uniformly
+# (centroid of a point is the point itself), same defensive choice as
+# this project's Spatial Clustering Explorer.
+proj_x = labeled_proj.geometry.centroid.x.to_numpy()
+proj_y = labeled_proj.geometry.centroid.y.to_numpy()
+
+# A single UTM zone distorts badly -- to the point of returning inf --
+# for points far enough from it (a real crash a global upload
+# triggered: fitting on infinite coordinates fails deep inside
+# scikit-learn with an opaque error). Drop those points here instead,
+# with a clear message if too few remain, rather than letting that
+# opaque error surface.
+finite_mask = np.isfinite(proj_x) & np.isfinite(proj_y)
+excluded_count = int((~finite_mask).sum())
+labeled_proj = labeled_proj[finite_mask]
+X = np.column_stack([proj_x[finite_mask], proj_y[finite_mask]])
 y = labeled_proj[classColumn].values
 
+if len(y) == 0:
+    raise ValueError(
+        f"None of the {len(labeled)} labeled points could be projected into "
+        f"a single UTM zone ({calc_crs_label}) -- this dataset spans too wide "
+        "an area for this tool's single-zone approach. Try a smaller, more "
+        "local file."
+    )
+
 class_labels = sorted(set(y.tolist()))
+if len(class_labels) < 2:
+    raise ValueError(
+        f"Only {len(class_labels)} distinct value(s) found in \"{classColumn}\" "
+        "after projection -- need at least 2 classes to train a classifier."
+    )
 class_counts = {c: int((y == c).sum()) for c in class_labels}
 can_split = len(class_labels) >= 2 and min(class_counts.values()) >= 2 and len(y) >= 6
 
@@ -358,7 +386,19 @@ accuracy = float((model.predict(X_test) == y_test).mean()) if X_test is not None
 # construction (gridResolution <= 40, so at most ~1600 cells)
 # regardless of how large the uploaded extent is.
 gdf_proj_full = gdf.to_crs(epsg=calc_epsg)
-gminx, gminy, gmaxx, gmaxy = gdf_proj_full.total_bounds
+full_x = gdf_proj_full.geometry.centroid.x.to_numpy()
+full_y = gdf_proj_full.geometry.centroid.y.to_numpy()
+full_finite_mask = np.isfinite(full_x) & np.isfinite(full_y)
+if not full_finite_mask.any():
+    raise ValueError(
+        f"None of the uploaded points could be projected into a single UTM "
+        f"zone ({calc_crs_label}) -- this dataset spans too wide an area for "
+        "this tool's single-zone approach. Try a smaller, more local file."
+    )
+# total_bounds() would propagate inf from any unprojectable point above --
+# computed by hand here, over the finite subset only.
+gminx, gmaxx = float(full_x[full_finite_mask].min()), float(full_x[full_finite_mask].max())
+gminy, gmaxy = float(full_y[full_finite_mask].min()), float(full_y[full_finite_mask].max())
 width, height = gmaxx - gminx, gmaxy - gminy
 longer_side = max(width, height, 1e-6)
 cell_size = longer_side / int(gridResolution)
@@ -399,6 +439,7 @@ training_wgs84 = training_wgs84.rename(columns={classColumn: "class"})
         "classColumn": classColumn,
         "classLabels": class_labels,
         "labeledCount": int(len(labeled)),
+        "excludedCount": excluded_count,
         "trainCount": int(len(X_train)),
         "testCount": int(len(X_test)) if X_test is not None else 0,
         "accuracy": accuracy,
@@ -623,8 +664,14 @@ statCard = {
     row("Class column", r.classColumn);
     row("Classes found", r.classLabels.join(", "));
     row("Labeled points", r.labeledCount.toLocaleString());
+    if (r.excludedCount > 0) {
+      row("Excluded from training", `${r.excludedCount} (too far from the calculation UTM zone to project)`);
+    }
     row("Train / test split", r.testCount > 0 ? `${r.trainCount} / ${r.testCount}` : `${r.trainCount} / — (too few points to hold out)`);
-    row("Held-out accuracy", r.accuracy === null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`);
+    // Python's None crosses over as JS `undefined`, not `null` (a
+    // known site-wide ambiguity -- see the JS-conversion lesson's own
+    // callout on this) -- loose equality catches both.
+    row("Held-out accuracy", r.accuracy == null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`);
     row("Trees", r.nTrees);
     row("Grid cells", r.gridCellCount.toLocaleString());
   }

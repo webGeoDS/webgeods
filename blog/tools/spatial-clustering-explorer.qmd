@@ -284,6 +284,21 @@ NOISE_COLOR = "#766851"
 // on how many clusters DBSCAN actually found in this run -- same
 // pattern as topology-checker.qmd's errorPaint.
 clusterPaint = (clusterIds) => {
+  // A real case, not a hypothetical one: sparse real-world data at the
+  // default ε/min points can come back as ALL noise, zero real
+  // clusters -- a MapLibre "match" expression needs at least one
+  // (value, output) pair before its fallback, so an empty clusterIds
+  // would build an invalid expression (MapLibre's own error: "Expected
+  // at least 4 arguments, but found only 2"). A flat color sidesteps
+  // that entirely when there's nothing to differentiate anyway.
+  if (clusterIds.length === 0) {
+    return {
+      "circle-color": NOISE_COLOR,
+      "circle-radius": 6,
+      "circle-stroke-width": 1,
+      "circle-stroke-color": "#2a2117"
+    };
+  }
   const expr = ["match", ["get", "cluster"]];
   clusterIds.forEach((id, i) => {
     expr.push(id, CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]);
@@ -330,7 +345,25 @@ calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
 calc_crs_label = f"EPSG:{calc_epsg}"
 
 gdf_proj = gdf_calc.to_crs(epsg=calc_epsg)
-coords = np.column_stack([gdf_proj.geometry.centroid.x, gdf_proj.geometry.centroid.y])
+proj_x = gdf_proj.geometry.centroid.x.to_numpy()
+proj_y = gdf_proj.geometry.centroid.y.to_numpy()
+
+# A single UTM zone distorts badly -- to the point of returning inf --
+# for points far enough from it. Fitting on infinite coordinates fails
+# deep inside scikit-learn with an opaque error (the same failure mode
+# found and fixed in the Spatial Classifier tool); drop those points
+# here instead, with a clear message if too few remain.
+finite_mask = np.isfinite(proj_x) & np.isfinite(proj_y)
+excluded_count = int((~finite_mask).sum())
+if not finite_mask.any():
+    raise ValueError(
+        f"None of the {len(gdf_calc)} points could be projected into a "
+        f"single UTM zone ({calc_crs_label}) -- this dataset spans too wide "
+        "an area for this tool's single-zone approach. Try a smaller, more "
+        "local file."
+    )
+gdf_calc = gdf_calc[finite_mask].copy()
+coords = np.column_stack([proj_x[finite_mask], proj_y[finite_mask]])
 
 # scikit-learn's DBSCAN labels noise as -1 -- a real point of
 # divergence from R's dbscan package (which uses 0), covered in the
@@ -349,7 +382,8 @@ n_noise = int((labels == -1).sum())
         "clusterIds": cluster_ids,
         "clusterCount": len(cluster_ids),
         "noiseCount": n_noise,
-        "totalCount": int(len(gdf_calc))
+        "totalCount": int(len(gdf_calc)),
+        "excludedCount": excluded_count
     }
 }
 ```
@@ -552,6 +586,9 @@ statCard = {
 
   if (r) {
     row("Calculation CRS", r.calculationCrs);
+    if (r.excludedCount > 0) {
+      row("Excluded from clustering", `${r.excludedCount} (too far from the calculation UTM zone to project)`);
+    }
     row("ε (eps)", `${r.epsMeters} m`);
     row("Min points", r.minPts);
     row("Clusters found", r.clusterCount);

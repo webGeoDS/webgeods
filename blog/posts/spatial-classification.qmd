@@ -158,8 +158,28 @@ utm_zone = int((center_lon + 180) // 6) + 1
 calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
 
 labeled_proj = labeled.to_crs(epsg=calc_epsg)
-X = np.column_stack([labeled_proj.geometry.x, labeled_proj.geometry.y])
+proj_x = labeled_proj.geometry.centroid.x.to_numpy()
+proj_y = labeled_proj.geometry.centroid.y.to_numpy()
+
+# A single UTM zone distorts badly -- to the point of returning inf --
+# for points far enough from it (a real crash a global file can
+# trigger, found and fixed in the standalone Spatial Classifier tool).
+# Dropped here the same way the tool does it, since nothing in this
+# article compares points by position across languages the way the
+# clustering article's section 4 does.
+finite_mask = np.isfinite(proj_x) & np.isfinite(proj_y)
+labeled_proj = labeled_proj[finite_mask]
+X = np.column_stack([proj_x[finite_mask], proj_y[finite_mask]])
 y = labeled_proj["class"].values
+
+if len(y) == 0:
+    raise ValueError(
+        f"None of the labeled points could be projected into a single UTM "
+        f"zone (EPSG:{calc_epsg}) -- this dataset spans too wide an area "
+        "for this article's single-zone approach. Try a smaller, more "
+        "local file."
+    )
+
 class_labels = sorted(set(y.tolist()))
 
 model = RandomForestClassifier(n_estimators=100, random_state=0)
@@ -169,7 +189,11 @@ model.fit(X, y)
 # resolution here, same reasoning as ε/minPts being fixed in the
 # clustering article (adjustable in the standalone tool instead).
 gdf_proj = gdf.to_crs(epsg=calc_epsg)
-gminx, gminy, gmaxx, gmaxy = gdf_proj.total_bounds
+full_x = gdf_proj.geometry.centroid.x.to_numpy()
+full_y = gdf_proj.geometry.centroid.y.to_numpy()
+full_finite_mask = np.isfinite(full_x) & np.isfinite(full_y)
+gminx, gmaxx = float(full_x[full_finite_mask].min()), float(full_x[full_finite_mask].max())
+gminy, gmaxy = float(full_y[full_finite_mask].min()), float(full_y[full_finite_mask].max())
 width, height = gmaxx - gminx, gmaxy - gminy
 cell_size = max(width, height, 1e-6) / 10
 n_cols = max(1, int(np.ceil(width / cell_size)))
@@ -262,6 +286,23 @@ calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
 
 labeled_proj <- st_transform(labeled, calc_epsg)
 coords_train <- st_coordinates(labeled_proj)
+
+# Same reasoning as the Python cell's own check above: a single UTM
+# zone can map far-away points to infinity. Dropped here rather than
+# failing, matching the standalone tool's own behavior (this article,
+# unlike the clustering one, never compares points by position across
+# languages, so partial exclusion doesn't desync anything).
+finite_rows <- is.finite(coords_train[, 1]) & is.finite(coords_train[, 2])
+if (!any(finite_rows)) {
+  stop(paste0(
+    "None of the labeled points could be projected into a single UTM zone ",
+    "(EPSG:", calc_epsg, ") -- this dataset spans too wide an area for ",
+    "this article's single-zone approach. Try a smaller, more local file."
+  ))
+}
+coords_train <- coords_train[finite_rows, , drop = FALSE]
+labeled_proj <- labeled_proj[finite_rows, ]
+
 train_df <- data.frame(x = coords_train[, 1], y = coords_train[, 2], class = labeled_proj$class)
 
 model <- randomForest(class ~ x + y, data = train_df, ntree = 100)

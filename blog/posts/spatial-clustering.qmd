@@ -148,6 +148,22 @@ calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
 gdf_proj = gdf.to_crs(epsg=calc_epsg)
 coords = np.column_stack([gdf_proj.geometry.centroid.x, gdf_proj.geometry.centroid.y])
 
+# A single UTM zone distorts badly -- to the point of returning inf --
+# for points far enough from it (a real crash a global file can
+# trigger, found and fixed in the standalone Spatial Clustering
+# Explorer tool). The tool degrades by dropping those points; this
+# article fails loudly instead, on purpose -- section 4 below compares
+# Python's and R's labels BY POSITION, point for point, so silently
+# dropping a different subset in each language would desync that
+# comparison rather than just shrink it.
+if not np.isfinite(coords).all():
+    raise ValueError(
+        f"This file spans too wide an area to project into a single UTM "
+        f"zone ({calc_epsg}) -- some points map to infinity. Try a smaller, "
+        "more local file, or use the standalone tool, which handles this by "
+        "excluding the unprojectable points instead of failing."
+    )
+
 # scikit-learn's own convention: noise is -1, real clusters start at 0.
 labels = DBSCAN(eps=100, min_samples=4).fit(coords).labels_
 gdf["cluster"] = [int(l) for l in labels]
@@ -201,6 +217,19 @@ calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
 
 data_proj <- st_transform(data, calc_epsg)
 coords_calc <- st_coordinates(st_centroid(st_geometry(data_proj)))
+
+# Same reasoning as the Python cell's own check above: a single UTM
+# zone can map far-away points to infinity, and this article fails
+# loudly rather than dropping points, to keep the by-position label
+# comparison in section 4 meaningful.
+if (!all(is.finite(coords_calc))) {
+  stop(paste0(
+    "This file spans too wide an area to project into a single UTM zone (",
+    calc_epsg, ") -- some points map to infinity. Try a smaller, more ",
+    "local file, or use the standalone tool, which handles this by ",
+    "excluding the unprojectable points instead of failing."
+  ))
+}
 
 # dbscan's own convention: noise is 0, real clusters start at 1 -- a
 # real point of divergence from scikit-learn, not a formatting detail.
@@ -257,6 +286,18 @@ NOISE_COLOR = "#766851"
 // numberings, would just be two circle layers stacked on identical
 // coordinates with one hiding the other.
 clusterPaint = (clusterIds) => {
+  // Same real edge case handled in the standalone tool: sparse data at
+  // fixed ε/min points can come back as all noise, zero real clusters
+  // -- an empty clusterIds would build an invalid MapLibre "match"
+  // expression (it needs at least one pair before its fallback).
+  if (clusterIds.length === 0) {
+    return {
+      "circle-color": NOISE_COLOR,
+      "circle-radius": 6,
+      "circle-stroke-width": 1,
+      "circle-stroke-color": "#2a2117"
+    };
+  }
   const expr = ["match", ["get", "cluster"]];
   clusterIds.forEach((id, i) => {
     expr.push(id, CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]);
