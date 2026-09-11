@@ -138,6 +138,7 @@ buffered_wgs84 = gpd.GeoDataFrame({"name": gdf["name"].values}, geometry=buffere
 
 {
     "features": buffered_wgs84.__geo_interface__,
+    "originalFeatures": gdf.__geo_interface__,
     "calculationCrs": f"EPSG:{calc_epsg}",
     "geometryTypes": list(gdf.geometry.geom_type),
     "bufferGeometryTypes": list(buffered_proj.geom_type),
@@ -237,11 +238,15 @@ BUFFER_MAP_PAINT = ({
 // the two languages agree on the shapes and positions, differing only
 // in the small area discrepancy section 4 covers -- the map isn't the
 // place that distinction is legible, the stat cards above already are.
+// Two layers, same as the standalone tool: the original feature in
+// the map's default styling, the buffer as a semi-transparent fill
+// on top of it, so both are visible at once.
 pyResult = WebGeoDS.getCellValue("buffer-proximity-py", Generators)
 {
   if (pyResult) {
     mutable pySummary = pyResult;
     mutable crsWarning = pyResult.crsWarning;
+    await sharedMap.setGeoJSON("buffer-proximity-py-original", pyResult.originalFeatures);
     await sharedMap.setGeoJSON("buffer-proximity-py", pyResult.features, { paint: BUFFER_MAP_PAINT });
     await sharedMap.fitToData(pyResult.features);
   }
