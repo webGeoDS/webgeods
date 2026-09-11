@@ -46,11 +46,12 @@ point given the terrain in between.
 
 ## GeoML
 
-Machine learning on spatial data, starting with unsupervised
-clustering — runnable Python and R code side by side, including where
-the two languages disagree on something as basic as how a result is
-labeled.
+Machine learning on spatial data — finding groups, and predicting
+labels — runnable Python and R code side by side, including real
+places where the two languages disagree.
 
-**Tools** — [Cluster](/tools/spatial-clustering-explorer.html)
+**Tools** — [Cluster](/tools/spatial-clustering-explorer.html) →
+[Classify](/tools/spatial-classifier.html)
 
-**Articles** — [Cluster](/posts/spatial-clustering.html)
+**Articles** — [Cluster](/posts/spatial-clustering.html) →
+[Classify](/posts/spatial-classification.html)

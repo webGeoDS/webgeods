@@ -622,11 +622,13 @@ clusterTable = sharedMap.tableCell(["spatial-clustering-py"], null, Generators, 
 </style>
 
 <div class="webgeods-closing-note">
-First tool in the GeoML family. Want to understand why noise points
-aren't forced into a cluster, see the actual code, or compare against
-R's independent `dbscan` implementation (and the label-numbering
-difference between the two)? Read the
-<a href="/posts/spatial-clustering.html">full article</a>.
+Entry tool in the GeoML family — finds groups without knowing their
+labels ahead of time. Want to predict a label instead? Try
+<a href="/tools/spatial-classifier.html">Spatial Classifier</a>. Want
+to understand why noise points aren't forced into a cluster, see the
+actual code, or compare against R's independent `dbscan`
+implementation (and the label-numbering difference between the two)?
+Read the <a href="/posts/spatial-clustering.html">full article</a>.
 </div>
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

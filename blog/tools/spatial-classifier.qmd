@@ -1,0 +1,708 @@
+---
+title: "Spatial Classifier"
+date: 2026-09-11
+categories: [tool, geoml]
+description: "Upload a labeled point dataset and train a Random Forest classifier on it — pick which column holds the class, then see a full classification surface predicted across the whole area, not just an accuracy number. Runs entirely in your browser, powered by Python."
+page-layout: full
+---
+
+Upload a point file with a column that labels each point's class —
+`.geojson`, or a shapefile as a single `.zip` or as
+`.shp`/`.dbf`/`.shx` selected together — pick that column, set a
+number of trees, and train a Random Forest on the points' locations.
+The model is then applied to a regular grid across the whole area, so
+the result is a full classification surface, not just an accuracy
+score on data you already labeled yourself.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (Python via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+```{ojs}
+//| echo: false
+mutable uploadBusy = false
+```
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "📁 Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  // Python-only tool (see the article for the same computation shown
+  // in R too, including a real divergence between the two languages):
+  // skip writing to R's filesystem entirely, so selecting a file
+  // doesn't also load webR in the background for no reason.
+  mutable uploadBusy = true;
+  mutable uploadStatus = "⌛ Uploading...";
+  try {
+    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
+    if (result.ok) {
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = result.message;
+    } else {
+      mutable uploadStatus = result.message;
+    }
+  } finally {
+    mutable uploadBusy = false;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadStatusEl = {
+  const span = document.createElement("span");
+  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
+  span.textContent = uploadStatus;
+  return span;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.45, 41.9], zoom: 4, height: "480px" });
+  await map.ready();
+  window.WebGeoDS.track?.("tool_loaded", { tool: "spatial-classifier" });
+  return map;
+}
+```
+
+The code itself isn't shown here — it's a fixed, non-editable
+computation using scikit-learn's `RandomForestClassifier` underneath.
+Want to see it built up step by step, in Python *and* R — including a
+real gotcha where the two languages disagree on classification vs.
+regression? Read
+[Predicting Spatial Classes with Random Forest](/posts/spatial-classification.html).
+
+```{ojs}
+//| echo: false
+//| output: false
+autoInspect = async () => {
+  await window.WebGeoDS.CodeCell.find("spatial-classifier-inspect-py").run();
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Deterministic synthetic dataset -- two groups, cleanly separated in
+// space, each carrying a fixed "class" label. Reuses the exact same
+// coordinates as the first and third groups of the clustering tool's
+// own EXAMPLE_POINTS (already verified well-separated), minus the
+// scattered noise points -- classification wants clean labeled data,
+// not noise to explain away.
+EXAMPLE_ROWS = [
+  ...[
+    [12.450066, 41.900016], [12.450332, 41.900159], [12.450202, 41.900152],
+    [12.450017, 41.899721], [12.449639, 41.899781], [12.44983, 41.900398],
+    [12.450168, 41.900137], [12.44989, 41.899805], [12.449684, 41.90032],
+    [12.45028, 41.900272], [12.449961, 41.899825], [12.450273, 41.899636]
+  ].map(coord => ({ coord, cls: "north" })),
+  ...[
+    [12.455277, 41.884832], [12.454614, 41.884991], [12.454621, 41.884723],
+    [12.45535, 41.884793], [12.45486, 41.885091], [12.455187, 41.885068],
+    [12.455246, 41.885086], [12.455096, 41.884671], [12.454816, 41.884664],
+    [12.45532, 41.885381]
+  ].map(coord => ({ coord, cls: "south" }))
+]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+EXAMPLE_GEOJSON = JSON.stringify({
+  type: "FeatureCollection",
+  features: EXAMPLE_ROWS.map((row, i) => ({
+    type: "Feature",
+    properties: { name: `point ${i + 1}`, class: row.cls },
+    geometry: { type: "Point", coordinates: row.coord }
+  }))
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+loadExampleButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "📋 Load example";
+  button.onclick = async () => {
+    mutable uploadBusy = true;
+    mutable uploadStatus = "⌛ Loading example...";
+    try {
+      const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
+      await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
+      mutable uploadStatus = "⌛ Inspecting...";
+      await autoInspect();
+      mutable uploadStatus = "✓ example data loaded — pick the class column and Compute below.";
+    } finally {
+      mutable uploadBusy = false;
+    }
+  };
+  return button;
+}
+```
+
+```{.webgeods-python #spatial-classifier-inspect-py}
+#| package: geopandas
+import geopandas as gpd
+
+def export_crs(g):
+    # Reprojects `g` back to the CRS it was UPLOADED in (original_crs,
+    # set below and reused as a module-level global by the compute
+    # cell) -- every downloadable result goes through this, even
+    # though the map/classification above always work in WGS84
+    # (GeoJSON and MapLibre both assume it). Same pattern as this
+    # project's other vector tools (e.g. the Validator, the clustering
+    # explorer).
+    if g is None or original_crs is None or str(original_crs) == "EPSG:4326":
+        return g
+    return g.to_crs(original_crs)
+
+EMPTY_FC = {"type": "FeatureCollection", "features": []}
+
+# No built-in fallback: if nothing is readable, gdf stays None and the
+# result is an empty FeatureCollection -- this cell only ever runs
+# after a successful upload or "Load example".
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+crs_warning = None
+original_crs = None
+summary_out = None
+if gdf is not None:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    original_crs = gdf.crs
+    if str(original_crs) != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+
+    columns = [c for c in gdf.columns if c != "geometry"]
+    summary_out = {
+        "count": int(len(gdf)),
+        "crs": str(original_crs),
+        "columns": columns
+    }
+
+{
+    "features": gdf.__geo_interface__ if gdf is not None else EMPTY_FC,
+    "crsWarning": crs_warning,
+    "summary": summary_out
+}
+```
+
+```{ojs}
+//| echo: false
+mutable inspectSummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable resultSummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable exportFeatures = null
+```
+
+```{ojs}
+//| echo: false
+mutable crsWarning = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyInspect = WebGeoDS.getCellValue("spatial-classifier-inspect-py", Generators)
+{
+  if (pyInspect) {
+    // No paint override here -- the default circle style (shared/map.js's
+    // _defaultPaint) is exactly right for "uploaded, not yet classified".
+    // Class colors only appear once Compute has actually run.
+    await sharedMap.setGeoJSON("spatial-classifier-training-py", pyInspect.features);
+    await sharedMap.fitToData(pyInspect.features);
+    mutable inspectSummary = pyInspect.summary;
+    mutable crsWarning = pyInspect.crsWarning;
+    // A fresh upload/example invalidates any previously computed
+    // classification -- same reasoning as clicking Reset.
+    mutable resultSummary = null;
+    mutable exportFeatures = null;
+    await sharedMap.removeGeoJSON("spatial-classifier-grid-py").catch(() => {});
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Warm-palette hues from shared/_brand.yml (terracotta, muschio, info,
+// attenzione, errore) -- same 5 non-neutral hues the clustering tool
+// uses, keyed here on a class LABEL string instead of a cluster
+// integer. Cycles if there are more than 5 classes.
+CLASS_PALETTE = ["#ab502b", "#42583c", "#3d5a73", "#c48a2e", "#8b2f24"]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// A function, not a static constant: the number/names of classes
+// depend on what's actually in the uploaded column -- same pattern as
+// the clustering tool's own clusterPaint. `field` differs by layer:
+// the training layer colors by the TRUE class ("class"), the grid
+// layer by the PREDICTED class ("predictedClass") -- same palette, so
+// the two are directly comparable on the map.
+classPaint = (classLabels, field, opts = {}) => {
+  const expr = ["match", ["get", field]];
+  classLabels.forEach((label, i) => {
+    expr.push(label, CLASS_PALETTE[i % CLASS_PALETTE.length]);
+  });
+  expr.push("#766851"); // fallback neutral, shouldn't normally show
+  if (opts.fill) {
+    return { "fill-color": expr, "fill-opacity": 0.45, "fill-outline-color": "rgba(0,0,0,0)" };
+  }
+  return {
+    "circle-color": expr,
+    "circle-radius": 6,
+    "circle-stroke-width": 1.5,
+    "circle-stroke-color": "#2a2117"
+  };
+}
+```
+
+```{.webgeods-python #spatial-classifier-compute-py}
+#| inject: [classColumn, nTrees, gridResolution]
+#| package: geopandas, scikit-learn
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from shapely.geometry import Polygon
+
+# Reuses the WGS84 `gdf` already read and CRS-normalized by the
+# inspect cell above (same session -- same pattern as the clustering
+# explorer's compute cell reusing its own inspect cell's `gdf`),
+# rather than re-reading the file.
+labeled = gdf[gdf[classColumn].notna()].copy()
+labeled[classColumn] = labeled[classColumn].astype(str)
+
+# Working/calculation CRS: a Random Forest fit on raw degrees would
+# treat 1 degree of longitude and 1 degree of latitude as the same
+# "distance" everywhere on Earth, which they aren't -- same reasoning,
+# same UTM auto-pick formula (bounding-box center, not a per-feature
+# centroid mean), as this project's Buffer/Proximity and Spatial
+# Clustering tools.
+minx, miny, maxx, maxy = gdf.total_bounds
+center_lon = float((minx + maxx) / 2)
+center_lat = float((miny + maxy) / 2)
+utm_zone = int((center_lon + 180) // 6) + 1
+calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
+calc_crs_label = f"EPSG:{calc_epsg}"
+
+labeled_proj = labeled.to_crs(epsg=calc_epsg)
+X = np.column_stack([labeled_proj.geometry.x, labeled_proj.geometry.y])
+y = labeled_proj[classColumn].values
+
+class_labels = sorted(set(y.tolist()))
+class_counts = {c: int((y == c).sum()) for c in class_labels}
+can_split = len(class_labels) >= 2 and min(class_counts.values()) >= 2 and len(y) >= 6
+
+if can_split:
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, stratify=y, random_state=0
+    )
+else:
+    X_train, y_train = X, y
+    X_test, y_test = None, None
+
+model = RandomForestClassifier(n_estimators=int(nTrees), random_state=0)
+model.fit(X_train, y_train)
+
+accuracy = float((model.predict(X_test) == y_test).mean()) if X_test is not None else None
+
+# Regular square-cell grid over the *full uploaded extent* (gdf's own
+# bounds, not just the labeled subset) -- gridResolution cells along
+# the longer side, square cells derived from that, capped in count by
+# construction (gridResolution <= 40, so at most ~1600 cells)
+# regardless of how large the uploaded extent is.
+gdf_proj_full = gdf.to_crs(epsg=calc_epsg)
+gminx, gminy, gmaxx, gmaxy = gdf_proj_full.total_bounds
+width, height = gmaxx - gminx, gmaxy - gminy
+longer_side = max(width, height, 1e-6)
+cell_size = longer_side / int(gridResolution)
+n_cols = max(1, int(np.ceil(width / cell_size)))
+n_rows = max(1, int(np.ceil(height / cell_size)))
+
+centers_x, centers_y = [], []
+for row in range(n_rows):
+    for col in range(n_cols):
+        centers_x.append(gminx + (col + 0.5) * cell_size)
+        centers_y.append(gminy + (row + 0.5) * cell_size)
+centers = np.column_stack([centers_x, centers_y])
+predicted = model.predict(centers)
+
+half = cell_size / 2
+cells = [
+    Polygon([
+        (cx - half, cy - half), (cx + half, cy - half),
+        (cx + half, cy + half), (cx - half, cy + half),
+        (cx - half, cy - half)
+    ])
+    for cx, cy in centers
+]
+grid_gdf = gpd.GeoDataFrame(
+    {"predictedClass": predicted}, geometry=cells, crs=calc_epsg
+)
+grid_wgs84 = grid_gdf.to_crs("EPSG:4326")
+
+training_wgs84 = labeled.copy()
+training_wgs84 = training_wgs84.rename(columns={classColumn: "class"})
+
+{
+    "trainingFeatures": training_wgs84[["class", "geometry"]].__geo_interface__,
+    "gridFeatures": grid_wgs84.__geo_interface__,
+    "originalCrsFeatures": export_crs(grid_wgs84).__geo_interface__,
+    "summary": {
+        "calculationCrs": calc_crs_label,
+        "classColumn": classColumn,
+        "classLabels": class_labels,
+        "labeledCount": int(len(labeled)),
+        "trainCount": int(len(X_train)),
+        "testCount": int(len(X_test)) if X_test is not None else 0,
+        "accuracy": accuracy,
+        "nTrees": int(nTrees),
+        "gridResolution": int(gridResolution),
+        "gridCellCount": int(len(cells))
+    }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The class-column dropdown + trees/resolution sliders + Compute
+// button, rebuilt whenever inspectSummary changes -- same
+// "disabled with an explanatory message until there's data" pattern
+// as the clustering explorer's own controls row.
+classifierControlsRow = {
+  const s = inspectSummary;
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+
+  if (!s) {
+    const status = document.createElement("span");
+    status.className = "webgeods-panel-status";
+    status.textContent = "Upload a point file or load the example to set parameters.";
+    row.append(status);
+    return row;
+  }
+
+  if (!s.columns || s.columns.length === 0) {
+    const status = document.createElement("span");
+    status.className = "webgeods-panel-status";
+    status.textContent = "This file has no attribute columns to classify on.";
+    row.append(status);
+    return row;
+  }
+
+  const label = (text) => {
+    const span = document.createElement("span");
+    span.className = "webgeods-panel-status";
+    span.textContent = text;
+    return span;
+  };
+
+  const columnSelect = document.createElement("select");
+  columnSelect.id = "class-column-select";
+  columnSelect.className = "webgeods-panel-status";
+  s.columns.forEach((c) => columnSelect.appendChild(new Option(c, c)));
+  if (s.columns.includes("class")) columnSelect.value = "class";
+
+  const treesSlider = WebGeoDS.createSlider([10, 300], {
+    value: 100, step: 10, label: "Trees", id: "trees-control"
+  });
+  const resolutionSlider = WebGeoDS.createSlider([10, 40], {
+    value: 20, step: 5, label: "Grid resolution", id: "grid-resolution-control"
+  });
+
+  const computeButton = document.createElement("button");
+  computeButton.className = "webgeods-panel-btn";
+  computeButton.textContent = "▶ Compute";
+  computeButton.onclick = async () => {
+    computeButton.disabled = true;
+    const originalText = computeButton.textContent;
+    computeButton.textContent = "⌛ Training...";
+    try {
+      const classColumn = columnSelect.value;
+      const nTrees = Number(document.getElementById("trees-control").value);
+      const gridResolution = Number(document.getElementById("grid-resolution-control").value);
+      window.classColumn = classColumn;
+      window.nTrees = nTrees;
+      window.gridResolution = gridResolution;
+      await window.WebGeoDS.CodeCell.find("spatial-classifier-compute-py").run();
+      const result = document.getElementById("spatial-classifier-compute-py").value;
+      const paintOpts = { classLabels: result.summary.classLabels };
+      await sharedMap.setGeoJSON("spatial-classifier-grid-py", result.gridFeatures, {
+        paint: classPaint(result.summary.classLabels, "predictedClass", { fill: true })
+      });
+      await sharedMap.setGeoJSON("spatial-classifier-training-py", result.trainingFeatures, {
+        paint: classPaint(result.summary.classLabels, "class")
+      });
+      mutable exportFeatures = result.originalCrsFeatures;
+      mutable resultSummary = result.summary;
+      window.WebGeoDS.track?.("validation_completed", { tool: "spatial-classifier" });
+    } catch (err) {
+      console.error("spatial-classifier: Compute failed", err);
+      mutable uploadStatus = `⚠️ Compute failed: ${err.message}`;
+    } finally {
+      computeButton.disabled = false;
+      computeButton.textContent = originalText;
+    }
+  };
+
+  row.append(
+    label("Class column:"), columnSelect,
+    treesSlider, resolutionSlider,
+    computeButton
+  );
+  return row;
+}
+```
+
+```{ojs}
+//| echo: false
+resetClassifier = async () => {
+  if (sharedMap.getGeoJSON("spatial-classifier-training-py")) {
+    await sharedMap.setGeoJSON("spatial-classifier-training-py", { type: "FeatureCollection", features: [] });
+  }
+  await sharedMap.removeGeoJSON("spatial-classifier-grid-py").catch(() => {});
+  mutable inspectSummary = null;
+  mutable resultSummary = null;
+  mutable exportFeatures = null;
+  mutable crsWarning = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "🔄 Reset";
+  button.onclick = () => resetClassifier();
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Gated on resultSummary (a completed Compute), not just an upload --
+// downloading an unclassified file wouldn't be this tool's own output.
+downloadButton = {
+  const button = document.createElement("button");
+  button.className = "webgeods-panel-btn";
+  button.dataset.variant = "outline";
+  button.textContent = "⬇ Download";
+  button.disabled = !resultSummary;
+  button.onclick = async () => {
+    if (!exportFeatures) return;
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "⌛ Preparing...";
+    try {
+      const base = WebGeoDS.Upload.baseName(uploadedFiles);
+      WebGeoDS.downloadBlob(
+        JSON.stringify(exportFeatures, null, 2),
+        base ? `${base}-classified-surface.geojson` : "classified-surface.geojson",
+        "application/geo+json",
+        { tool: "spatial-classifier" }
+      );
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  };
+  return button;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+controlPanelRow = {
+  const row = document.createElement("div");
+  row.className = "webgeods-panel-row";
+  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
+  return row;
+}
+```
+
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+:::: {.webgeods-panel}
+
+::: {.webgeods-panel-row}
+${controlPanelRow}
+:::
+
+::: {.webgeods-panel-row}
+${uploadStatusEl}
+:::
+
+::: {.webgeods-panel-row}
+${classifierControlsRow}
+:::
+
+::::
+
+```{ojs}
+//| echo: false
+statCard = {
+  const s = inspectSummary;
+  const r = resultSummary;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Points", "—");
+    row("—", "Upload a point GeoJSON/Shapefile or load the example above");
+    return box;
+  }
+
+  row("Points", s.count.toLocaleString());
+  row("Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs);
+
+  if (r) {
+    row("Calculation CRS", r.calculationCrs);
+    row("Class column", r.classColumn);
+    row("Classes found", r.classLabels.join(", "));
+    row("Labeled points", r.labeledCount.toLocaleString());
+    row("Train / test split", r.testCount > 0 ? `${r.trainCount} / ${r.testCount}` : `${r.trainCount} / — (too few points to hold out)`);
+    row("Held-out accuracy", r.accuracy === null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`);
+    row("Trees", r.nTrees);
+    row("Grid cells", r.gridCellCount.toLocaleString());
+  }
+
+  return box;
+}
+```
+
+${statCard}
+
+```{ojs}
+//| echo: false
+legendEl = {
+  const r = resultSummary;
+  const wrap = document.createElement("div");
+  wrap.className = "webgeods-legend";
+  if (!r) {
+    wrap.hidden = true;
+    return wrap;
+  }
+  wrap.style.flexWrap = "wrap";
+  wrap.style.rowGap = "8px";
+
+  const addSwatch = (color, text) => {
+    const swatch = document.createElement("div");
+    swatch.className = "webgeods-legend-bar";
+    swatch.style.flex = "0 0 24px";
+    swatch.style.background = color;
+    const label = document.createElement("span");
+    label.className = "webgeods-legend-label";
+    label.textContent = text;
+    wrap.append(swatch, label);
+  };
+
+  r.classLabels.forEach((label, i) => {
+    addSwatch(CLASS_PALETTE[i % CLASS_PALETTE.length], label);
+  });
+
+  return wrap;
+}
+```
+
+${legendEl}
+
+<div class="webgeods-closing-note" style="margin-top: 4px;">
+The filled grid is the model's prediction; the dots on top are your
+own labeled points, colored the same way — where a dot's color
+doesn't match the patch under it, that's a training error, the same
+one the held-out accuracy above is measuring.
+</div>
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+classifierTable = sharedMap.tableCell(["spatial-classifier-training-py"], null, Generators, {
+  emptyMessage: "No results yet"
+})
+```
+
+<style>
+#spatial-classifier-inspect-py, #spatial-classifier-compute-py {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+Second tool in the GeoML family. Want to see the actual code, or the
+real gotcha where R's <code>randomForest()</code> silently switches
+from classification to regression if you forget one step? Read the
+<a href="/posts/spatial-classification.html">full article</a>.
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

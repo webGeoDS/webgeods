@@ -475,5 +475,9 @@ partitions, not numbers that were never meant to match.
 - **Wondering why the coordinate system needed picking at all?** →
   [Coordinate Reference Systems](crs-mismatch.qmd) covers the
   geographic/projected distinction this article leaned on in section 1.
+- **Have labels already, and want to predict them somewhere new
+  instead of finding groups from scratch?** →
+  [Predicting Spatial Classes with Random Forest](spatial-classification.qmd)
+  is this family's supervised counterpart to DBSCAN.
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

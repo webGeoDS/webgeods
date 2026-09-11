@@ -44,8 +44,10 @@ implementation is available in this browser's Python runtime).
 
 ## GeoML Toolkit
 
-Machine learning on spatial data, starting with unsupervised
-clustering. **[Cluster](spatial-clustering-explorer.qmd)**: upload a
-point file, set a distance radius and a minimum group size, and find
-which points form dense groups — powered by DBSCAN, colored on the
-map, downloadable. First tool in this family; more are planned.
+Machine learning on spatial data — finding groups, and predicting
+labels. **[Cluster](spatial-clustering-explorer.qmd)** →
+**[Classify](spatial-classifier.qmd)**: find which points form dense
+groups with DBSCAN, or train a Random Forest on a labeled column and
+predict a full classification surface across the whole area — both
+colored on the map, both downloadable. Two tools live in this family;
+more are planned.

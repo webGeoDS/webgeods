@@ -34,9 +34,10 @@ Python is shown as reference, with the reason explained plainly).
 
 ## GeoML
 
-Machine learning on spatial data, starting with unsupervised
-clustering — runnable Python and R code side by side, including where
-the two languages disagree on something as basic as how a result is
-labeled.
+Machine learning on spatial data — finding groups, and predicting
+labels — runnable Python and R code side by side, including two real
+places where the two languages disagree: how a clustering result is
+numbered, and whether a model even classifies at all.
 
-**[Spatial Clustering](posts/spatial-clustering.qmd)**
+**[Spatial Clustering](posts/spatial-clustering.qmd)** →
+**[Spatial Classification](posts/spatial-classification.qmd)**

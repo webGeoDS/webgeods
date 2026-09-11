@@ -1,0 +1,558 @@
+---
+title: "Predicting Spatial Classes with Random Forest"
+date: 2026-09-11
+categories: [tool, geoml, bilingual]
+description: "An interactive lab with Python, R and MapLibre — upload a labeled point file (or use the built-in example), train a Random Forest on it, turn a handful of labeled points into a full classification surface, and see a real gotcha where R silently swaps classification for regression."
+---
+
+A few labeled points on their own only answer questions about
+themselves — "what class is point #7?" is a question you can already
+answer by looking at the file. The useful question is the one you
+*can't* already answer: "what's the likely class everywhere else,
+including where I have no data at all?" A Random Forest trained on
+labeled points, then applied to a regular grid across the whole area,
+turns a sparse set of samples into a full classification surface — the
+same shift in usefulness a sparse rain-gauge network gets from
+interpolating a rainfall map between the gauges.
+
+A `.geojson`, or a shapefile (either as a single `.zip`, or as
+`.shp`/`.dbf`/`.shx` selected together) — see the upload section
+below.
+
+Just want to classify a file with adjustable settings, any class
+column, and a download button, without the rest of the reading? Use
+the [standalone tool](/tools/spatial-classifier.html) — same engine,
+less prose.
+
+## 1. Why the coordinate system matters here
+
+A Random Forest trained directly on longitude/latitude would treat 1
+degree of separation as the same "distance" everywhere on Earth, which
+it isn't. Both languages below pick a working UTM zone from the data's
+own bounding-box center and reproject into it first — same reasoning,
+same formula, as this site's [Viewshed](raster-viewshed.qmd) and
+[Spatial Clustering](spatial-clustering.qmd) tools: a reasonable
+default for one local dataset, not a universally correct choice for
+points spanning multiple UTM zones or very large areas.
+
+## 2. Upload your points
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles);
+  mutable uploadStatus = result.message;
+}
+```
+
+No file uploaded — or your file has no column literally named
+`class`? Both cells below fall back to the same small built-in
+example: 22 points in two clearly separated groups, `north` and
+`south`. Number of trees and grid resolution are fixed here (100
+trees, a 10-cell grid) to keep the focus on *what the two languages
+disagree on*, not on tuning — the
+[standalone tool](/tools/spatial-classifier.html) exposes both as
+adjustable controls and lets you pick any column as the class.
+
+## 3. Same spatial question, two languages
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.45, 41.89], zoom: 11, height: "420px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #spatial-classification-py}
+#| package: geopandas, scikit-learn
+import geopandas as gpd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from shapely.geometry import Polygon
+
+# Same 22-point layout as the standalone tool's own example -- used
+# only when nothing was uploaded (or the upload has no `class` column).
+FALLBACK_ROWS = (
+    [([12.450066, 41.900016], "north"), ([12.450332, 41.900159], "north"),
+     ([12.450202, 41.900152], "north"), ([12.450017, 41.899721], "north"),
+     ([12.449639, 41.899781], "north"), ([12.44983, 41.900398], "north"),
+     ([12.450168, 41.900137], "north"), ([12.44989, 41.899805], "north"),
+     ([12.449684, 41.90032], "north"), ([12.45028, 41.900272], "north"),
+     ([12.449961, 41.899825], "north"), ([12.450273, 41.899636], "north")] +
+    [([12.455277, 41.884832], "south"), ([12.454614, 41.884991], "south"),
+     ([12.454621, 41.884723], "south"), ([12.45535, 41.884793], "south"),
+     ([12.45486, 41.885091], "south"), ([12.455187, 41.885068], "south"),
+     ([12.455246, 41.885086], "south"), ([12.455096, 41.884671], "south"),
+     ([12.454816, 41.884664], "south"), ([12.45532, 41.885381], "south")]
+)
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+crs_warning = None
+if gdf is not None and gdf.crs is None:
+    gdf = gdf.set_crs("EPSG:4326")
+    crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+elif gdf is not None and str(gdf.crs) != "EPSG:4326":
+    gdf = gdf.to_crs("EPSG:4326")
+
+if gdf is None or "class" not in gdf.columns:
+    gdf = gpd.GeoDataFrame(
+        {"class": [cls for _, cls in FALLBACK_ROWS]},
+        geometry=gpd.points_from_xy(
+            [pt[0] for pt, _ in FALLBACK_ROWS],
+            [pt[1] for pt, _ in FALLBACK_ROWS]
+        ),
+        crs="EPSG:4326"
+    )
+    crs_warning = None
+
+labeled = gdf[gdf["class"].notna()].copy()
+labeled["class"] = labeled["class"].astype(str)
+
+# UTM auto-pick from the bounding-box center -- see section 1 above.
+minx, miny, maxx, maxy = gdf.total_bounds
+center_lon = float((minx + maxx) / 2)
+center_lat = float((miny + maxy) / 2)
+utm_zone = int((center_lon + 180) // 6) + 1
+calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
+
+labeled_proj = labeled.to_crs(epsg=calc_epsg)
+X = np.column_stack([labeled_proj.geometry.x, labeled_proj.geometry.y])
+y = labeled_proj["class"].values
+class_labels = sorted(set(y.tolist()))
+
+model = RandomForestClassifier(n_estimators=100, random_state=0)
+model.fit(X, y)
+
+# Regular 10x10-ish square-cell grid over the full extent -- fixed
+# resolution here, same reasoning as ε/minPts being fixed in the
+# clustering article (adjustable in the standalone tool instead).
+gdf_proj = gdf.to_crs(epsg=calc_epsg)
+gminx, gminy, gmaxx, gmaxy = gdf_proj.total_bounds
+width, height = gmaxx - gminx, gmaxy - gminy
+cell_size = max(width, height, 1e-6) / 10
+n_cols = max(1, int(np.ceil(width / cell_size)))
+n_rows = max(1, int(np.ceil(height / cell_size)))
+
+centers_x, centers_y = [], []
+for row in range(n_rows):
+    for col in range(n_cols):
+        centers_x.append(gminx + (col + 0.5) * cell_size)
+        centers_y.append(gminy + (row + 0.5) * cell_size)
+centers = np.column_stack([centers_x, centers_y])
+predicted = model.predict(centers)
+
+half = cell_size / 2
+cells = [
+    Polygon([
+        (cx - half, cy - half), (cx + half, cy - half),
+        (cx + half, cy + half), (cx - half, cy + half),
+        (cx - half, cy - half)
+    ])
+    for cx, cy in centers
+]
+grid_wgs84 = gpd.GeoDataFrame(
+    {"predictedClass": predicted}, geometry=cells, crs=calc_epsg
+).to_crs("EPSG:4326")
+training_wgs84 = labeled[["class", "geometry"]]
+
+{
+    "trainingFeatures": training_wgs84.__geo_interface__,
+    "gridFeatures": grid_wgs84.__geo_interface__,
+    "calculationCrs": f"EPSG:{calc_epsg}",
+    "classLabels": class_labels,
+    "labeledCount": int(len(labeled)),
+    "gridCellCount": int(len(cells)),
+    "crsWarning": crs_warning
+}
+```
+
+## R
+
+```{.webgeods-r #spatial-classification-r}
+#| package: sf, randomForest, jsonlite
+library(sf)
+library(randomForest)
+
+fallback_lons <- c(12.450066, 12.450332, 12.450202, 12.450017, 12.449639, 12.44983,
+                    12.450168, 12.44989, 12.449684, 12.45028, 12.449961, 12.450273,
+                    12.455277, 12.454614, 12.454621, 12.45535, 12.45486, 12.455187,
+                    12.455246, 12.455096, 12.454816, 12.45532)
+fallback_lats <- c(41.900016, 41.900159, 41.900152, 41.899721, 41.899781, 41.900398,
+                    41.900137, 41.899805, 41.90032, 41.900272, 41.899825, 41.899636,
+                    41.884832, 41.884991, 41.884723, 41.884793, 41.885091, 41.885068,
+                    41.885086, 41.884671, 41.884664, 41.885381)
+fallback_class <- c(rep("north", 12), rep("south", 10))
+
+data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+
+crs_warning <- NULL
+if (!is.null(data) && is.na(st_crs(data))) {
+  st_crs(data) <- 4326
+  crs_warning <- "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+} else if (!is.null(data) && !isTRUE(st_crs(data) == st_crs(4326))) {
+  data <- st_transform(data, 4326)
+}
+
+if (is.null(data) || !("class" %in% names(data))) {
+  data <- st_as_sf(
+    data.frame(lon = fallback_lons, lat = fallback_lats, class = fallback_class),
+    coords = c("lon", "lat"), crs = 4326
+  )
+  crs_warning <- NULL
+}
+
+labeled <- data[!is.na(data$class), ]
+# The one step that decides classification vs. regression -- see
+# section 4 below. Without this, randomForest() below would silently
+# fit a REGRESSION on `class` instead.
+labeled$class <- factor(as.character(labeled$class))
+
+# UTM auto-pick from the bounding-box center -- see section 1 above.
+bnd <- st_bbox(data)
+center_lon <- (bnd[["xmin"]] + bnd[["xmax"]]) / 2
+center_lat <- (bnd[["ymin"]] + bnd[["ymax"]]) / 2
+utm_zone <- floor((center_lon + 180) / 6) + 1
+calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
+
+labeled_proj <- st_transform(labeled, calc_epsg)
+coords_train <- st_coordinates(labeled_proj)
+train_df <- data.frame(x = coords_train[, 1], y = coords_train[, 2], class = labeled_proj$class)
+
+model <- randomForest(class ~ x + y, data = train_df, ntree = 100)
+
+result <- list(
+  calculationCrs = jsonlite::unbox(paste0("EPSG:", calc_epsg)),
+  classLabels = sort(levels(labeled_proj$class)),
+  labeledCount = jsonlite::unbox(as.integer(nrow(labeled))),
+  modelType = jsonlite::unbox(model$type),
+  crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning)
+)
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+mutable pySummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable rSummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable crsWarning = null
+```
+
+```{ojs}
+//| echo: false
+// Same palette/roles as the Spatial Classifier tool -- reused here
+// rather than invented fresh, so a reader who's seen the tool
+// recognizes the same visual language.
+CLASS_PALETTE = ["#ab502b", "#42583c", "#3d5a73", "#c48a2e", "#8b2f24"]
+```
+
+```{ojs}
+//| echo: false
+// The map draws only Python's own grid + training points -- not
+// because R's result is somehow secondary, but because both languages
+// agree on the classification itself (that's what section 4 is
+// actually about); drawing the same surface twice would just be two
+// layers stacked on identical coordinates with one hiding the other.
+classPaint = (classLabels, field, opts = {}) => {
+  const expr = ["match", ["get", field]];
+  classLabels.forEach((label, i) => {
+    expr.push(label, CLASS_PALETTE[i % CLASS_PALETTE.length]);
+  });
+  expr.push("#766851");
+  if (opts.fill) {
+    return { "fill-color": expr, "fill-opacity": 0.45, "fill-outline-color": "rgba(0,0,0,0)" };
+  }
+  return {
+    "circle-color": expr,
+    "circle-radius": 6,
+    "circle-stroke-width": 1.5,
+    "circle-stroke-color": "#2a2117"
+  };
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyResult = WebGeoDS.getCellValue("spatial-classification-py", Generators)
+{
+  if (pyResult) {
+    await sharedMap.setGeoJSON("spatial-classification-grid", pyResult.gridFeatures, {
+      paint: classPaint(pyResult.classLabels, "predictedClass", { fill: true })
+    });
+    await sharedMap.setGeoJSON("spatial-classification-training", pyResult.trainingFeatures, {
+      paint: classPaint(pyResult.classLabels, "class")
+    });
+    await sharedMap.fitToData(pyResult.gridFeatures);
+    mutable pySummary = pyResult;
+    mutable crsWarning = pyResult.crsWarning;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rResult = WebGeoDS.getCellValue("spatial-classification-r", Generators)
+{
+  if (rResult) mutable rSummary = rResult;
+}
+```
+
+```{ojs}
+//| echo: false
+crsWarningEl = {
+  const div = document.createElement("div");
+  div.className = "webgeods-panel-status";
+  if (crsWarning) div.textContent = `⚠️ ${crsWarning}`;
+  return div;
+}
+```
+
+${crsWarningEl}
+
+```{ojs}
+//| echo: false
+// Same "two cards side by side, seeing them agree IS the point"
+// reasoning as this site's CRS Mismatch and Spatial Clustering
+// articles.
+statCard = (label, s) => {
+  const wrap = document.createElement("div");
+  wrap.style.flex = "1";
+  wrap.style.minWidth = "260px";
+
+  const heading = document.createElement("div");
+  heading.className = "webgeods-label";
+  heading.textContent = label;
+  wrap.appendChild(heading);
+
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  wrap.appendChild(box);
+
+  const row = (rowLabel, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = rowLabel;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Calculation CRS", "—");
+    return wrap;
+  }
+
+  row("Calculation CRS", s.calculationCrs);
+  row("Classes", s.classLabels.join(", "));
+  row("Labeled points", s.labeledCount);
+
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+statCardsRow = {
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "16px";
+  row.append(statCard("Python", pySummary), statCard("R", rSummary));
+  return row;
+}
+```
+
+${statCardsRow}
+
+The filled grid is Python's predicted surface; the dots on top are the
+labeled training points, colored the same way — both languages agree
+on this partition, which is exactly what makes the next section's
+divergence worth noticing: it isn't about the *classification*, it's
+about what happens when a step gets skipped.
+
+## 4. A silent switch: classification vs. regression
+
+scikit-learn's `RandomForestClassifier` and R's general-purpose
+`randomForest()` decide what to do very differently. scikit-learn is
+unambiguous — you asked for a *Classifier*, so it classifies,
+whatever the labels look like. R's `randomForest()` instead looks at
+the *type* of the target column, and the two ways of getting this
+wrong fail very differently:
+
+- A plain **character** column (`"north"`/`"south"`, never wrapped in
+  `factor()`) fails loudly — R can't compute a regression mean on
+  text, so the fit errors out immediately with something like
+  `non-numeric argument to binary operator`. Annoying, but safe: you
+  find out right away.
+- A column of **numbers standing in for classes** (`0`/`1`, or a
+  status code read straight out of a file) is the dangerous one — it
+  fits without complaint and silently runs a **regression** instead of
+  a classification. No error, no warning, just a different kind of
+  model whose predictions no longer look like class labels at all.
+
+The R cell above already does this correctly (`factor(as.character(...))`
+before the fit) — `modelType` in its stat card reads `classification`.
+Here's the realistic failure case: the exact same points, with `class`
+read in as `0`/`1` instead of `"north"`/`"south"` — exactly what
+happens if a class column arrives as a numeric status code — and that
+one `factor()` step skipped, run live:
+
+```{.webgeods-r #spatial-classification-r-nofactor}
+#| package: sf, randomForest, jsonlite
+library(randomForest)
+
+fallback_lons <- c(12.450066, 12.450332, 12.450202, 12.450017, 12.449639, 12.44983,
+                    12.450168, 12.44989, 12.449684, 12.45028, 12.449961, 12.450273,
+                    12.455277, 12.454614, 12.454621, 12.45535, 12.45486, 12.455187,
+                    12.455246, 12.455096, 12.454816, 12.45532)
+fallback_lats <- c(41.900016, 41.900159, 41.900152, 41.899721, 41.899781, 41.900398,
+                    41.900137, 41.899805, 41.90032, 41.900272, 41.899825, 41.899636,
+                    41.884832, 41.884991, 41.884723, 41.884793, 41.885091, 41.885068,
+                    41.885086, 41.884671, 41.884664, 41.885381)
+# `class` as a NUMERIC status code (0 = north, 1 = south) -- NOT
+# wrapped in factor(), unlike the cell above. A character column here
+# instead would error immediately (see the prose above); a numeric one
+# fits silently.
+fallback_class <- c(rep(0, 12), rep(1, 10))
+
+train_df <- data.frame(x = fallback_lons, y = fallback_lats, class = fallback_class)
+model <- randomForest(class ~ x + y, data = train_df, ntree = 100)
+
+result <- list(
+  modelType = jsonlite::unbox(model$type),
+  samplePrediction = jsonlite::unbox(as.numeric(predict(model, train_df[1, ])))
+)
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+```
+
+```{ojs}
+//| echo: false
+mutable noFactorResult = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+noFactorRaw = WebGeoDS.getCellValue("spatial-classification-r-nofactor", Generators)
+{
+  if (noFactorRaw) mutable noFactorResult = noFactorRaw;
+}
+```
+
+```{ojs}
+//| echo: false
+noFactorCard = {
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+  if (!noFactorResult) {
+    row("model$type", "—");
+    return box;
+  }
+  row("model$type", noFactorResult.modelType);
+  row("predict() on a point labeled 0 (\"north\")", noFactorResult.samplePrediction.toFixed(3));
+  return box;
+}
+```
+
+${noFactorCard}
+
+`model$type` reads `regression`, and `predict()` on a point whose true
+class was `0` ("north") returns a number like `0.1` or `-0.05` — not
+the class `0` itself, a *regression estimate* that happens to land
+near it. Nothing in the output says a switch happened; the only way to
+notice is checking `model$type` yourself, which is exactly what
+production code should do.
+
+::: {.callout-note}
+This is real, verified behavior of `randomForest()` — run live on this
+page, not an edge case invented for the article: the R cell in
+section 3 above does the correct `factor()` coercion, one line
+different from the cell above. scikit-learn's separate `Classifier`/
+`Regressor` classes make the same mistake structurally impossible: the
+class you instantiate *is* the decision, made once, up front.
+:::
+
+## 5. Where to next
+
+- **Just needed to classify a file, with adjustable settings and a
+  download button?** → The
+  [standalone Spatial Classifier](/tools/spatial-classifier.html) runs
+  the same computation on an uploaded point file (or its own example),
+  with any column as the class, adjustable tree count and grid
+  resolution, and a downloadable classification surface.
+- **Wondering why the coordinate system needed picking at all?** →
+  [Coordinate Reference Systems](crs-mismatch.qmd) covers the
+  geographic/projected distinction this article leaned on in section 1.
+- **Curious about the other side of GeoML — finding groups instead of
+  predicting labels?** →
+  [Finding Spatial Clusters with DBSCAN](spatial-clustering.qmd) is
+  this family's entry point, unsupervised rather than supervised.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

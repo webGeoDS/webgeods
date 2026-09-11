@@ -82,6 +82,8 @@ website:
           - text: "---"
           - href: tools/spatial-clustering-explorer.qmd
             text: Cluster
+          - href: tools/spatial-classifier.qmd
+            text: Classify
       - text: Articles
         menu:
           - href: articles.qmd
@@ -109,6 +111,8 @@ website:
           - text: "---"
           - href: posts/spatial-clustering.qmd
             text: Cluster
+          - href: posts/spatial-classification.qmd
+            text: Classify
       - about.qmd
     # Three groups per dropdown: "Vector" (renamed 2026-09-11 from
     # "Spatial Data Quality" once Buffer joined it as this group's
