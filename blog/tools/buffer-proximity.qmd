@@ -328,12 +328,23 @@ if dissolveBuffers:
             if previous_geometry is not None
             else level_geometry
         )
-        ring_rows.append({
-            "name": f"ring {i + 1}",
-            "ring": i + 1,
-            "ringDistance": distance,
-            "geometry": ring_geometry
-        })
+        # union_all()/difference() merge whatever touches or overlaps,
+        # but leave genuinely separate pieces as separate parts inside
+        # one MultiPolygon -- explode() turns those parts back into
+        # their own rows/features instead of bundling them under one
+        # ring just because they share a ring number. Without this,
+        # "Dissolve overlapping buffers" dissolved buffers that never
+        # actually overlapped too -- visible immediately in the table
+        # (5 features in, 1 row out, even when nothing was close
+        # enough to touch).
+        parts = gpd.GeoSeries([ring_geometry], crs=gdf_proj.crs).explode(index_parts=False)
+        for part_geometry in parts:
+            ring_rows.append({
+                "name": f"ring {i + 1}",
+                "ring": i + 1,
+                "ringDistance": distance,
+                "geometry": part_geometry
+            })
         previous_geometry = level_geometry
 else:
     for _, row in gdf_proj.iterrows():
