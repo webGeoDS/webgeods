@@ -277,6 +277,8 @@ ringPaint = (ringCount) => {
 ```{.webgeods-python #buffer-compute-py}
 #| inject: [bufferDistance, dissolveBuffers, ringCount]
 #| package: geopandas
+import numpy as np
+
 gdf_calc = gdf.copy()
 
 # Working/calculation CRS: a buffer distance is a real distance, so
@@ -293,6 +295,26 @@ calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
 calc_crs_label = f"EPSG:{calc_epsg}"
 
 gdf_proj = gdf_calc.to_crs(epsg=calc_epsg)
+
+# A single UTM zone distorts badly -- to the point of returning inf --
+# for features far enough from it (the same root cause found and
+# fixed in this project's GeoML tools). Shapely tolerates it without
+# crashing here (an inf-coordinate buffer() just comes back empty,
+# unlike scikit-learn's strict validation), but an empty buffer is
+# still a feature that silently produced nothing -- excluded here
+# instead, with a clear count, rather than left in as a useless row.
+finite_mask = gdf_proj.geometry.bounds.apply(
+    lambda row: all(np.isfinite(v) for v in row), axis=1
+)
+excluded_count = int((~finite_mask).sum())
+gdf_proj = gdf_proj[finite_mask]
+if len(gdf_proj) == 0:
+    raise ValueError(
+        f"None of the {len(gdf_calc)} features could be projected into a "
+        f"single UTM zone ({calc_crs_label}) -- this dataset spans too wide "
+        "an area for this tool's single-zone approach. Try a smaller, more "
+        "local file."
+    )
 
 ring_count = max(1, int(ringCount))
 max_distance = float(bufferDistance)
@@ -377,7 +399,8 @@ ring_gdf_wgs84 = ring_gdf.to_crs("EPSG:4326")
         "ringCount": ring_count,
         "ringDistances": [round(d, 1) for d in ring_distances],
         "dissolved": bool(dissolveBuffers),
-        "bufferCount": int(len(ring_gdf))
+        "bufferCount": int(len(ring_gdf)),
+        "excludedCount": excluded_count
     }
 }
 ```
@@ -578,6 +601,9 @@ statCard = {
 
   if (r) {
     row("Calculation CRS", r.calculationCrs);
+    if (r.excludedCount > 0) {
+      row("Excluded from buffering", `${r.excludedCount} (too far from the calculation UTM zone to project)`);
+    }
     row("Buffer distance", `${r.bufferDistance} m`);
     row("Rings", r.ringCount === 1 ? "1 (no ring split)" : `${r.ringCount} (at ${r.ringDistances.join(", ")} m)`);
     row("Dissolved", r.dissolveBuffers ? "Yes" : "No");

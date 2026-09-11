@@ -92,6 +92,7 @@ sharedMapEl = sharedMap.element
 ```{.webgeods-python #buffer-proximity-py}
 #| package: geopandas
 import geopandas as gpd
+import numpy as np
 from shapely.geometry import Point, LineString, Polygon
 
 # Same three-feature layout as the article's original fixed example --
@@ -132,9 +133,29 @@ utm_zone = int((center_lon + 180) // 6) + 1
 calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
 
 gdf_proj = gdf.to_crs(epsg=calc_epsg)
+
+# A single UTM zone can map far-away features to infinity (the same
+# root cause found and fixed in this project's GeoML tools). Shapely
+# tolerates it without crashing (an inf-coordinate buffer() just comes
+# back empty), but an empty buffer is still a feature that silently
+# produced nothing -- excluded here instead, with a clear count.
+finite_mask = gdf_proj.geometry.bounds.apply(
+    lambda row: all(np.isfinite(v) for v in row), axis=1
+)
+excluded_count = int((~finite_mask).sum())
+gdf_proj = gdf_proj[finite_mask]
+gdf_kept = gdf[finite_mask.values]
+if len(gdf_proj) == 0:
+    raise ValueError(
+        f"None of the {len(gdf)} features could be projected into a single "
+        f"UTM zone (EPSG:{calc_epsg}) -- this dataset spans too wide an "
+        "area for this article's single-zone approach. Try a smaller, more "
+        "local file."
+    )
+
 buffered_proj = gdf_proj.buffer(30)
 
-buffered_wgs84 = gpd.GeoDataFrame({"name": gdf["name"].values}, geometry=buffered_proj, crs=calc_epsg).to_crs("EPSG:4326")
+buffered_wgs84 = gpd.GeoDataFrame({"name": gdf_kept["name"].values}, geometry=buffered_proj, crs=calc_epsg).to_crs("EPSG:4326")
 
 {
     "features": buffered_wgs84.__geo_interface__,
@@ -143,6 +164,7 @@ buffered_wgs84 = gpd.GeoDataFrame({"name": gdf["name"].values}, geometry=buffere
     "geometryTypes": list(gdf.geometry.geom_type),
     "bufferGeometryTypes": list(buffered_proj.geom_type),
     "bufferAreas": [round(a, 1) for a in buffered_proj.area],
+    "excludedCount": excluded_count,
     "crsWarning": crs_warning
 }
 ```
@@ -193,11 +215,30 @@ calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
 data_proj <- st_transform(data, calc_epsg)
 buffered <- st_buffer(data_proj, 30)
 
+# A single UTM zone can map far-away features to infinity (the same
+# root cause found and fixed in this project's GeoML tools). sf
+# tolerates it without erroring -- an inf-coordinate st_buffer() just
+# comes back empty -- but an empty buffer is still a feature that
+# silently produced nothing, so it's excluded here instead, with a
+# clear count.
+finite_mask <- !st_is_empty(buffered)
+excluded_count <- as.integer(sum(!finite_mask))
+if (!any(finite_mask)) {
+  stop(paste0(
+    "None of the ", nrow(data), " features could be projected into a ",
+    "single UTM zone (EPSG:", calc_epsg, ") -- this dataset spans too wide ",
+    "an area for this article's single-zone approach. Try a smaller, more ",
+    "local file."
+  ))
+}
+buffered <- buffered[finite_mask, ]
+
 result <- list(
   calculationCrs = jsonlite::unbox(paste0("EPSG:", calc_epsg)),
   geometryTypes = as.character(st_geometry_type(data)),
   bufferGeometryTypes = as.character(st_geometry_type(buffered)),
   bufferAreas = round(as.numeric(st_area(buffered)), 1),
+  excludedCount = jsonlite::unbox(excluded_count),
   crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning)
 )
 jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
@@ -330,6 +371,9 @@ statCard = (label, s) => {
   }
 
   row("Calculation CRS", s.calculationCrs);
+  if (s.excludedCount > 0) {
+    row("Excluded from buffering", `${s.excludedCount} (too far from the calculation UTM zone to project)`);
+  }
   row("Input geometry", s.geometryTypes.join(", "));
   row("Buffer geometry", s.bufferGeometryTypes.join(", "));
   row("Buffer areas (m²)", s.bufferAreas.join(", "));
