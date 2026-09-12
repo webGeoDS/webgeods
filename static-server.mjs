@@ -36,19 +36,39 @@ const MIME = {
   ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png",
 };
 
+// Directory-index resolution: a real web server (GitHub Pages
+// included) serves index.html for both "/tools/" and "/tools" without
+// the caller naming the file — this one only special-cased the root
+// "/" and 404'd on any other directory path, breaking in-site links
+// (the navbar's "All tools"/"All articles" links, e.g.) when browsing
+// a locally-served render.
+async function resolveFile(urlPath) {
+  const candidates = urlPath.endsWith("/")
+    ? [urlPath + "index.html"]
+    : [urlPath, urlPath + "/index.html"];
+  for (const candidate of candidates) {
+    const filePath = path.join(ROOT, candidate);
+    try {
+      return { filePath, data: await readFile(filePath) };
+    } catch {
+      // try the next candidate
+    }
+  }
+  return null;
+}
+
 const server = http.createServer(async (req, res) => {
   let urlPath = decodeURIComponent(req.url.split("?")[0]);
   if (urlPath === "/") urlPath = "/index.html";
-  const filePath = path.join(ROOT, urlPath);
-  try {
-    const data = await readFile(filePath);
-    const ext = path.extname(filePath);
+  const found = await resolveFile(urlPath);
+  if (found) {
+    const ext = path.extname(found.filePath);
     res.writeHead(200, {
       "content-type": MIME[ext] || "application/octet-stream",
-      "content-length": data.length,
+      "content-length": found.data.length,
     });
-    res.end(data);
-  } catch {
+    res.end(found.data);
+  } else {
     res.writeHead(404);
     res.end("not found");
   }
