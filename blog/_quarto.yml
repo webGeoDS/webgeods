@@ -16,6 +16,7 @@ project:
     - "table.js"
     - "upload.js"
     - "download.js"
+    - "ui.js"
     - "styles.css"
     - "alidade_smooth.json"
     - "webgeods-logo.svg"
@@ -179,6 +180,7 @@ format:
           <script src="/table.js"></script>
           <script src="/upload.js"></script>
           <script src="/download.js"></script>
+          <script src="/ui.js"></script>
           <script>
             // Quarto's navbar schema has no non-clickable header item
             // inside a dropdown, and nested `menu:` submenus aren't

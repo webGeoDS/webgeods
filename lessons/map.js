@@ -260,6 +260,28 @@
 
   let _autoIdCounter = 0;
 
+  // One per tableCell() call, not per WebGeoDSMap instance -- see its
+  // use in tableCell() below, where it keys a per-call selection
+  // overlay source so two tableCell() calls on the SAME map (e.g. one
+  // per language, each tracking its own source) don't share one
+  // overlay and clobber each other's highlight. Also used to
+  // auto-name a tableCell() call's entry in _tableSelections below
+  // when the caller doesn't give one an explicit id.
+  let _tableCellCounter = 0;
+
+  // Public entry point for an external consumer (a Vega-Lite chart,
+  // built for the map<->table cross-link work -- see
+  // roadmap-acquisizione.md) to join a SPECIFIC tableCell() call's row
+  // selection: keyed by that call's id (explicit `options.id`, or an
+  // auto-generated one), not global, because a page can have more
+  // than one tableCell() live at once (e.g. one per language) each
+  // with its own independent selection. Populated/cleared by
+  // tableCell() itself, looked up via the static
+  // WebGeoDSMap.findTableSelection(id) below -- same find-by-id idiom
+  // as _instances/find() above, deliberately, for a consumer that
+  // isn't itself an {ojs} cell able to just reference a variable.
+  const _tableSelections = new Map();
+
 
   // ============================================================
   // designToken(name, fallback) — read a CSS custom property
@@ -307,6 +329,37 @@
       return _instances.get(id);
 
     }
+
+
+    // ----------------------------------------------------------
+    // findTableSelection(id) — look up a live tableCell() call's
+    // selection controller by its id (see tableCell()'s own doc
+    // comment for the full story). Returns
+    // { select(key), getSelectedKey(), element } or undefined if no
+    // tableCell() with that id is currently mounted. `select(key)`
+    // mirrors clicking that row/feature by hand — same toggle-off-if-
+    // already-selected behavior; `element` is the same container
+    // tableCell() returned, the thing to addEventListener()
+    // SELECTION_CHANGE_EVENT on.
+    // ----------------------------------------------------------
+
+    static findTableSelection(id) {
+
+      return _tableSelections.get(id);
+
+    }
+
+
+    // ----------------------------------------------------------
+    // Event name dispatched on a tableCell() call's container
+    // whenever ITS selection changes, from ANY cause (a map click, a
+    // table row click, or another consumer calling .select()) — event
+    // detail is `{ key }` (the new selectedKey, or null if cleared).
+    // A named constant instead of a bare string literal so a distant
+    // caller (a Vega-Lite chart cell) doesn't have to retype/guess it.
+    // ----------------------------------------------------------
+
+    static SELECTION_CHANGE_EVENT = "webgeods:selectionchange";
 
 
     // ----------------------------------------------------------
@@ -1239,6 +1292,27 @@
     // exactly the page whose purpose is comparing the two languages'
     // results side by side, not a hypothetical one.
     //
+    // IMPORTANT, found later (2026-09-11): merging is only correct
+    // when the tracked sources hold genuinely DIFFERENT data. On a
+    // page where two sources hold two languages' INDEPENDENT
+    // computations over the SAME input (geometry-validity.qmd,
+    // topology-errors.qmd), merging double-counts every feature — one
+    // row from each language for what's conceptually one record. That
+    // page's own `lastResult` pattern (most-recent-language-only)
+    // fixed this for its stats line/download, but the table itself
+    // was calling this method with BOTH source ids and inherited the
+    // exact bug. The correct fix for that case is not "most recent
+    // only" either (loses the side-by-side comparison, this article's
+    // whole point) — it's ONE tableCell() call per language, each
+    // into its own container/tab (same shape topology-checker.qmd
+    // already uses for its features/gaps split, just applied to
+    // languages instead of data roles). This is exactly why
+    // SELECTION_SOURCE_ID below is per-CALL, not a fixed name: two
+    // calls like that are live on the same map simultaneously (a
+    // tabset hides one visually, it doesn't unmount its {ojs} cell),
+    // and sharing one overlay source would have them clobber each
+    // other's highlight.
+    //
     // `sourceIds` — which sources count as "tracked":
     //   - a string or array: exactly those source ids, nothing else
     //     (the predictable default — a source outside this list never
@@ -1286,6 +1360,23 @@
     // addGeoJSON()/setGeoJSON() above) for a stable id per feature —
     // the selection key is `${sourceId}:${feature.id}`, matching
     // table()'s own `row.__key`.
+    //
+    // Public entry point for a THIRD consumer to join this same
+    // selection (built for the Vega-Lite cross-link work — see
+    // roadmap-acquisizione.md — but not specific to it): this call's
+    // selection is registered under `options.id` (or an
+    // auto-generated one if omitted) in a lookup a non-{ojs} caller
+    // can reach — `WebGeoDS.Map.findTableSelection(id)` returns
+    // `{ select(key), getSelectedKey(), element }`. `select(key)`
+    // drives the SAME selection a click would (map click, table row
+    // click, or this call are indistinguishable to it, including
+    // toggle-off-if-already-selected); `element.addEventListener(
+    // WebGeoDS.Map.SELECTION_CHANGE_EVENT, (e) => ...)` reacts to a
+    // selection made by ANY of those three. `options.id` is worth
+    // setting explicitly on a page with more than one tableCell()
+    // call (e.g. one per language) — a future chart cell needs to
+    // name which one it's joining, an auto id it never sees isn't
+    // reachable.
     // ==========================================================
 
     tableCell(
@@ -1339,8 +1430,42 @@
         containerId ??
         document.createElement("div");
 
+      // `container` above stays whatever the caller/default gave it
+      // (a string id or an Element — table()/Table.render() already
+      // handle either), unchanged from before this entry point was
+      // added. The public entry point's DOM-side properties
+      // (.select/.getSelectedKey/.dataset, the change event) need an
+      // actual Element to attach to, resolved separately so a
+      // string-id caller (documented as valid, even though no current
+      // page uses it — every call today passes null) doesn't throw
+      // trying to set a property on a string primitive.
+      const containerEl =
+        typeof container === "string" ?
+          document.getElementById(container) :
+          container;
+
+      // One counter value shared by the overlay source id below and
+      // this call's default selection id further down -- easier to
+      // correlate the two while debugging, not load-bearing.
+      const callNumber =
+        ++_tableCellCounter;
+
+      // Unique per tableCell() call (not a fixed name): two calls on
+      // the same map -- e.g. one per language, each tracking its own
+      // source, both live simultaneously even if only one is visible
+      // in a tabset -- must not share one overlay source, or
+      // selecting a row in one clobbers the other's highlight. See
+      // roadmap-acquisizione.md, "Vega-Lite / JS-first" entries.
       const SELECTION_SOURCE_ID =
-        "__webgeods_selection";
+        `__webgeods_selection_${callNumber}`;
+
+      // This call's own entry in _tableSelections (see the static
+      // findTableSelection() above) -- options.id if the caller wants
+      // a memorable one to look up later (e.g. from a Vega-Lite chart
+      // cell), auto-generated otherwise.
+      const selectionId =
+        options.id ??
+        `webgeods-tablecell-${callNumber}`;
 
       const findFeatureByKey =
         (key) => {
@@ -1390,6 +1515,27 @@
         let selectedKey =
           null;
 
+        // Fires WebGeoDSMap.SELECTION_CHANGE_EVENT on `container` --
+        // the public entry point's other half (findTableSelection()'s
+        // .select()/.getSelectedKey() are the "drive it" half). Any
+        // consumer (a Vega-Lite chart cell, or another future one) can
+        // addEventListener() on the same container object it already
+        // got back from tableCell() to react to a selection made by
+        // ANY cause: a map click, a table row click, or another
+        // consumer's own .select() call. Called from every place
+        // `selectedKey` actually changes, below.
+        const announceSelection =
+          () => {
+
+            containerEl?.dispatchEvent(
+              new CustomEvent(
+                WebGeoDSMap.SELECTION_CHANGE_EVENT,
+                { detail: { key: selectedKey } }
+              )
+            );
+
+          };
+
         const render =
           async () => {
 
@@ -1409,6 +1555,8 @@
               await this.removeGeoJSON(
                 SELECTION_SOURCE_ID
               );
+
+              announceSelection();
 
             }
 
@@ -1463,9 +1611,51 @@
 
             }
 
+            announceSelection();
+
             await render();
 
           };
+
+        // Public entry point -- see WebGeoDSMap.findTableSelection()'s
+        // doc comment above. Exposed TWO ways, for two different
+        // consumers of the same capability:
+        //   - directly on `container` (.select/.getSelectedKey) --
+        //     ergonomic for a chart {ojs} cell in the SAME document,
+        //     which already holds `container` as its own cell value
+        //     (e.g. `pyTopologyTable`) and can call
+        //     `pyTopologyTable.select(key)` with no lookup;
+        //   - via _tableSelections, keyed by `selectionId` -- for a
+        //     consumer that ISN'T itself an {ojs} cell (a plain
+        //     <script>) or doesn't hold that reference, reached
+        //     instead via WebGeoDS.Map.findTableSelection(id).
+        // `.select()` is `selectByKey` itself: calling it externally
+        // is indistinguishable from a click, including the
+        // toggle-off-if-already-selected behavior. `container.dataset
+        // .webgeodsSelectionId` surfaces the resolved id either way
+        // (explicit `options.id` or the auto-generated fallback) so
+        // it's discoverable from the element alone.
+        if (containerEl) {
+
+          containerEl.select =
+            selectByKey;
+
+          containerEl.getSelectedKey =
+            () => selectedKey;
+
+          containerEl.dataset.webgeodsSelectionId =
+            selectionId;
+
+        }
+
+        _tableSelections.set(
+          selectionId,
+          {
+            select: selectByKey,
+            getSelectedKey: () => selectedKey,
+            element: containerEl
+          }
+        );
 
         render();
 
@@ -1531,6 +1721,18 @@
 
           this.map.off("sourcedata", sourceHandler);
           this.map.off("click", clickHandler);
+
+          // Only if WE own that entry -- if another render()/instance
+          // (e.g. under a shortened id collision) has already
+          // overwritten it, leave that one alone rather than deleting
+          // out from under it.
+          if (_tableSelections.get(selectionId)?.element === containerEl) {
+
+            _tableSelections.delete(
+              selectionId
+            );
+
+          }
 
         };
 

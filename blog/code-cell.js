@@ -1279,6 +1279,17 @@
     const button =
       document.createElement("button");
 
+    // Same graphic as every tool's own buttons (shared/ui.js's
+    // resetButton/downloadButton) -- unstyled before this, a real
+    // visual inconsistency found reviewing geometry-validity.qmd
+    // (plain browser-default buttons next to the tools' pill-shaped
+    // outline ones).
+    button.className =
+      "webgeods-panel-btn";
+
+    button.dataset.variant =
+      "outline";
+
     button.textContent =
       label;
 

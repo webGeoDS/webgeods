@@ -18,6 +18,7 @@ FILES=(
   table.js
   upload.js
   download.js
+  ui.js
   styles.css
   _brand.yml
   webgeods-cells.lua
