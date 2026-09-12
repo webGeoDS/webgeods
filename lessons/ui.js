@@ -376,6 +376,90 @@
 
 
   // ============================================================
+  // rasterDownloadButton(options) -- the "⬇ Download ..." button for
+  // tools that export a raster (GeoTIFF) rather than GeoJSON. Kept as
+  // its own function rather than a branch of downloadButton() above:
+  // the payload doesn't just serialize in-memory data, it comes from
+  // running a hidden export CodeCell and reading back a base64 value,
+  // which needs a distinct sequence (prepare -> run cell -> read ->
+  // decode -> download). Splitting it out means downloadButton()'s
+  // existing GeoJSON callers are untouched by this addition, same
+  // reasoning as keeping buffer-proximity's ringPaint separate from
+  // matchPaint().
+  //
+  // options: { label, enabled, prepare, cellId, decode, getBaseName,
+  // getFilename, tool, mimeType }.
+  //
+  // `prepare` is the one tool-specific step: a function that sets the
+  // `window.*` globals the export cell reads via `#| inject:`, and
+  // doubles as the live readiness check -- returning `false` aborts
+  // before anything else runs (same as each tool's own
+  // `if (!resultSummary) return;` guard did, checked live at click
+  // time against the tool's own reactive state, not a value closed
+  // over once at button-creation time). `decode` is the caller's own
+  // base64-to-bytes function (already needed locally in every raster
+  // tool to render the live preview overlay, so not worth a second
+  // copy in here). `getFilename(base)` returns the final filename;
+  // `enabled` only drives the initial disabled/enabled look, same
+  // caveat as downloadButton() above.
+  // ============================================================
+
+  function rasterDownloadButton({
+    label = "⬇ Download",
+    enabled,
+    prepare,
+    cellId,
+    decode,
+    getBaseName,
+    getFilename,
+    tool,
+    mimeType = "image/tiff"
+  }) {
+
+    const button =
+      document.createElement("button");
+
+    button.className =
+      "webgeods-panel-btn";
+
+    button.dataset.variant =
+      "outline";
+
+    button.textContent =
+      label;
+
+    button.disabled =
+      !enabled;
+
+    button.onclick =
+      async () => {
+        if (prepare() === false) return;
+        button.disabled = true;
+        const originalText = button.textContent;
+        button.textContent = "⌛ Preparing...";
+        try {
+          await window.WebGeoDS.CodeCell.find(cellId).run();
+          const b64 = document.getElementById(cellId).value;
+          const bytes = decode(b64);
+          const base = getBaseName ? getBaseName() : null;
+          window.WebGeoDS.downloadBlob(
+            bytes,
+            getFilename(base),
+            mimeType,
+            { tool }
+          );
+        } finally {
+          button.disabled = false;
+          button.textContent = originalText;
+        }
+      };
+
+    return button;
+
+  }
+
+
+  // ============================================================
   // createSharedMap({ tool, center, zoom, height }) -- the
   // WebGeoDS.Map instantiate-and-ready sequence, byte-identical
   // across every tool except the tracked `tool` name. Not blocked by
@@ -434,6 +518,7 @@
   window.WebGeoDS.uploadStatusEl = uploadStatusEl;
   window.WebGeoDS.resetButton = resetButton;
   window.WebGeoDS.downloadButton = downloadButton;
+  window.WebGeoDS.rasterDownloadButton = rasterDownloadButton;
   window.WebGeoDS.createSharedMap = createSharedMap;
   window.WebGeoDS.controlPanelRow = controlPanelRow;
 

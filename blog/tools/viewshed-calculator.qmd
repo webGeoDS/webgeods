@@ -562,38 +562,21 @@ mapClickWiring = {
 ```{ojs}
 //| echo: false
 //| output: false
-downloadButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "⬇ Download (calculation CRS)";
-  button.disabled = !resultSummary;
-  button.onclick = async () => {
-    if (!resultSummary) return;
-    button.disabled = true;
-    const originalText = button.textContent;
-    button.textContent = "⌛ Preparing...";
-    try {
-      window.obsLon = resultSummary.obsLon;
-      window.obsLat = resultSummary.obsLat;
-      window.obsHeight = resultSummary.observerHeight;
-      await window.WebGeoDS.CodeCell.find("viewshed-export-r").run();
-      const b64 = document.getElementById("viewshed-export-r").value;
-      const bytes = base64ToBytes(b64);
-      const base = WebGeoDS.Upload.baseName(uploadedFiles);
-      WebGeoDS.downloadBlob(
-        bytes,
-        base ? `${base}-viewshed.tif` : "viewshed.tif",
-        "image/tiff",
-        { tool: "viewshed-calculator" }
-      );
-    } finally {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
-  };
-  return button;
-}
+downloadButton = WebGeoDS.rasterDownloadButton({
+  label: "⬇ Download (calculation CRS)",
+  enabled: !!resultSummary,
+  prepare: () => {
+    if (!resultSummary) return false;
+    window.obsLon = resultSummary.obsLon;
+    window.obsLat = resultSummary.obsLat;
+    window.obsHeight = resultSummary.observerHeight;
+  },
+  cellId: "viewshed-export-r",
+  decode: base64ToBytes,
+  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
+  getFilename: (base) => base ? `${base}-viewshed.tif` : "viewshed.tif",
+  tool: "viewshed-calculator"
+})
 ```
 
 ```{ojs}
@@ -617,12 +600,7 @@ resetMapButton = WebGeoDS.resetButton(resetCalculator)
 ```{ojs}
 //| echo: false
 //| output: false
-controlPanelRow = {
-  const row = document.createElement("div");
-  row.className = "webgeods-panel-row";
-  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
-  return row;
-}
+controlPanelRow = WebGeoDS.controlPanelRow([uploadControl, loadExampleButton, downloadButton, resetMapButton])
 ```
 
 *First run loads the R engine — expect 1-3 minutes (R's WebAssembly

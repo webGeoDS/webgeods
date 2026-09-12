@@ -440,12 +440,7 @@ convertButton = {
 // flash into view there FIRST (Quarto's own auto-display), then
 // disappear and reappear down in the panel once ${controlPanelRow}
 // mounts the same node — same reasoning as every button cell above.
-controlPanelRow = {
-  const row = document.createElement("div");
-  row.className = "webgeods-panel-row";
-  row.append(uploadControl, loadExampleButton, resetMapButton);
-  return row;
-}
+controlPanelRow = WebGeoDS.controlPanelRow([uploadControl, loadExampleButton, resetMapButton])
 ```
 
 ```{ojs}

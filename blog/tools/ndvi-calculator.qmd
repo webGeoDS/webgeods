@@ -545,37 +545,20 @@ NDVI_RAMP = [
 ```{ojs}
 //| echo: false
 //| output: false
-downloadButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "⬇ Download NDVI";
-  button.disabled = !resultSummary;
-  button.onclick = async () => {
-    if (!resultSummary) return;
-    button.disabled = true;
-    const originalText = button.textContent;
-    button.textContent = "⌛ Preparing...";
-    try {
-      window.nirBand = resultSummary.nirBand;
-      window.redBand = resultSummary.redBand;
-      await window.WebGeoDS.CodeCell.find("ndvi-export-py").run();
-      const b64 = document.getElementById("ndvi-export-py").value;
-      const bytes = base64ToBytes(b64);
-      const base = WebGeoDS.Upload.baseName(uploadedFiles);
-      WebGeoDS.downloadBlob(
-        bytes,
-        base ? `${base}-ndvi.tif` : "ndvi.tif",
-        "image/tiff",
-        { tool: "ndvi-calculator" }
-      );
-    } finally {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
-  };
-  return button;
-}
+downloadButton = WebGeoDS.rasterDownloadButton({
+  label: "⬇ Download NDVI",
+  enabled: !!resultSummary,
+  prepare: () => {
+    if (!resultSummary) return false;
+    window.nirBand = resultSummary.nirBand;
+    window.redBand = resultSummary.redBand;
+  },
+  cellId: "ndvi-export-py",
+  decode: base64ToBytes,
+  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
+  getFilename: (base) => base ? `${base}-ndvi.tif` : "ndvi.tif",
+  tool: "ndvi-calculator"
+})
 ```
 
 ```{ojs}
@@ -599,12 +582,7 @@ resetMapButton = WebGeoDS.resetButton(resetCalculator)
 ```{ojs}
 //| echo: false
 //| output: false
-controlPanelRow = {
-  const row = document.createElement("div");
-  row.className = "webgeods-panel-row";
-  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
-  return row;
-}
+controlPanelRow = WebGeoDS.controlPanelRow([uploadControl, loadExampleButton, downloadButton, resetMapButton])
 ```
 
 *First run loads the Python engine — expect 30-40 seconds. Instant

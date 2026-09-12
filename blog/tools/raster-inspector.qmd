@@ -314,35 +314,21 @@ resetMapButton = WebGeoDS.resetButton(resetInspector)
 // natural "enriched" raster to hand back (the stats are page-level
 // scalars, not a per-pixel value to overlay), so a machine-readable
 // report of what's on screen is the closest equivalent.
-downloadButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "⬇ Download";
-  button.onclick = () => {
-    const data = pyInspect?.summary;
-    if (!data) return;
-    const base = WebGeoDS.Upload.baseName(uploadedFiles);
-    WebGeoDS.downloadBlob(
-      JSON.stringify(data, null, 2),
-      base ? `${base}-stats.json` : "raster-stats.json",
-      "application/json",
-      { tool: "raster-inspector" }
-    );
-  };
-  return button;
-}
+downloadButton = WebGeoDS.downloadButton({
+  getFeatures: () => pyInspect?.summary,
+  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
+  filenameSuffix: "-stats.json",
+  defaultFilename: "raster-stats.json",
+  enabled: true,
+  tool: "raster-inspector",
+  mimeType: "application/json"
+})
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
-controlPanelRow = {
-  const row = document.createElement("div");
-  row.className = "webgeods-panel-row";
-  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
-  return row;
-}
+controlPanelRow = WebGeoDS.controlPanelRow([uploadControl, loadExampleButton, downloadButton, resetMapButton])
 ```
 
 *First run loads the Python engine — expect 30-40 seconds. Instant
