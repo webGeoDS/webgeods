@@ -314,14 +314,7 @@ resetInspector = async () => {
 ```{ojs}
 //| echo: false
 //| output: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "🔄 Reset";
-  button.onclick = () => resetInspector();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetInspector)
 ```
 
 ```{ojs}

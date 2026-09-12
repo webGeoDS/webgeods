@@ -128,6 +128,27 @@ INSPECT_PAINT = ({
 
 ```{ojs}
 //| echo: false
+//| output: false
+// Same line-paint companion as geometry-validity.qmd's
+// VALIDITY_OUTLINE_PAINT, and the same reason: the example's own
+// "bowtie" feature is a self-intersecting polygon, which tessellates
+// to a ZERO-area fill in MapLibre — verified empirically, drawing
+// only the square (and its exact duplicate on top of it) visible, the
+// bowtie invisible. WebGeoDS.toOutlineFeatures() (shared/ui.js) draws
+// every feature's ring as a line too, which has no such dependency.
+INSPECT_OUTLINE_PAINT = ({
+  "line-color": [
+    "case",
+    ["==", ["get", "valid"], true],
+    "#2ea44f",
+    "#e05252"
+  ],
+  "line-width": 2.5
+})
+```
+
+```{ojs}
+//| echo: false
 // The summary cards' own state, separate from reading pyInspect/
 // rInspect directly: those are the CodeCells' cached values, which
 // Reset below has no way to clear (there's nothing to re-run) —
@@ -148,13 +169,14 @@ mutable rSummary = null
 pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
 {
   if (pyInspect) {
-    // mapFeatures (WGS84), falling back to features: the default
-    // inspect-py code returns both, but the CRS-mismatch example in
-    // section 6 deliberately returns only "features", still in Web
-    // Mercator — that's the whole point of that example (see its own
-    // callout below), so it must NOT be silently reprojected here.
+    // mapFeatures (WGS84), falling back to features -- a defensive
+    // default; every example on this page (including the CRS-mismatch
+    // one in section 6, fixed to reproject for the map while keeping
+    // its own native-CRS "features"/bounds for the "look how odd this
+    // is" point) provides mapFeatures explicitly.
     const mapData = pyInspect.mapFeatures ?? pyInspect.features;
     await sharedMap.setGeoJSON("inspect-py", mapData, { paint: INSPECT_PAINT });
+    await sharedMap.setGeoJSON("inspect-py-outline", WebGeoDS.toOutlineFeatures(mapData), { paint: INSPECT_OUTLINE_PAINT });
     // Zooms to whatever was just inspected — same as the standalone
     // tool. Without this the CRS-mismatch example in section 6 would
     // load fine but stay invisible: the map would just sit at its
@@ -176,6 +198,7 @@ rInspect = WebGeoDS.getCellValue("inspect-r", Generators)
     // Same mapFeatures/features fallback as pyInspect above.
     const mapData = rInspect.mapFeatures ?? rInspect.features;
     await sharedMap.setGeoJSON("inspect-r", mapData, { paint: INSPECT_PAINT });
+    await sharedMap.setGeoJSON("inspect-r-outline", WebGeoDS.toOutlineFeatures(mapData), { paint: INSPECT_OUTLINE_PAINT });
     await sharedMap.fitToData(mapData);
     mutable rSummary = rInspect.summary;
   }
@@ -253,7 +276,7 @@ ${statCardsRow}
 ```{ojs}
 //| echo: false
 resetInspection = async () => {
-  for (const id of ["inspect-py", "inspect-r"]) {
+  for (const id of ["inspect-py", "inspect-r", "inspect-py-outline", "inspect-r-outline"]) {
     if (sharedMap.getGeoJSON(id)) {
       await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
     }
@@ -265,12 +288,7 @@ resetInspection = async () => {
 
 ```{ojs}
 //| echo: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and summary";
-  button.onclick = () => resetInspection();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetInspection, "🔄 Reset map and summary")
 ```
 
 ## 4. Inspect: summarize your file
@@ -296,11 +314,17 @@ for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
         pass
 
 if gdf is None:
+    # Same four features as the standalone tool's own example (kept in
+    # sync deliberately -- this article and that tool describe the
+    # same engine, so their examples should show the same thing):
+    # a square, an exact duplicate of it, a genuinely distinct valid
+    # triangle, and a self-intersecting "bowtie" for the invalid case.
     a = {"type": "Polygon", "coordinates": [[[12.40, 41.80], [12.50, 41.80], [12.50, 41.90], [12.40, 41.90], [12.40, 41.80]]]}
+    b = {"type": "Polygon", "coordinates": [[[12.60, 41.80], [12.70, 41.80], [12.65, 41.90], [12.60, 41.80]]]}
     c = {"type": "Polygon", "coordinates": [[[12.75, 41.80], [12.85, 41.90], [12.75, 41.90], [12.85, 41.80], [12.75, 41.80]]]}
     gdf = gpd.GeoDataFrame(
-        {"name": ["square", "square (copy)", "bowtie"], "population": [1200, 1200, None]},
-        geometry=[shape(a), shape(a), shape(c)],
+        {"name": ["square-1", "square-1-copy", "triangle", "bowtie (invalid)"], "population": [1200, 1200, 340, None]},
+        geometry=[shape(a), shape(a), shape(b), shape(c)],
         crs="EPSG:4326"
     )
 
@@ -376,10 +400,13 @@ for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
 }
 
 if (is.null(data)) {
+  # Same four features as the standalone tool's own example -- see the
+  # Python cell's own comment for why they're kept in sync.
   wkt_a <- "POLYGON((12.40 41.80, 12.50 41.80, 12.50 41.90, 12.40 41.90, 12.40 41.80))"
+  wkt_b <- "POLYGON((12.60 41.80, 12.70 41.80, 12.65 41.90, 12.60 41.80))"
   wkt_c <- "POLYGON((12.75 41.80, 12.85 41.90, 12.75 41.90, 12.85 41.80, 12.75 41.80))"
-  geoms <- st_as_sfc(c(wkt_a, wkt_a, wkt_c), crs = 4326)
-  data <- st_sf(name = c("square", "square (copy)", "bowtie"), population = c(1200, 1200, NA), geometry = geoms)
+  geoms <- st_as_sfc(c(wkt_a, wkt_a, wkt_b, wkt_c), crs = 4326)
+  data <- st_sf(name = c("square-1", "square-1-copy", "triangle", "bowtie (invalid)"), population = c(1200, 1200, 340, NA), geometry = geoms)
 }
 
 # CRS is reported in the file's OWN units below (see section 2/6) — a
@@ -542,8 +569,18 @@ geometry_types = sorted(set(gdf.geometry.geom_type))
 bounds = [round(float(b), 6) for b in gdf.total_bounds]
 crs = gdf.crs.to_string() if gdf.crs is not None else None
 
+# "features"/bounds/crs stay in the file's own EPSG:3857 -- that's the
+# whole point of this example (see the callout above). The map still
+# needs WGS84 to draw anything at all: without this, the reactive cell
+# above draws the raw Web-Mercator-scale numbers as if they were
+# degrees, which produced nothing visible (verified empirically,
+# fitToData() silently failing on the degenerate bounds) -- exactly
+# the bug found and fixed the same way in crs-mismatch.qmd.
+map_gdf = gdf.to_crs("EPSG:4326")
+
 {
     "features": gdf.__geo_interface__,
+    "mapFeatures": map_gdf.__geo_interface__,
     "summary": {
         "total": len(gdf), "geometryTypes": geometry_types, "crs": crs, "bounds": bounds,
         "attributeNames": attribute_columns,
@@ -564,8 +601,14 @@ attribute_names <- setdiff(names(data), c("geometry", "valid", "empty", "duplica
 geometry_types <- sort(unique(as.character(st_geometry_type(data))))
 bnd <- st_bbox(data)
 
+# Same reasoning as the Python cell's own comment: "features"/bounds/
+# crs stay in EPSG:3857 (the whole point of this example), but the map
+# needs a WGS84 copy to draw anything at all.
+map_data <- st_transform(data, 4326)
+
 result <- list(
   features = jsonlite::fromJSON(sf_geojson(data), simplifyVector = FALSE),
+  mapFeatures = jsonlite::fromJSON(sf_geojson(map_data), simplifyVector = FALSE),
   summary = list(
     total = jsonlite::unbox(nrow(data)), geometryTypes = geometry_types,
     crs = jsonlite::unbox(st_crs(data)$input),

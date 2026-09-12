@@ -248,12 +248,7 @@ resetResult = async () => {
 
 ```{ojs}
 //| echo: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and result";
-  button.onclick = () => resetResult();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetResult, "🔄 Reset map and result")
 ```
 
 ## 4. Compute: viewshed in R — runnable here; Python — reference only

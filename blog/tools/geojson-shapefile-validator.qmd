@@ -344,10 +344,32 @@ VALIDITY_PAINT = ({
 ```{ojs}
 //| echo: false
 //| output: false
+// Line companion to VALIDITY_PAINT -- the bundled "bowtie" example is
+// a self-intersecting polygon, which tessellates to a ZERO-area fill
+// in MapLibre (verified empirically: invisible on the map, correct in
+// the table) -- same fix as geometry-validity.qmd and the other tools
+// sharing this example. WebGeoDS.toOutlineFeatures() (shared/ui.js)
+// draws every feature's ring as a line too, which has no such
+// dependency.
+VALIDITY_OUTLINE_PAINT = ({
+  "line-color": [
+    "case",
+    ["==", ["get", "valid"], false],
+    "#e05252",
+    "#2ea44f"
+  ],
+  "line-width": 2.5
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
 pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
 {
   if (pyDiagnose) {
     await sharedMap.setGeoJSON("geometry-py", pyDiagnose.features, { paint: VALIDITY_PAINT });
+    await sharedMap.setGeoJSON("geometry-py-outline", WebGeoDS.toOutlineFeatures(pyDiagnose.features), { paint: VALIDITY_OUTLINE_PAINT });
     // Zooms to whatever was just diagnosed — an upload or "Load
     // example" — instead of leaving the map at its initial wide view
     // (see autoValidate() above: there's no button click left to hang
@@ -388,8 +410,10 @@ mutable crsWarning = null
 ```{ojs}
 //| echo: false
 resetValidator = async () => {
-  if (sharedMap.getGeoJSON("geometry-py")) {
-    await sharedMap.setGeoJSON("geometry-py", { type: "FeatureCollection", features: [] });
+  for (const id of ["geometry-py", "geometry-py-outline"]) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
   }
   mutable exportFeatures = null;
   mutable crsWarning = null;
@@ -399,14 +423,7 @@ resetValidator = async () => {
 ```{ojs}
 //| echo: false
 //| output: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "🔄 Reset";
-  button.onclick = () => resetValidator();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetValidator)
 ```
 
 `make_valid()` rebuilds the geometry into an equivalent, valid form —
@@ -516,6 +533,7 @@ pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
 {
   if (pyRepair) {
     await sharedMap.setGeoJSON("geometry-py", pyRepair.features);
+    await sharedMap.setGeoJSON("geometry-py-outline", WebGeoDS.toOutlineFeatures(pyRepair.features));
     mutable exportFeatures = pyRepair.originalCrsFeatures;
   }
 }

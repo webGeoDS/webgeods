@@ -396,6 +396,34 @@ statCardsRow = {
 
 ${statCardsRow}
 
+```{ojs}
+//| echo: false
+resetBufferArticle = async () => {
+  const ids = [
+    "buffer-proximity-py-original-point",
+    "buffer-proximity-py-original-line",
+    "buffer-proximity-py-original-polygon",
+    "buffer-proximity-py"
+  ];
+  for (const id of ids) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
+  }
+  mutable pySummary = null;
+  mutable rSummary = null;
+  mutable crsWarning = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = WebGeoDS.resetButton(resetBufferArticle, "🔄 Reset map and cards")
+```
+
+${resetMapButton}
+
 ## 4. One distance, three different shapes
 
 The numbers below describe the built-in fallback specifically (a

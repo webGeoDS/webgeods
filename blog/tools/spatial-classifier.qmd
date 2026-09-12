@@ -24,15 +24,7 @@ never gets the chance to see your data.
 ```{ojs}
 //| echo: false
 mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-```{ojs}
-//| echo: false
 mutable uploadBusy = false
-```
-
-```{ojs}
-//| echo: false
 mutable uploadedFiles = null
 ```
 
@@ -73,23 +65,13 @@ uploadControl = WebGeoDS.Upload.createControl({
 ```{ojs}
 //| echo: false
 //| output: false
-uploadStatusEl = {
-  const span = document.createElement("span");
-  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
-  span.textContent = uploadStatus;
-  return span;
-}
+uploadStatusEl = WebGeoDS.uploadStatusEl(uploadStatus, uploadBusy)
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.45, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  window.WebGeoDS.track?.("tool_loaded", { tool: "spatial-classifier" });
-  return map;
-}
+sharedMap = await WebGeoDS.createSharedMap({ tool: "spatial-classifier" })
 ```
 
 The code itself isn't shown here — it's a fixed, non-editable
@@ -279,28 +261,19 @@ CLASS_PALETTE = ["#ab502b", "#42583c", "#3d5a73", "#c48a2e", "#8b2f24"]
 ```{ojs}
 //| echo: false
 //| output: false
-// A function, not a static constant: the number/names of classes
-// depend on what's actually in the uploaded column -- same pattern as
-// the clustering tool's own clusterPaint. `field` differs by layer:
-// the training layer colors by the TRUE class ("class"), the grid
-// layer by the PREDICTED class ("predictedClass") -- same palette, so
-// the two are directly comparable on the map.
-classPaint = (classLabels, field, opts = {}) => {
-  const expr = ["match", ["get", field]];
-  classLabels.forEach((label, i) => {
-    expr.push(label, CLASS_PALETTE[i % CLASS_PALETTE.length]);
-  });
-  expr.push("#766851"); // fallback neutral, shouldn't normally show
-  if (opts.fill) {
-    return { "fill-color": expr, "fill-opacity": 0.45, "fill-outline-color": "rgba(0,0,0,0)" };
-  }
-  return {
-    "circle-color": expr,
-    "circle-radius": 6,
-    "circle-stroke-width": 1.5,
-    "circle-stroke-color": "#2a2117"
-  };
-}
+// Same "match" expression built by hand before, now shared/ui.js's
+// matchPaint() (also handles the empty-labels case that could
+// otherwise build an invalid MapLibre expression -- see its own doc
+// comment). `field` differs by layer: the training layer colors by
+// the TRUE class ("class"), the grid layer by the PREDICTED class
+// ("predictedClass") -- same palette, so the two are directly
+// comparable on the map.
+classPaint = (classLabels, field, opts = {}) =>
+  WebGeoDS.matchPaint(classLabels, field, {
+    palette: CLASS_PALETTE,
+    fill: opts.fill,
+    strokeWidth: 1.5
+  })
 ```
 
 ```{.webgeods-python #spatial-classifier-compute-py}
@@ -578,14 +551,7 @@ resetClassifier = async () => {
 ```{ojs}
 //| echo: false
 //| output: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "🔄 Reset";
-  button.onclick = () => resetClassifier();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetClassifier)
 ```
 
 ```{ojs}
@@ -593,43 +559,20 @@ resetMapButton = {
 //| output: false
 // Gated on resultSummary (a completed Compute), not just an upload --
 // downloading an unclassified file wouldn't be this tool's own output.
-downloadButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "⬇ Download";
-  button.disabled = !resultSummary;
-  button.onclick = async () => {
-    if (!exportFeatures) return;
-    button.disabled = true;
-    const originalText = button.textContent;
-    button.textContent = "⌛ Preparing...";
-    try {
-      const base = WebGeoDS.Upload.baseName(uploadedFiles);
-      WebGeoDS.downloadBlob(
-        JSON.stringify(exportFeatures, null, 2),
-        base ? `${base}-classified-surface.geojson` : "classified-surface.geojson",
-        "application/geo+json",
-        { tool: "spatial-classifier" }
-      );
-    } finally {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
-  };
-  return button;
-}
+downloadButton = WebGeoDS.downloadButton({
+  getFeatures: () => exportFeatures,
+  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
+  filenameSuffix: "-classified-surface.geojson",
+  defaultFilename: "classified-surface.geojson",
+  enabled: !!resultSummary,
+  tool: "spatial-classifier"
+})
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
-controlPanelRow = {
-  const row = document.createElement("div");
-  row.className = "webgeods-panel-row";
-  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
-  return row;
-}
+controlPanelRow = WebGeoDS.controlPanelRow([uploadControl, loadExampleButton, downloadButton, resetMapButton])
 ```
 
 *First run loads the Python engine — expect 30-40 seconds. Instant
@@ -656,46 +599,37 @@ ${classifierControlsRow}
 statCard = {
   const s = inspectSummary;
   const r = resultSummary;
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
 
   if (!s) {
-    row("Points", "—");
-    row("—", "Upload a point GeoJSON/Shapefile or load the example above");
-    return box;
+    return WebGeoDS.statCard([
+      ["Points", "—"],
+      ["—", "Upload a point GeoJSON/Shapefile or load the example above"]
+    ]);
   }
 
-  row("Points", s.count.toLocaleString());
-  row("Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs);
+  const rows = [
+    ["Points", s.count.toLocaleString()],
+    ["Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs]
+  ];
 
   if (r) {
-    row("Calculation CRS", r.calculationCrs);
-    row("Class column", r.classColumn);
-    row("Classes found", r.classLabels.join(", "));
-    row("Labeled points", r.labeledCount.toLocaleString());
+    rows.push(["Calculation CRS", r.calculationCrs]);
+    rows.push(["Class column", r.classColumn]);
+    rows.push(["Classes found", r.classLabels.join(", ")]);
+    rows.push(["Labeled points", r.labeledCount.toLocaleString()]);
     if (r.excludedCount > 0) {
-      row("Excluded from training", `${r.excludedCount} (too far from the calculation UTM zone to project)`);
+      rows.push(["Excluded from training", `${r.excludedCount} (too far from the calculation UTM zone to project)`]);
     }
-    row("Train / test split", r.testCount > 0 ? `${r.trainCount} / ${r.testCount}` : `${r.trainCount} / — (too few points to hold out)`);
+    rows.push(["Train / test split", r.testCount > 0 ? `${r.trainCount} / ${r.testCount}` : `${r.trainCount} / — (too few points to hold out)`]);
     // Python's None crosses over as JS `undefined`, not `null` (a
     // known site-wide ambiguity -- see the JS-conversion lesson's own
     // callout on this) -- loose equality catches both.
-    row("Held-out accuracy", r.accuracy == null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`);
-    row("Trees", r.nTrees);
-    row("Grid cells", r.gridCellCount.toLocaleString());
+    rows.push(["Held-out accuracy", r.accuracy == null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`]);
+    rows.push(["Trees", r.nTrees]);
+    rows.push(["Grid cells", r.gridCellCount.toLocaleString()]);
   }
 
-  return box;
+  return WebGeoDS.statCard(rows);
 }
 ```
 
@@ -705,31 +639,14 @@ ${statCard}
 //| echo: false
 legendEl = {
   const r = resultSummary;
-  const wrap = document.createElement("div");
-  wrap.className = "webgeods-legend";
-  if (!r) {
-    wrap.hidden = true;
-    return wrap;
-  }
-  wrap.style.flexWrap = "wrap";
-  wrap.style.rowGap = "8px";
+  if (!r) return WebGeoDS.legend(null);
 
-  const addSwatch = (color, text) => {
-    const swatch = document.createElement("div");
-    swatch.className = "webgeods-legend-bar";
-    swatch.style.flex = "0 0 24px";
-    swatch.style.background = color;
-    const label = document.createElement("span");
-    label.className = "webgeods-legend-label";
-    label.textContent = text;
-    wrap.append(swatch, label);
-  };
+  const items = r.classLabels.map((label, i) => ({
+    color: CLASS_PALETTE[i % CLASS_PALETTE.length],
+    label
+  }));
 
-  r.classLabels.forEach((label, i) => {
-    addSwatch(CLASS_PALETTE[i % CLASS_PALETTE.length], label);
-  });
-
-  return wrap;
+  return WebGeoDS.legend(items);
 }
 ```
 
@@ -749,10 +666,35 @@ sharedMapEl = sharedMap.element
 
 ```{ojs}
 //| echo: false
+//| output: false
 classifierTable = sharedMap.tableCell(["spatial-classifier-training-py"], null, Generators, {
   emptyMessage: "No results yet"
 })
 ```
+
+```{ojs}
+//| echo: false
+//| output: false
+// The grid cells the model predicted across the whole uploaded
+// extent (predictedClass per cell) — the same features the download
+// button exports (reprojected to the input's own CRS there; shown
+// here in the working WGS84 the map itself uses).
+classifierGridTable = sharedMap.tableCell(["spatial-classifier-grid-py"], null, Generators, {
+  emptyMessage: "No results yet"
+})
+```
+
+:::: {.panel-tabset}
+
+## Training points
+
+${classifierTable}
+
+## Classification areas
+
+${classifierGridTable}
+
+::::
 
 <style>
 #spatial-classifier-inspect-py, #spatial-classifier-compute-py {

@@ -463,6 +463,28 @@ statCardsRow = {
 
 ${statCardsRow}
 
+```{ojs}
+//| echo: false
+resetClassification = async () => {
+  for (const id of ["spatial-classification-grid", "spatial-classification-training"]) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
+  }
+  mutable pySummary = null;
+  mutable rSummary = null;
+  mutable crsWarning = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = WebGeoDS.resetButton(resetClassification, "🔄 Reset map and cards")
+```
+
+${resetMapButton}
+
 The filled grid is Python's predicted surface; the dots on top are the
 labeled training points, colored the same way — both languages agree
 on this partition, which is exactly what makes the next section's

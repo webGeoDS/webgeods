@@ -255,12 +255,7 @@ resetInspection = async () => {
 
 ```{ojs}
 //| echo: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and summary";
-  button.onclick = () => resetInspection();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetInspection, "🔄 Reset map and summary")
 ```
 
 ## 4. Inspect: summarize your file

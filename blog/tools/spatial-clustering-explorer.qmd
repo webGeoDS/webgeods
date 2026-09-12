@@ -22,15 +22,7 @@ never gets the chance to see your data.
 ```{ojs}
 //| echo: false
 mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-```{ojs}
-//| echo: false
 mutable uploadBusy = false
-```
-
-```{ojs}
-//| echo: false
 mutable uploadedFiles = null
 ```
 
@@ -70,23 +62,13 @@ uploadControl = WebGeoDS.Upload.createControl({
 ```{ojs}
 //| echo: false
 //| output: false
-uploadStatusEl = {
-  const span = document.createElement("span");
-  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
-  span.textContent = uploadStatus;
-  return span;
-}
+uploadStatusEl = WebGeoDS.uploadStatusEl(uploadStatus, uploadBusy)
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.45, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  window.WebGeoDS.track?.("tool_loaded", { tool: "spatial-clustering-explorer" });
-  return map;
-}
+sharedMap = await WebGeoDS.createSharedMap({ tool: "spatial-clustering-explorer" })
 ```
 
 The code itself isn't shown here — it's a fixed, non-editable
@@ -280,37 +262,12 @@ NOISE_COLOR = "#766851"
 ```{ojs}
 //| echo: false
 //| output: false
-// A function, not a static constant: the number of branches depends
-// on how many clusters DBSCAN actually found in this run -- same
-// pattern as topology-checker.qmd's errorPaint.
-clusterPaint = (clusterIds) => {
-  // A real case, not a hypothetical one: sparse real-world data at the
-  // default ε/min points can come back as ALL noise, zero real
-  // clusters -- a MapLibre "match" expression needs at least one
-  // (value, output) pair before its fallback, so an empty clusterIds
-  // would build an invalid expression (MapLibre's own error: "Expected
-  // at least 4 arguments, but found only 2"). A flat color sidesteps
-  // that entirely when there's nothing to differentiate anyway.
-  if (clusterIds.length === 0) {
-    return {
-      "circle-color": NOISE_COLOR,
-      "circle-radius": 6,
-      "circle-stroke-width": 1,
-      "circle-stroke-color": "#2a2117"
-    };
-  }
-  const expr = ["match", ["get", "cluster"]];
-  clusterIds.forEach((id, i) => {
-    expr.push(id, CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]);
-  });
-  expr.push(NOISE_COLOR);
-  return {
-    "circle-color": expr,
-    "circle-radius": 6,
-    "circle-stroke-width": 1,
-    "circle-stroke-color": "#2a2117"
-  };
-}
+// Same "match" expression clusterPaint() used to build by hand,
+// generalized as shared/ui.js's matchPaint() (also handles the empty
+// clusterIds case the comment used to explain here -- see its own
+// doc comment).
+clusterPaint = (clusterIds) =>
+  WebGeoDS.matchPaint(clusterIds, "cluster", { fallback: NOISE_COLOR })
 ```
 
 ```{.webgeods-python #spatial-clustering-compute-py}
@@ -484,14 +441,7 @@ resetExplorer = async () => {
 ```{ojs}
 //| echo: false
 //| output: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "🔄 Reset";
-  button.onclick = () => resetExplorer();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetExplorer)
 ```
 
 ```{ojs}
@@ -499,43 +449,20 @@ resetMapButton = {
 //| output: false
 // Gated on resultSummary (a completed Compute), not just an upload --
 // downloading an unclustered file wouldn't be this tool's own output.
-downloadButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "⬇ Download";
-  button.disabled = !resultSummary;
-  button.onclick = async () => {
-    if (!exportFeatures) return;
-    button.disabled = true;
-    const originalText = button.textContent;
-    button.textContent = "⌛ Preparing...";
-    try {
-      const base = WebGeoDS.Upload.baseName(uploadedFiles);
-      WebGeoDS.downloadBlob(
-        JSON.stringify(exportFeatures, null, 2),
-        base ? `${base}-clustered.geojson` : "clustered.geojson",
-        "application/geo+json",
-        { tool: "spatial-clustering-explorer" }
-      );
-    } finally {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
-  };
-  return button;
-}
+downloadButton = WebGeoDS.downloadButton({
+  getFeatures: () => exportFeatures,
+  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
+  filenameSuffix: "-clustered.geojson",
+  defaultFilename: "clustered.geojson",
+  enabled: !!resultSummary,
+  tool: "spatial-clustering-explorer"
+})
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
-controlPanelRow = {
-  const row = document.createElement("div");
-  row.className = "webgeods-panel-row";
-  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
-  return row;
-}
+controlPanelRow = WebGeoDS.controlPanelRow([uploadControl, loadExampleButton, downloadButton, resetMapButton])
 ```
 
 *First run loads the Python engine — expect 30-40 seconds. Instant
@@ -562,40 +489,31 @@ ${clusterControlsRow}
 statCard = {
   const s = inspectSummary;
   const r = resultSummary;
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
 
   if (!s) {
-    row("Points", "—");
-    row("—", "Upload a point GeoJSON/Shapefile or load the example above");
-    return box;
+    return WebGeoDS.statCard([
+      ["Points", "—"],
+      ["—", "Upload a point GeoJSON/Shapefile or load the example above"]
+    ]);
   }
 
-  row("Points", s.count.toLocaleString());
-  row("Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs);
+  const rows = [
+    ["Points", s.count.toLocaleString()],
+    ["Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs]
+  ];
 
   if (r) {
-    row("Calculation CRS", r.calculationCrs);
+    rows.push(["Calculation CRS", r.calculationCrs]);
     if (r.excludedCount > 0) {
-      row("Excluded from clustering", `${r.excludedCount} (too far from the calculation UTM zone to project)`);
+      rows.push(["Excluded from clustering", `${r.excludedCount} (too far from the calculation UTM zone to project)`]);
     }
-    row("ε (eps)", `${r.epsMeters} m`);
-    row("Min points", r.minPts);
-    row("Clusters found", r.clusterCount);
-    row("Noise points", r.noiseCount);
+    rows.push(["ε (eps)", `${r.epsMeters} m`]);
+    rows.push(["Min points", r.minPts]);
+    rows.push(["Clusters found", r.clusterCount]);
+    rows.push(["Noise points", r.noiseCount]);
   }
 
-  return box;
+  return WebGeoDS.statCard(rows);
 }
 ```
 
@@ -605,32 +523,15 @@ ${statCard}
 //| echo: false
 legendEl = {
   const r = resultSummary;
-  const wrap = document.createElement("div");
-  wrap.className = "webgeods-legend";
-  if (!r) {
-    wrap.hidden = true;
-    return wrap;
-  }
-  wrap.style.flexWrap = "wrap";
-  wrap.style.rowGap = "8px";
+  if (!r) return WebGeoDS.legend(null);
 
-  const addSwatch = (color, text) => {
-    const swatch = document.createElement("div");
-    swatch.className = "webgeods-legend-bar";
-    swatch.style.flex = "0 0 24px";
-    swatch.style.background = color;
-    const label = document.createElement("span");
-    label.className = "webgeods-legend-label";
-    label.textContent = text;
-    wrap.append(swatch, label);
-  };
+  const items = r.clusterIds.map((id, i) => ({
+    color: CLUSTER_PALETTE[i % CLUSTER_PALETTE.length],
+    label: `Cluster ${id}`
+  }));
+  if (r.noiseCount > 0) items.push({ color: NOISE_COLOR, label: "Noise" });
 
-  r.clusterIds.forEach((id, i) => {
-    addSwatch(CLUSTER_PALETTE[i % CLUSTER_PALETTE.length], `Cluster ${id}`);
-  });
-  if (r.noiseCount > 0) addSwatch(NOISE_COLOR, "Noise");
-
-  return wrap;
+  return WebGeoDS.legend(items);
 }
 ```
 

@@ -23,15 +23,7 @@ never gets the chance to see your data.
 ```{ojs}
 //| echo: false
 mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-```{ojs}
-//| echo: false
 mutable uploadBusy = false
-```
-
-```{ojs}
-//| echo: false
 mutable uploadedFiles = null
 ```
 
@@ -71,23 +63,13 @@ uploadControl = WebGeoDS.Upload.createControl({
 ```{ojs}
 //| echo: false
 //| output: false
-uploadStatusEl = {
-  const span = document.createElement("span");
-  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
-  span.textContent = uploadStatus;
-  return span;
-}
+uploadStatusEl = WebGeoDS.uploadStatusEl(uploadStatus, uploadBusy)
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.45, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  window.WebGeoDS.track?.("tool_loaded", { tool: "buffer-proximity" });
-  return map;
-}
+sharedMap = await WebGeoDS.createSharedMap({ tool: "buffer-proximity" })
 ```
 
 The code itself isn't shown here — it's a fixed, non-editable
@@ -498,14 +480,7 @@ resetBuffer = async () => {
 ```{ojs}
 //| echo: false
 //| output: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "🔄 Reset";
-  button.onclick = () => resetBuffer();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetBuffer)
 ```
 
 ```{ojs}
@@ -513,43 +488,20 @@ resetMapButton = {
 //| output: false
 // Gated on resultSummary (a completed Compute), not just an upload --
 // downloading an unbuffered file wouldn't be this tool's own output.
-downloadButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "⬇ Download";
-  button.disabled = !resultSummary;
-  button.onclick = async () => {
-    if (!exportFeatures) return;
-    button.disabled = true;
-    const originalText = button.textContent;
-    button.textContent = "⌛ Preparing...";
-    try {
-      const base = WebGeoDS.Upload.baseName(uploadedFiles);
-      WebGeoDS.downloadBlob(
-        JSON.stringify(exportFeatures, null, 2),
-        base ? `${base}-buffered.geojson` : "buffered.geojson",
-        "application/geo+json",
-        { tool: "buffer-proximity" }
-      );
-    } finally {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
-  };
-  return button;
-}
+downloadButton = WebGeoDS.downloadButton({
+  getFeatures: () => exportFeatures,
+  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
+  filenameSuffix: "-buffered.geojson",
+  defaultFilename: "buffered.geojson",
+  enabled: !!resultSummary,
+  tool: "buffer-proximity"
+})
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
-controlPanelRow = {
-  const row = document.createElement("div");
-  row.className = "webgeods-panel-row";
-  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
-  return row;
-}
+controlPanelRow = WebGeoDS.controlPanelRow([uploadControl, loadExampleButton, downloadButton, resetMapButton])
 ```
 
 *First run loads the Python engine — timing varies by device, watch
@@ -576,41 +528,30 @@ ${bufferControlsRow}
 statCard = {
   const s = inspectSummary;
   const r = resultSummary;
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
+  const rows = [];
 
   if (!s) {
-    row("Features", "—");
-    row("—", "Upload a point/line/polygon file or load the example above");
-    return box;
+    rows.push(["Features", "—"]);
+    rows.push(["—", "Upload a point/line/polygon file or load the example above"]);
+    return WebGeoDS.statCard(rows);
   }
 
-  row("Features", s.count.toLocaleString());
-  row("Geometry", s.geometryTypes.join(", "));
-  row("Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs);
+  rows.push(["Features", s.count.toLocaleString()]);
+  rows.push(["Geometry", s.geometryTypes.join(", ")]);
+  rows.push(["Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs]);
 
   if (r) {
-    row("Calculation CRS", r.calculationCrs);
+    rows.push(["Calculation CRS", r.calculationCrs]);
     if (r.excludedCount > 0) {
-      row("Excluded from buffering", `${r.excludedCount} (too far from the calculation UTM zone to project)`);
+      rows.push(["Excluded from buffering", `${r.excludedCount} (too far from the calculation UTM zone to project)`]);
     }
-    row("Buffer distance", `${r.bufferDistance} m`);
-    row("Rings", r.ringCount === 1 ? "1 (no ring split)" : `${r.ringCount} (at ${r.ringDistances.join(", ")} m)`);
-    row("Dissolved", r.dissolveBuffers ? "Yes" : "No");
-    row("Buffer features", r.bufferCount);
+    rows.push(["Buffer distance", `${r.bufferDistance} m`]);
+    rows.push(["Rings", r.ringCount === 1 ? "1 (no ring split)" : `${r.ringCount} (at ${r.ringDistances.join(", ")} m)`]);
+    rows.push(["Dissolved", r.dissolveBuffers ? "Yes" : "No"]);
+    rows.push(["Buffer features", r.bufferCount]);
   }
 
-  return box;
+  return WebGeoDS.statCard(rows);
 }
 ```
 
@@ -620,38 +561,22 @@ ${statCard}
 //| echo: false
 legendEl = {
   const r = resultSummary;
-  const wrap = document.createElement("div");
-  wrap.className = "webgeods-legend";
-  if (!r) {
-    wrap.hidden = true;
-    return wrap;
-  }
-  wrap.style.flexWrap = "wrap";
-  wrap.style.rowGap = "8px";
+  if (!r) return WebGeoDS.legend(null);
 
-  const addSwatch = (opacity, text) => {
-    const swatch = document.createElement("div");
-    swatch.className = "webgeods-legend-bar";
-    swatch.style.flex = "0 0 32px";
-    swatch.style.background = `rgba(66,88,60,${opacity})`;
-    const label = document.createElement("span");
-    label.className = "webgeods-legend-label";
-    label.textContent = text;
-    wrap.append(swatch, label);
-  };
+  const items = [];
 
   if (r.ringCount === 1) {
-    addSwatch(0.6, `Buffer (${r.bufferDistance} m)`);
-    return wrap;
+    items.push({ color: "rgba(66,88,60,0.6)", label: `Buffer (${r.bufferDistance} m)` });
+  } else {
+    let previousDistance = 0;
+    r.ringDistances.forEach((distance, i) => {
+      const opacity = 0.6 - i * (0.45 / (r.ringCount - 1));
+      items.push({ color: `rgba(66,88,60,${opacity.toFixed(2)})`, label: `${previousDistance}–${distance} m` });
+      previousDistance = distance;
+    });
   }
 
-  let previousDistance = 0;
-  r.ringDistances.forEach((distance, i) => {
-    const opacity = 0.6 - i * (0.45 / (r.ringCount - 1));
-    addSwatch(opacity.toFixed(2), `${previousDistance}–${distance} m`);
-    previousDistance = distance;
-  });
-  return wrap;
+  return WebGeoDS.legend(items, { swatchWidth: 32 });
 }
 ```
 

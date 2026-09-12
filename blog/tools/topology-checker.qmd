@@ -656,24 +656,42 @@ gapsTableCell = sharedMap.tableCell(["topology-gaps-py"], null, Generators, {
 // their own reactivity (and any current row selection) survives a
 // tab switch untouched.
 tabbedResultsView = {
+  // Same markup Quarto's own .panel-tabset renders (verified against
+  // the rendered HTML of geometry-validity.qmd/topology-errors.qmd) --
+  // plain Bootstrap nav-tabs classes, no special wrapper needed for
+  // the visual style, since the "cosmo" theme's CSS targets those
+  // classes directly. Built by hand instead of using an actual
+  // .panel-tabset (a markdown-level construct) because topologyView
+  // also drives the gaps LAYER's visibility on the map, not just
+  // which table shows -- this stays one reactive OJS mutable driving
+  // both, same as before, only the tab bar's own look changes.
   const tab = (key, label) => {
-    const button = document.createElement("button");
-    button.className = "webgeods-panel-btn";
-    if (topologyView !== key) button.dataset.variant = "outline";
-    button.textContent = label;
-    button.onclick = () => { mutable topologyView = key; };
-    return button;
+    const li = document.createElement("li");
+    li.className = "nav-item";
+    li.setAttribute("role", "presentation");
+    const a = document.createElement("a");
+    a.className = "nav-link" + (topologyView === key ? " active" : "");
+    a.href = "#";
+    a.textContent = label;
+    a.onclick = (e) => { e.preventDefault(); mutable topologyView = key; };
+    li.appendChild(a);
+    return li;
   };
 
-  const tabs = document.createElement("div");
-  tabs.className = "webgeods-panel-row";
+  const tabs = document.createElement("ul");
+  tabs.className = "nav nav-tabs";
+  tabs.setAttribute("role", "tablist");
   tabs.append(tab("features", "Original geometries"), tab("gaps", "Gaps"));
 
   featuresTableCell.style.display = topologyView === "features" ? "" : "none";
   gapsTableCell.style.display = topologyView === "gaps" ? "" : "none";
 
+  const paneWrap = document.createElement("div");
+  paneWrap.className = "tab-content";
+  paneWrap.append(featuresTableCell, gapsTableCell);
+
   const wrap = document.createElement("div");
-  wrap.append(tabs, featuresTableCell, gapsTableCell);
+  wrap.append(tabs, paneWrap);
   return wrap;
 }
 ```
@@ -725,14 +743,7 @@ resetChecker = async () => {
 ```{ojs}
 //| echo: false
 //| output: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "🔄 Reset";
-  button.onclick = () => resetChecker();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetChecker)
 ```
 
 ```{ojs}

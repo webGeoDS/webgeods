@@ -58,11 +58,9 @@ ${uploadStatus}
 ## Can a polygon look normal and still be invalid?
 
 ```{mermaid}
-flowchart TD
-    A["Looks fine on the map"] --> B["Polygon"]
-    B --> C["Geometry validator"]
-    C --> D["❌ INVALID"]
-    D --> E["Why?"]
+flowchart LR
+    A["🗺️ Looks fine on the map"] --> B{"Validity check"}
+    B --> C["❌ INVALID — why?"]
 ```
 
 Yes — a polygon can have a boundary that crosses itself, a hole that
@@ -74,7 +72,13 @@ the four ready-made examples further down.
 ## Shared map and table
 
 A single map and table, shared by every example on the page: run the
-same diagnosis in Python or R and compare the result here.
+same diagnosis in Python or R and compare the result here. The two
+languages draw to two separate layers — running one doesn't clear or
+change what the other already drew, so both stay visible together
+(and in their own tab in the table below) for a direct comparison.
+Running R doesn't "correct" or replace Python's result, and vice
+versa — if you want to see a language's result change, re-run that
+language's own cell.
 
 ```{ojs}
 //| echo: false
@@ -83,6 +87,23 @@ sharedMap = {
   const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
   await map.ready();
   return map;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Read by geometry-repair-py/-r below (via `#| inject:`) to refuse
+// running on stale session data after a Reset -- see resetValidity()'s
+// own comment for the bug this closes (verified empirically: Reset,
+// then Repair with no re-Diagnose, silently resurrected the map from
+// Python's still-in-session `gdf`, which Reset has no way to touch).
+// Initialized here, not left undefined, because CodeCell's inject
+// mechanism throws if window[name] doesn't exist yet when a cell
+// first runs.
+{
+  window.pyWasReset = false;
+  window.rWasReset = false;
 }
 ```
 
@@ -120,16 +141,65 @@ VALIDITY_PAINT = ({
 
 ```{ojs}
 //| echo: false
-topologyTable = sharedMap.tableCell(["geometry-py", "geometry-r"], null, Generators, {
-  rowClassName: (row) => {
-    if (row.valid_after === "false") return "webgeods-row-invalid";
-    if (row.valid_before === "false") return "webgeods-row-fixed";
-    if (row.valid === "false") return "webgeods-row-invalid";
-    return "";
-  },
+//| output: false
+// Same case expression as VALIDITY_PAINT, as a line paint instead of
+// fill — see WebGeoDS.toOutlineFeatures() (shared/ui.js) for why this
+// exists at all.
+VALIDITY_OUTLINE_PAINT = ({
+  "line-color": [
+    "case",
+    ["any", ["==", ["get", "valid"], true], ["==", ["get", "valid_after"], true]],
+    "#2ea44f",
+    "#e05252"
+  ],
+  "line-width": 2.5
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// One tableCell() per language, not one call merging both sources --
+// merging double-counted every feature (one row from each language's
+// independent diagnosis of the SAME uploaded polygon). See
+// shared/map.js's tableCell() doc comment for the full story.
+topologyRowClassName = (row) => {
+  if (row.valid_after === "false") return "webgeods-row-invalid";
+  if (row.valid_before === "false") return "webgeods-row-fixed";
+  if (row.valid === "false") return "webgeods-row-invalid";
+  return "";
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyTopologyTable = sharedMap.tableCell(["geometry-py"], null, Generators, {
+  rowClassName: topologyRowClassName,
   emptyMessage: "No results yet"
 })
 ```
+
+```{ojs}
+//| echo: false
+//| output: false
+rTopologyTable = sharedMap.tableCell(["geometry-r"], null, Generators, {
+  rowClassName: topologyRowClassName,
+  emptyMessage: "No results yet"
+})
+```
+
+:::: {.panel-tabset}
+
+## Python
+
+${pyTopologyTable}
+
+## R
+
+${rTopologyTable}
+
+::::
 
 ```{ojs}
 //| echo: false
@@ -172,35 +242,29 @@ crsWarningNotice = {
 
 ```{ojs}
 //| echo: false
-// A single JS-built element, not four adjacent `${...}` markdown
-// interpolations on one line (`${a} feature, ${b} valid, ${c}
-// invalid.${d}`, what this used to be) — found while testing the
-// stats fix above: Pandoc's math-dollar parser reads a `$` not
-// followed by whitespace as opening inline math and looks for the
-// next `$` to close it, so with four `${...}` in a row it swallows
-// some of them as literal "$...$" text instead of leaving them for
-// Quarto's OJS interpolation. Confirmed in the rendered HTML — the
-// third and fourth interpolations came out as the literal text
-// "{validationStats.invalid} invalid.{crsWarningNotice}" wrapped in
-// a <span class="math inline">, not real numbers. Same class of bug
-// already documented and worked around the same way elsewhere on
-// this site (see controlPanelRow's own comment further down, and
-// geojson-shapefile-validator.qmd's identical fix).
-validationStatusLine = {
-  const p = document.createElement("p");
-  const strong = document.createElement("strong");
-  strong.textContent = "Geometry validity";
-  p.append(strong, ` — ${validationStats.total} feature, ${validationStats.valid} valid, ${validationStats.invalid} invalid.${crsWarningNotice}`);
-  return p;
+//| output: false
+// Same webgeods-stat-grid card every other tool/article on the site
+// uses (WebGeoDS.statCard(), shared/ui.js) -- this used to be a
+// hand-built <p> with a bolded label, styled like nothing else here.
+validationStatCard = {
+  const rows = [
+    ["Features", validationStats.total.toLocaleString()],
+    ["Valid", validationStats.valid],
+    ["Invalid", validationStats.invalid]
+  ];
+  if (crsWarningNotice) {
+    rows.push(["CRS", crsWarningNotice.replace(/^\s*⚠️\s*/, "")]);
+  }
+  return WebGeoDS.statCard(rows);
 }
 ```
 
-${validationStatusLine}
+${validationStatCard}
 
 ```{ojs}
 //| echo: false
 resetValidity = async () => {
-  for (const id of ["geometry-py", "geometry-r"]) {
+  for (const id of ["geometry-py", "geometry-r", "geometry-py-outline", "geometry-r-outline"]) {
     if (sharedMap.getGeoJSON(id)) {
       await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
     }
@@ -210,47 +274,50 @@ resetValidity = async () => {
   mutable pyCrsWarning = null;
   mutable rCrsWarning = null;
   mutable lastResult = null;
+  // Doesn't (can't, without an expensive, possibly unnecessary engine
+  // boot just to run a cleanup snippet) actually clear Python's `gdf`/
+  // R's `data` in the language session -- those keep whatever the last
+  // Diagnose left them as. What this DOES do: flag that state as
+  // stale, so Repair (which reuses it) refuses to run against it
+  // instead of silently resurrecting a pre-reset result on the map.
+  window.pyWasReset = true;
+  window.rWasReset = true;
 }
 ```
 
 ```{ojs}
 //| echo: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and table";
-  button.onclick = () => resetValidity();
-  return button;
-}
+//| output: false
+resetMapButton = WebGeoDS.resetButton(resetValidity, "🔄 Reset map and table")
 ```
 
 ```{ojs}
 //| echo: false
-// WebGeoDS.downloadBlob (shared/download.js) — the same helper the
-// standalone tool uses. Downloads lastResult only — whichever
-// language most recently ran, diagnose or repair — not a merge of
-// both (see lastResult's own doc comment: merging duplicated every
-// feature, once per language, since both diagnose the SAME uploaded
-// data independently). Reads lastResult.exportFeatures, not the map
-// source: that holds the language's own original CRS, reprojected
-// back from the WGS84 working copy the map/table show (see
-// pyDiagnose/rDiagnose above).
-downloadButton = {
-  const button = document.createElement("button");
-  button.textContent = "⬇ Download";
-  button.onclick = () => {
-    const features = lastResult?.exportFeatures?.features ?? [];
-    if (features.length === 0) return;
-    const base = WebGeoDS.Upload.baseName(uploadedFiles);
-    WebGeoDS.downloadBlob(
-      JSON.stringify({ type: "FeatureCollection", features }, null, 2),
-      base ? `${base}-validated.geojson` : "validated-geojson.geojson",
-      "application/geo+json",
-      { tool: "geometry-validity-article" }
-    );
-  };
-  return button;
-}
+//| output: false
+// Downloads lastResult only — whichever language most recently ran,
+// diagnose or repair — not a merge of both (see lastResult's own doc
+// comment: merging duplicated every feature, once per language, since
+// both diagnose the SAME uploaded data independently). Reads
+// lastResult.exportFeatures, not the map source: that holds the
+// language's own original CRS, reprojected back from the WGS84
+// working copy the map/table show (see pyDiagnose/rDiagnose above).
+downloadButton = WebGeoDS.downloadButton({
+  getFeatures: () => (lastResult?.exportFeatures?.features?.length ? lastResult.exportFeatures : null),
+  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
+  filenameSuffix: "-validated.geojson",
+  defaultFilename: "validated-geojson.geojson",
+  enabled: (lastResult?.exportFeatures?.features?.length ?? 0) > 0,
+  tool: "geometry-validity-article"
+})
 ```
+
+```{ojs}
+//| echo: false
+//| output: false
+controlPanelRow = WebGeoDS.controlPanelRow([resetMapButton, downloadButton])
+```
+
+${controlPanelRow}
 
 ```{ojs}
 //| echo: false
@@ -354,16 +421,13 @@ list(
 )`
 ```
 
-```{ojs}
-//| echo: false
-tryExampleButton = WebGeoDS.loadExampleButton("▶ Try an example (bowtie polygon)", { pyId: "geometry-diagnose-py", rId: "geometry-diagnose-r", pyCode: pyBowtieCode, rCode: rBowtieCode })
-```
-
 ## Diagnose: validate your geometry
 
-Run the same check in Python or R on the current data (your file
-uploaded above, or the example already loaded below) — no repair yet,
-just diagnosis: is the geometry valid? If not, why?
+Run the same check in Python or R on the current data — your file
+uploaded above, or, if you haven't uploaded one, the bowtie example
+below (the diagnosis cells load it automatically when there's no
+upload) — no repair yet, just diagnosis: is the geometry valid? If
+not, why?
 
 ::: {.panel-tabset}
 
@@ -502,7 +566,9 @@ list(
 pyDiagnose = WebGeoDS.getCellValue("geometry-diagnose-py", Generators)
 {
   if (pyDiagnose) {
+    window.pyWasReset = false;
     await sharedMap.setGeoJSON("geometry-py", pyDiagnose.features, { paint: VALIDITY_PAINT });
+    await sharedMap.setGeoJSON("geometry-py-outline", WebGeoDS.toOutlineFeatures(pyDiagnose.features), { paint: VALIDITY_OUTLINE_PAINT });
     // Zooms to whatever was just diagnosed — an upload or a "Load
     // this example" click — same as every standalone tool. Without
     // this the map stays at its fixed initial view, which happened to
@@ -565,7 +631,9 @@ mutable lastResult = null
 rDiagnose = WebGeoDS.getCellValue("geometry-diagnose-r", Generators)
 {
   if (rDiagnose) {
+    window.rWasReset = false;
     await sharedMap.setGeoJSON("geometry-r", rDiagnose.features, { paint: VALIDITY_PAINT });
+    await sharedMap.setGeoJSON("geometry-r-outline", WebGeoDS.toOutlineFeatures(rDiagnose.features), { paint: VALIDITY_OUTLINE_PAINT });
     await sharedMap.fitToData(rDiagnose.features);
     mutable rExportFeatures = rDiagnose.originalCrsFeatures;
     mutable rCrsWarning = rDiagnose.crsWarning;
@@ -642,11 +710,10 @@ the page.
 
 ### Self-intersection ("bowtie")
 
-<svg viewBox="0 0 220 170" style="max-width: 320px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Bowtie polygon: the boundary crosses itself at the center">
-  <rect x="1" y="1" width="218" height="168" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
+<svg viewBox="0 0 220 200" style="max-width: 240px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Bowtie polygon: the boundary crosses itself at the center, without any special vertex there">
+  <rect x="1" y="1" width="218" height="198" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
   <path d="M 20 140 L 200 20 L 20 20 L 200 140 Z" fill="#e05252" fill-opacity="0.35" stroke="#2a2117" stroke-width="2"/>
-  <circle cx="110" cy="80" r="5" fill="#e05252" stroke="#2a2117" stroke-width="1.5"/>
-  <text x="110" y="105" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">self-intersection</text>
+  <text x="110" y="176" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">self-intersection</text>
 </svg>
 
 The polygon's boundary crosses itself, forming a bowtie shape instead
@@ -663,14 +730,14 @@ it's fixed.
 
 ### Hole extending outside the boundary
 
-<svg viewBox="0 0 260 220" style="max-width: 320px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Polygon with a hole extending outside the outer boundary">
-  <rect x="1" y="1" width="258" height="218" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
+<svg viewBox="0 0 260 250" style="max-width: 240px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Polygon with a hole extending outside the outer boundary">
+  <rect x="1" y="1" width="258" height="248" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
   <rect x="40" y="40" width="160" height="160" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
   <rect x="140" y="40" width="60" height="80" fill="#f3ede1"/>
   <rect x="140" y="20" width="100" height="20" fill="#e05252" fill-opacity="0.7"/>
   <rect x="200" y="40" width="40" height="80" fill="#e05252" fill-opacity="0.7"/>
   <rect x="140" y="20" width="100" height="100" fill="none" stroke="#2a2117" stroke-width="2" stroke-dasharray="4 3"/>
-  <text x="130" y="205" text-anchor="middle" font-family="monospace" font-size="11" fill="#2a2117">hole extends past the boundary</text>
+  <text x="130" y="228" text-anchor="middle" font-family="monospace" font-size="11" fill="#2a2117">hole extends past the boundary</text>
 </svg>
 
 A "hole" (inner ring, e.g. a lake inside a land polygon) must lie
@@ -748,12 +815,12 @@ it's fixed.
 
 ### Ring touching itself (hourglass)
 
-<svg viewBox="0 0 220 220" style="max-width: 320px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Two lobes of a polygon touching at a single vertex, without crossing">
-  <rect x="1" y="1" width="218" height="218" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
+<svg viewBox="0 0 220 250" style="max-width: 240px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Two lobes of a polygon touching at a single vertex, without crossing">
+  <rect x="1" y="1" width="218" height="248" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
   <path d="M 20 20 L 200 20 L 110 110 Z" fill="#e05252" fill-opacity="0.35" stroke="#2a2117" stroke-width="2"/>
   <path d="M 110 110 L 20 200 L 200 200 Z" fill="#e05252" fill-opacity="0.35" stroke="#2a2117" stroke-width="2"/>
   <circle cx="110" cy="110" r="5" fill="#e05252" stroke="#2a2117" stroke-width="1.5"/>
-  <text x="110" y="135" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">a single shared vertex</text>
+  <text x="110" y="228" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">a single shared vertex</text>
 </svg>
 
 The polygon's boundary touches itself at one point, without crossing,
@@ -825,16 +892,16 @@ it's fixed.
 
 ### Overlapping holes
 
-<svg viewBox="0 0 260 260" style="max-width: 320px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Two holes overlapping inside the same polygon, like a Venn diagram">
+<svg viewBox="0 0 260 290" style="max-width: 240px; height: auto; display: block; margin: 1.5rem auto;" role="img" aria-label="Two holes overlapping inside the same polygon, like a Venn diagram">
   <defs>
     <clipPath id="holeA-clip"><circle cx="105" cy="130" r="55"/></clipPath>
   </defs>
-  <rect x="1" y="1" width="258" height="258" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
+  <rect x="1" y="1" width="258" height="288" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
   <rect x="20" y="20" width="220" height="220" fill="#42583c" fill-opacity="0.15" stroke="#2a2117" stroke-width="2"/>
   <circle cx="105" cy="130" r="55" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
   <circle cx="155" cy="130" r="55" fill="#42583c" fill-opacity="0.3" stroke="#2a2117" stroke-width="2"/>
   <circle cx="155" cy="130" r="55" fill="#e05252" fill-opacity="0.85" clip-path="url(#holeA-clip)"/>
-  <text x="130" y="230" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">the two holes overlap</text>
+  <text x="130" y="268" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">the two holes overlap</text>
 </svg>
 
 If a polygon has more than one hole, they can't overlap each other:
@@ -924,6 +991,10 @@ like in a notebook) — no new reading of the file.
 ## Python
 
 ```{.webgeods-python #geometry-repair-py}
+#| inject: pyWasReset
+if pyWasReset:
+    raise RuntimeError("The map was reset since the last diagnosis — run Diagnose (Python) again before Repair.")
+
 from shapely.validation import make_valid
 
 gdf["valid_before"] = gdf["valid"]
@@ -942,6 +1013,11 @@ for col in gdf.columns:
 ## R
 
 ```{.webgeods-r #geometry-repair-r}
+#| inject: rWasReset
+if (isTRUE(rWasReset)) {
+  stop("The map was reset since the last diagnosis -- run Diagnose (R) again before Repair.")
+}
+
 library(sf)
 library(geojsonsf)
 data$valid_before <- data$valid
@@ -972,8 +1048,19 @@ pyRepair = WebGeoDS.getCellValue("geometry-repair-py", Generators)
 {
   if (pyRepair) {
     await sharedMap.setGeoJSON("geometry-py", pyRepair.features);
+    await sharedMap.setGeoJSON("geometry-py-outline", WebGeoDS.toOutlineFeatures(pyRepair.features));
     mutable pyExportFeatures = pyRepair.originalCrsFeatures;
-    mutable lastResult = { features: pyRepair.features, exportFeatures: pyRepair.originalCrsFeatures, crsWarning: pyCrsWarning, source: "py" };
+    // pyDiagnose?.crsWarning, NOT the mutable pyCrsWarning: reading a
+    // `mutable` here would make THIS block depend on it, and
+    // resetValidity()'s own `mutable pyCrsWarning = null` would then
+    // re-trigger this block with the still-stale pyRepair value right
+    // after resetValidity had just cleared the map — a real bug,
+    // found testing diagnose -> repair -> reset end to end (the
+    // repaired geometry silently reappeared right after Reset).
+    // pyDiagnose itself is never touched by resetValidity(), so
+    // reading it here carries no such risk, and it holds the exact
+    // same crsWarning value pyCrsWarning was originally set from.
+    mutable lastResult = { features: pyRepair.features, exportFeatures: pyRepair.originalCrsFeatures, crsWarning: pyDiagnose?.crsWarning, source: "py" };
   }
 }
 ```
@@ -985,8 +1072,11 @@ rRepair = WebGeoDS.getCellValue("geometry-repair-r", Generators)
 {
   if (rRepair) {
     await sharedMap.setGeoJSON("geometry-r", rRepair.features);
+    await sharedMap.setGeoJSON("geometry-r-outline", WebGeoDS.toOutlineFeatures(rRepair.features));
     mutable rExportFeatures = rRepair.originalCrsFeatures;
-    mutable lastResult = { features: rRepair.features, exportFeatures: rRepair.originalCrsFeatures, crsWarning: rCrsWarning, source: "r" };
+    // rDiagnose?.crsWarning, not the mutable rCrsWarning -- same
+    // reactive-feedback reasoning as pyRepair's own comment above.
+    mutable lastResult = { features: rRepair.features, exportFeatures: rRepair.originalCrsFeatures, crsWarning: rDiagnose?.crsWarning, source: "r" };
   }
 }
 ```

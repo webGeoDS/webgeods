@@ -311,12 +311,7 @@ resetResult = async () => {
 
 ```{ojs}
 //| echo: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and result";
-  button.onclick = () => resetResult();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetResult, "🔄 Reset map and result")
 ```
 
 ## 4. Compute: run NDVI in Python or R

@@ -418,12 +418,8 @@ resetClustering = async () => {
 
 ```{ojs}
 //| echo: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and cards";
-  button.onclick = () => resetClustering();
-  return button;
-}
+//| output: false
+resetMapButton = WebGeoDS.resetButton(resetClustering, "🔄 Reset map and cards")
 ```
 
 ${resetMapButton}

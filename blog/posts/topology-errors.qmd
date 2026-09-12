@@ -133,6 +133,14 @@ stays isolated.</div>
 
 ## 3. Shared map and table
 
+Python and R draw to separate layers here too — both stay visible at
+once (in their own language tab below), so you can compare them
+directly. Running one language doesn't clear or "correct" the other's
+result; if the default example below looks unchanged after running
+the second language, that's usually because both languages are
+checking the exact same coordinates and landing on the exact same
+shapes, not because anything failed.
+
 ```{ojs}
 //| echo: false
 //| output: false
@@ -146,21 +154,6 @@ sharedMap = {
 ```{ojs}
 //| echo: false
 sharedMapEl = sharedMap.element
-```
-
-```{ojs}
-//| echo: false
-// Which results the table shows — "features" (real per-feature rows)
-// or "gaps" (the synthetic gap polygons check_gap() finds between
-// nearby features). Two truly separate map sources per language
-// instead of one merged collection: a gap has no corresponding row in
-// the uploaded file, so merging it in made the feature COUNT lie (a
-// real 10-feature file was reported as 54) — same fix as
-// topology-checker.qmd. The map itself always shows both layers
-// together (no visibility toggle) since that already matches how it
-// looked before this fix; only the table — and the count — needed the
-// split.
-mutable topologyView = "features"
 ```
 
 ```{ojs}
@@ -207,14 +200,32 @@ gapPaint = ({
 ```{ojs}
 //| echo: false
 //| output: false
-// Two independent, stable tableCell()s (never re-created — only their
-// .style.display is toggled by tabbedResultsView below) instead of
-// one table whose sourceIds swap reactively with topologyView — keeps
-// each one's own "sourcedata" subscription alive and correctly
-// reacting to its own sources the whole time. Each merges BOTH
-// languages, same as the original single table did.
-featuresTableCell = sharedMap.tableCell(
-  ["topology-errors-py", "topology-errors-r"],
+// FOUR independent, stable tableCell()s (never re-created — only
+// their .style.display is toggled by topologyErrorsTable below), one
+// per (role x language) combination, instead of two tables each
+// merging both languages. Merging double-counted every row: with
+// both languages detecting on the SAME uploaded features
+// independently, one row came from each language for what's
+// conceptually one record (verified empirically, same bug as
+// geometry-validity.qmd's topologyTable — see shared/map.js's
+// tableCell() doc comment for the full story and why
+// SELECTION_SOURCE_ID had to become per-call to support this).
+featuresPyTableCell = sharedMap.tableCell(
+  ["topology-errors-py"],
+  null,
+  Generators,
+  {
+    rowClassName: (row) => row.has_error === "true" ? "webgeods-row-invalid" : "",
+    emptyMessage: "No results yet"
+  }
+)
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+featuresRTableCell = sharedMap.tableCell(
+  ["topology-errors-r"],
   null,
   Generators,
   {
@@ -229,8 +240,8 @@ featuresTableCell = sharedMap.tableCell(
 //| output: false
 // No rowClassName here: every row IS a gap (has_error is always true
 // for them), so coloring every row the same would add nothing.
-gapsTableCell = sharedMap.tableCell(
-  ["topology-errors-gaps-py", "topology-errors-gaps-r"],
+gapsPyTableCell = sharedMap.tableCell(
+  ["topology-errors-gaps-py"],
   null,
   Generators,
   { emptyMessage: "No gaps found" }
@@ -239,34 +250,49 @@ gapsTableCell = sharedMap.tableCell(
 
 ```{ojs}
 //| echo: false
-// Tab bar + both panes in one cell, physically positioned here where
-// the table should display (plain buttons, no .webgeods-panel-btn
-// styling — this article's own established button convention, see
-// resetMapButton/loadExampleButton below, not the standalone tool's
-// dashboard look). Reactive on topologyView, but only ever recreates
-// this thin wrapper + tab buttons — featuresTableCell/gapsTableCell
-// above are NEVER re-created, only shown/hidden, so their own
-// reactivity (and any current row selection) survives a tab switch
-// untouched.
-topologyErrorsTable = {
-  const tab = (key, label) => {
-    const button = document.createElement("button");
-    button.textContent = topologyView === key ? `● ${label}` : label;
-    button.onclick = () => { mutable topologyView = key; };
-    return button;
-  };
-
-  const tabs = document.createElement("div");
-  tabs.append(tab("features", "Original geometries"), tab("gaps", "Gaps"));
-
-  featuresTableCell.style.display = topologyView === "features" ? "" : "none";
-  gapsTableCell.style.display = topologyView === "gaps" ? "" : "none";
-
-  const wrap = document.createElement("div");
-  wrap.append(tabs, featuresTableCell, gapsTableCell);
-  return wrap;
-}
+//| output: false
+gapsRTableCell = sharedMap.tableCell(
+  ["topology-errors-gaps-r"],
+  null,
+  Generators,
+  { emptyMessage: "No gaps found" }
+)
 ```
+
+Pick a language, then what to look at: the original geometries (with
+errors highlighted) or just the gaps found between them.
+
+:::: {.panel-tabset}
+
+## Python
+
+::: {.panel-tabset}
+
+#### Original geometries
+
+${featuresPyTableCell}
+
+#### Gaps
+
+${gapsPyTableCell}
+
+:::
+
+## R
+
+::: {.panel-tabset}
+
+#### Original geometries
+
+${featuresRTableCell}
+
+#### Gaps
+
+${gapsRTableCell}
+
+:::
+
+::::
 
 ```{ojs}
 //| echo: false
@@ -384,12 +410,7 @@ resetTopologyErrors = async () => {
 
 ```{ojs}
 //| echo: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and table";
-  button.onclick = () => resetTopologyErrors();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetTopologyErrors, "🔄 Reset map and table")
 ```
 
 ```{ojs}
@@ -435,7 +456,25 @@ once before the examples below.
 ```{.webgeods-python #topology-errors-setup-py}
 #| package: geopandas, shapely
 import math
+import geopandas as gpd
 from shapely.geometry import mapping
+
+# Real square meters, not raw square degrees -- shapely's own .area on
+# WGS84-degree coordinates is a "square degrees" number with no
+# physical meaning (its magnitude depends on latitude and carries no
+# real-world unit), while R's st_area() computes a proper geographic
+# area by default. Verified empirically: the exact same overlap
+# reported 0.001 in Python and 9203648.85 (m²) in R -- not a bug in
+# either engine, but wildly inconsistent units that make the two
+# languages' numbers look unrelated instead of directly comparable,
+# for the same reasoning already established elsewhere on this site
+# (Buffer/Proximity, Spatial Clustering, Spatial Classifier all
+# reproject to a local UTM zone before measuring distance/area).
+def _project_area(geom):
+    lon, lat = geom.centroid.x, geom.centroid.y
+    zone = int((lon + 180) // 6) + 1
+    epsg = (32600 if lat >= 0 else 32700) + zone
+    return gpd.GeoSeries([geom], crs="EPSG:4326").to_crs(epsg).iloc[0].area
 
 def geom_family(gdf):
     types = set(gdf.geometry.geom_type)
@@ -454,7 +493,7 @@ def check_overlap(gdf):
         for j in range(i + 1, n):
             gi, gj = gdf.geometry.iloc[i], gdf.geometry.iloc[j]
             if gi.overlaps(gj):
-                area = gi.intersection(gj).area
+                area = _project_area(gi.intersection(gj))
                 results[i].append(("overlap", j, area))
                 results[j].append(("overlap", i, area))
     return results
@@ -552,7 +591,7 @@ def detect_and_check(gdf):
                 "type": "Feature",
                 "properties": {
                     "name": "gap", "error_type": "gap", "has_error": True,
-                    "partner": "", "metric": round(gap_geom.area, 6), "severity": "warning"
+                    "partner": "", "metric": round(_project_area(gap_geom), 6), "severity": "warning"
                 },
                 "geometry": mapping(gap_geom)
             })
@@ -854,6 +893,9 @@ down.
 ## Python
 
 ```{.webgeods-python #topology-errors-example-py}
+if "detect_and_check" not in globals():
+    raise RuntimeError("Run the setup cell above (section 3.1) first — it defines detect_and_check().")
+
 import geopandas as gpd
 from shapely.geometry import shape
 
@@ -867,6 +909,10 @@ detect_and_check(gdf)
 ## R
 
 ```{.webgeods-r #topology-errors-example-r}
+if (!exists("detect_and_check")) {
+  stop("Run the setup cell above (section 3.1) first -- it defines detect_and_check().")
+}
+
 a <- st_polygon(list(rbind(c(12.45, 41.85), c(12.52, 41.85), c(12.52, 41.92), c(12.45, 41.92), c(12.45, 41.85))))
 b <- st_polygon(list(rbind(c(12.50, 41.87), c(12.57, 41.87), c(12.57, 41.94), c(12.50, 41.94), c(12.50, 41.87))))
 data <- st_sf(name = c("A", "B"), geometry = st_sfc(a, b, crs = 4326))
@@ -1106,6 +1152,9 @@ logic.
 ## Python
 
 ```{.webgeods-python #topology-errors-uploaded-py}
+if "detect_and_check" not in globals():
+    raise RuntimeError("Run the setup cell in section 3.1 first — it defines detect_and_check().")
+
 import geopandas as gpd
 from shapely.geometry import shape
 
@@ -1157,6 +1206,10 @@ result
 ## R
 
 ```{.webgeods-r #topology-errors-uploaded-r}
+if (!exists("detect_and_check")) {
+  stop("Run the setup cell in section 3.1 first -- it defines detect_and_check().")
+}
+
 data <- NULL
 for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
   data <- tryCatch(st_read(path, quiet = TRUE), error = function(e) NULL)

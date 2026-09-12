@@ -264,6 +264,27 @@ INSPECT_PAINT = ({
 
 ```{ojs}
 //| echo: false
+//| output: false
+// Line companion to INSPECT_PAINT -- the example's own "bowtie
+// (invalid)" feature is a self-intersecting polygon, which
+// tessellates to a ZERO-area fill in MapLibre (verified empirically:
+// only the square and the triangle were ever visible, the bowtie
+// never was). WebGeoDS.toOutlineFeatures() (shared/ui.js) draws every
+// feature's ring as a line too, which has no such dependency -- same
+// fix as geometry-validity.qmd and geospatial-file-inspection.qmd.
+INSPECT_OUTLINE_PAINT = ({
+  "line-color": [
+    "case",
+    ["==", ["get", "valid"], true],
+    "#2ea44f",
+    "#e05252"
+  ],
+  "line-width": 2.5
+})
+```
+
+```{ojs}
+//| echo: false
 // The summary card's own state, separate from reading pyInspect
 // directly: pyInspect is the CodeCell's cached value, which Reset
 // below has no way to clear (there's nothing to re-run) — without
@@ -283,6 +304,7 @@ pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
     // card (and the download button below) intentionally keep the
     // file's own native CRS — see inspect-py's own comment.
     await sharedMap.setGeoJSON("inspect-py", pyInspect.mapFeatures, { paint: INSPECT_PAINT });
+    await sharedMap.setGeoJSON("inspect-py-outline", WebGeoDS.toOutlineFeatures(pyInspect.mapFeatures), { paint: INSPECT_OUTLINE_PAINT });
     // Zooms to whatever was just inspected — an upload or "Load
     // example" — same as every other tool. A no-op on an empty
     // FeatureCollection.
@@ -299,8 +321,10 @@ pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
 ```{ojs}
 //| echo: false
 resetInspector = async () => {
-  if (sharedMap.getGeoJSON("inspect-py")) {
-    await sharedMap.setGeoJSON("inspect-py", { type: "FeatureCollection", features: [] });
+  for (const id of ["inspect-py", "inspect-py-outline"]) {
+    if (sharedMap.getGeoJSON(id)) {
+      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
+    }
   }
   mutable inspectSummary = null;
 }
@@ -309,14 +333,7 @@ resetInspector = async () => {
 ```{ojs}
 //| echo: false
 //| output: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "🔄 Reset";
-  button.onclick = () => resetInspector();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetInspector)
 ```
 
 ```{ojs}

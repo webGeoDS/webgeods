@@ -171,7 +171,30 @@ elif not is_geographic and looks_geographic:
 # MapLibre/GeoJSON require WGS84 — the summary keeps the file's own
 # native CRS on purpose (that mismatch is the whole point), so the map
 # gets its own throwaway reprojected copy.
-map_gdf = gdf if original_crs == "EPSG:4326" else gdf.to_crs("EPSG:4326")
+#
+# When there's no mismatch this is just the declared CRS, correctly
+# reprojected -- straightforward. When there IS a mismatch, drawing
+# the raw numbers as if they were already WGS84 degrees produces
+# nonsense the map can't meaningfully show (e.g. "longitude" 1390000)
+# -- verified empirically: the map stayed at its default view, nothing
+# visible, fitToData() silently no-op'd on the degenerate bounds. A
+# blank map communicates nothing about the mismatch this whole example
+# exists to show. Best-effort fix, not a certainty: EPSG:3857 (Web
+# Mercator) is the single most common "large meter-scale numbers" CRS
+# for web-published data, AND this site's own basemap tiles are
+# already in it -- a reasonable default guess, not a claim about what
+# the file's real CRS actually is (which nothing in the file itself
+# can settle). map_crs_note says so explicitly wherever this guess is
+# used.
+map_crs_note = None
+if mismatch_warning and is_geographic and not looks_geographic:
+    map_gdf = gdf.set_crs("EPSG:3857", allow_override=True).to_crs("EPSG:4326")
+    map_crs_note = "Shown on the map assuming EPSG:3857 (Web Mercator) — the mismatch means the real CRS can't be known for certain."
+elif mismatch_warning and not is_geographic and looks_geographic:
+    map_gdf = gdf.set_crs("EPSG:4326", allow_override=True)
+    map_crs_note = "Shown on the map treating the coordinates directly as WGS84 lon/lat, since they already look like degrees."
+else:
+    map_gdf = gdf if original_crs == "EPSG:4326" else gdf.to_crs("EPSG:4326")
 
 {
     "features": map_gdf.__geo_interface__,
@@ -180,7 +203,8 @@ map_gdf = gdf if original_crs == "EPSG:4326" else gdf.to_crs("EPSG:4326")
         "isGeographic": is_geographic,
         "bounds": bounds,
         "crsWarning": crs_warning,
-        "mismatchWarning": mismatch_warning
+        "mismatchWarning": mismatch_warning,
+        "mapCrsNote": map_crs_note
     }
 }
 ```
@@ -228,7 +252,25 @@ if (isTRUE(is_geographic) && !looks_geographic) {
   mismatch_warning <- paste0("Declared as projected (", original_crs$input, "), but the coordinates already look like lon/lat -- likely actually geographic.")
 }
 
-map_data <- if (isTRUE(original_crs == st_crs(4326))) data else st_transform(data, 4326)
+# See the Python cell's own comment for the full reasoning: drawing
+# the raw numbers as WGS84 when there's a mismatch produces nonsense
+# the map can't show, so a mismatch instead gets a best-effort guess
+# (EPSG:3857, this site's own basemap projection) -- not a claim about
+# the file's real CRS, which nothing in the file itself can settle.
+map_crs_note <- NULL
+if (!is.null(mismatch_warning) && isTRUE(is_geographic) && !looks_geographic) {
+  relabeled <- data
+  st_crs(relabeled) <- 3857
+  map_data <- st_transform(relabeled, 4326)
+  map_crs_note <- "Shown on the map assuming EPSG:3857 (Web Mercator) -- the mismatch means the real CRS can't be known for certain."
+} else if (!is.null(mismatch_warning) && !isTRUE(is_geographic) && looks_geographic) {
+  relabeled <- data
+  st_crs(relabeled) <- 4326
+  map_data <- relabeled
+  map_crs_note <- "Shown on the map treating the coordinates directly as WGS84 lon/lat, since they already look like degrees."
+} else {
+  map_data <- if (isTRUE(original_crs == st_crs(4326))) data else st_transform(data, 4326)
+}
 
 # jsonlite::unbox() marks a value as a genuine scalar, explicitly,
 # field by field — see geospatial-file-inspection.qmd for why this is
@@ -240,7 +282,8 @@ result <- list(
     isGeographic = jsonlite::unbox(is_geographic),
     bounds = bounds,
     crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning),
-    mismatchWarning = if (is.null(mismatch_warning)) NULL else jsonlite::unbox(mismatch_warning)
+    mismatchWarning = if (is.null(mismatch_warning)) NULL else jsonlite::unbox(mismatch_warning),
+    mapCrsNote = if (is.null(map_crs_note)) NULL else jsonlite::unbox(map_crs_note)
   )
 )
 jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
@@ -326,6 +369,9 @@ statCard = (label, s) => {
   row("Type", s.isGeographic ? "Geographic (degrees)" : "Projected (usually meters)");
   row("Bounds", s.bounds.join(", "));
   row(s.mismatchWarning ? "⚠️ Mismatch" : "Mismatch check", s.mismatchWarning ?? "✓ CRS and coordinates agree");
+  if (s.mapCrsNote) {
+    row("On the map", s.mapCrsNote);
+  }
 
   return wrap;
 }
@@ -360,12 +406,7 @@ resetCrs = async () => {
 
 ```{ojs}
 //| echo: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.textContent = "🔄 Reset map and cards";
-  button.onclick = () => resetCrs();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetCrs, "🔄 Reset map and cards")
 ```
 
 ## 4. Same spatial question, two languages
@@ -409,6 +450,9 @@ between one cell and the next), no new reading of the file.
 ## Python
 
 ```{.webgeods-python #crs-convert-py}
+if "gdf" not in globals():
+    raise RuntimeError("Run the diagnosis cell above (section 3, Python) first — this reuses its data.")
+
 # A common target: Web Mercator (EPSG:3857), the projection most
 # online basemap tiles use. Printed as text, not drawn on the shared
 # map above — MapLibre/GeoJSON require WGS84, so a genuinely converted
@@ -420,6 +464,15 @@ f"{len(converted)} feature(s) now in {converted.crs.to_string()}, bounds {[round
 ## R
 
 ```{.webgeods-r #crs-convert-r}
+# inherits = FALSE: "data" is ALSO the name of base R's own data()
+# function, so a plain exists("data") would always find that and
+# never detect the missing-session-variable case this guard exists
+# for. Restricting the search to the current environment (where the
+# diagnosis cell would have assigned it) avoids that false positive.
+if (!exists("data", inherits = FALSE)) {
+  stop("Run the diagnosis cell above (section 3, R) first -- this reuses its data.")
+}
+
 library(sf)
 converted <- st_transform(data, 3857)
 sprintf("%d feature(s) now in %s, bounds %s", nrow(converted), st_crs(converted)$input, paste(round(as.numeric(st_bbox(converted)), 2), collapse = ", "))

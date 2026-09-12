@@ -593,14 +593,7 @@ resetCalculator = async () => {
 ```{ojs}
 //| echo: false
 //| output: false
-resetMapButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "🔄 Reset";
-  button.onclick = () => resetCalculator();
-  return button;
-}
+resetMapButton = WebGeoDS.resetButton(resetCalculator)
 ```
 
 ```{ojs}
