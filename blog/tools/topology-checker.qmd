@@ -48,6 +48,11 @@ mutable uploadedFiles = null
 
 ```{ojs}
 //| echo: false
+mutable uploadKind = null
+```
+
+```{ojs}
+//| echo: false
 // Which results the table (and the gaps map layer) currently shows —
 // "features" (the uploaded data, one row per original feature) or
 // "gaps" (the synthetic gap polygons check_gap() finds between
@@ -92,6 +97,7 @@ uploadControl = WebGeoDS.Upload.createControl({
   try {
     const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
     if (result.ok) {
+      mutable uploadKind = result.kind;
       mutable uploadStatus = "⌛ Checking...";
       await runCheck();
       mutable uploadStatus = result.message;
@@ -424,6 +430,31 @@ else:
 result
 ```
 
+```{.webgeods-python #topology-export-shp-py}
+# Only run on demand (see downloadButton below), not on every check:
+# re-exports gdf (the just-checked features, already available from
+# topology-diagnose-py above) reprojected back to the CRS the file
+# was UPLOADED in, as an actual shapefile (geopandas.to_file()), zips
+# the resulting .shp/.shx/.dbf/.prj/.cpg in memory, and returns it
+# base64-encoded -- same pattern as geojson-shapefile-validator.qmd's
+# geometry-export-shp-py.
+import base64
+import io
+import os
+import zipfile
+
+export_crs(gdf).to_file("/tmp/webgeods_export.shp", driver="ESRI Shapefile")
+
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+    for fname in sorted(os.listdir("/tmp")):
+        if fname.startswith("webgeods_export."):
+            with open(f"/tmp/{fname}", "rb") as f:
+                z.writestr(fname.replace("webgeods_export", "result"), f.read())
+
+base64.b64encode(buf.getvalue()).decode("ascii")
+```
+
 ```{ojs}
 //| echo: false
 //| output: false
@@ -501,6 +532,7 @@ loadExampleButton = {
     try {
       const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
       await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
+      mutable uploadKind = "geojson";
       mutable uploadStatus = "⌛ Checking...";
       await runCheck();
       mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
@@ -749,37 +781,31 @@ resetMapButton = WebGeoDS.resetButton(resetChecker)
 ```{ojs}
 //| echo: false
 //| output: false
-// WebGeoDS.downloadBlob (shared/download.js) — this page used to have
-// its own near-duplicate of geojson-shapefile-validator.qmd's own
-// function; that page's comment named "a second tool duplicating
-// this" as the trigger for promoting it, which is exactly what
-// happened, so it's shared now instead of duplicated a third time.
-downloadButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "⬇ Download";
-  button.onclick = () => {
-    const base = WebGeoDS.Upload.baseName(uploadedFiles);
-    // Original features only, same set as the Features tab/topology-py
-    // — a gap has no corresponding row in the uploaded file (that's
-    // the whole reason it got its own map source and table tab
-    // instead of being merged in), so a downloaded "here's your data
-    // plus its topology report" file shouldn't reintroduce synthetic
-    // rows the source data never had either. exportFeatures (not the
-    // map source) so the download comes back in the file's own CRS,
-    // not the WGS84 working copy the checks/map use — see
-    // topology-diagnose-py's export_crs().
-    const data = exportFeatures ?? { type: "FeatureCollection", features: [] };
-    WebGeoDS.downloadBlob(
-      JSON.stringify(data, null, 2),
-      base ? `${base}-topology-report.geojson` : "topology-report.geojson",
-      "application/geo+json",
-      { tool: "topology-checker" }
-    );
-  };
-  return button;
-}
+// WebGeoDS.downloadButton (shared/ui.js). Original features only,
+// same set as the Features tab/topology-py — a gap has no
+// corresponding row in the uploaded file (that's the whole reason it
+// got its own map source and table tab instead of being merged in),
+// so a downloaded "here's your data plus its topology report" file
+// shouldn't reintroduce synthetic rows the source data never had
+// either. exportFeatures (not the map source) so the download comes
+// back in the file's own CRS, not the WGS84 working copy the
+// checks/map use — see topology-diagnose-py's export_crs(). When the
+// upload was itself a shapefile, the `shapefile` option re-exports
+// one instead (see downloadButton's own doc comment in shared/ui.js).
+downloadButton = WebGeoDS.downloadButton({
+  getFeatures: () => exportFeatures,
+  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
+  filenameSuffix: "-topology-report.geojson",
+  defaultFilename: "topology-report.geojson",
+  enabled: !!exportFeatures,
+  tool: "topology-checker",
+  shapefile: {
+    cellId: "topology-export-shp-py",
+    uploadKind,
+    filenameSuffix: "-topology-report.zip",
+    defaultFilename: "topology-report-shapefile.zip"
+  }
+})
 ```
 
 ```{ojs}

@@ -42,6 +42,11 @@ mutable uploadedFiles = null
 
 ```{ojs}
 //| echo: false
+mutable uploadKind = null
+```
+
+```{ojs}
+//| echo: false
 //| output: false
 // The upload control itself — a native <input type="file"> wrapped
 // in a <label> styled as a .webgeods-panel-btn. output:false + only
@@ -71,6 +76,7 @@ uploadControl = WebGeoDS.Upload.createControl({
   try {
     const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
     if (result.ok) {
+      mutable uploadKind = result.kind;
       mutable uploadStatus = "⌛ Inspecting...";
       await autoInspect();
       mutable uploadStatus = result.message;
@@ -147,6 +153,7 @@ loadExampleButton = {
     try {
       const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
       await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
+      mutable uploadKind = "geojson";
       mutable uploadStatus = "⌛ Inspecting...";
       await autoInspect();
       mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
@@ -235,6 +242,31 @@ map_gdf = gdf if (gdf is None or gdf.crs == "EPSG:4326") else gdf.to_crs("EPSG:4
         "duplicates": int(gdf["duplicate"].sum()) if gdf is not None else 0
     }
 }
+```
+
+```{.webgeods-python #inspect-export-shp-py}
+# Only run on demand (see downloadButton below), not on every
+# inspect: re-exports gdf (already in the file's own native CRS, see
+# inspect-py's own comments -- no reprojection needed) as an actual
+# shapefile (geopandas.to_file()), zips the resulting
+# .shp/.shx/.dbf/.prj/.cpg in memory, and returns it base64-encoded --
+# same pattern as geojson-shapefile-validator.qmd's
+# geometry-export-shp-py.
+import base64
+import io
+import os
+import zipfile
+
+gdf.to_file("/tmp/webgeods_export.shp", driver="ESRI Shapefile")
+
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+    for fname in sorted(os.listdir("/tmp")):
+        if fname.startswith("webgeods_export."):
+            with open(f"/tmp/{fname}", "rb") as f:
+                z.writestr(fname.replace("webgeods_export", "result"), f.read())
+
+base64.b64encode(buf.getvalue()).decode("ascii")
 ```
 
 ```{ojs}
@@ -339,30 +371,28 @@ resetMapButton = WebGeoDS.resetButton(resetInspector)
 ```{ojs}
 //| echo: false
 //| output: false
-// WebGeoDS.downloadBlob (shared/download.js) — the same helper every
-// other tool uses. Downloads the enriched GeoJSON (original columns +
-// valid/empty/duplicate) in the file's own native CRS — pyInspect.
-// features, not the map source: the map source holds the WGS84 copy
-// reprojected just for display (see inspect-py/pyInspect's comments),
-// and a downloaded file should give back the same CRS it came in.
-downloadButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "⬇ Download";
-  button.onclick = () => {
-    const data = pyInspect?.features;
-    if (!data) return;
-    const base = WebGeoDS.Upload.baseName(uploadedFiles);
-    WebGeoDS.downloadBlob(
-      JSON.stringify(data, null, 2),
-      base ? `${base}-inspected.geojson` : "inspected.geojson",
-      "application/geo+json",
-      { tool: "geospatial-file-inspector" }
-    );
-  };
-  return button;
-}
+// WebGeoDS.downloadButton (shared/ui.js). Downloads the enriched
+// GeoJSON (original columns + valid/empty/duplicate) in the file's
+// own native CRS — pyInspect.features, not the map source: the map
+// source holds the WGS84 copy reprojected just for display (see
+// inspect-py/pyInspect's comments), and a downloaded file should give
+// back the same CRS it came in. When the upload was itself a
+// shapefile, the `shapefile` option re-exports one instead (see
+// downloadButton's own doc comment in shared/ui.js).
+downloadButton = WebGeoDS.downloadButton({
+  getFeatures: () => pyInspect?.features,
+  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
+  filenameSuffix: "-inspected.geojson",
+  defaultFilename: "inspected.geojson",
+  enabled: !!pyInspect,
+  tool: "geospatial-file-inspector",
+  shapefile: {
+    cellId: "inspect-export-shp-py",
+    uploadKind,
+    filenameSuffix: "-inspected.zip",
+    defaultFilename: "inspected-shapefile.zip"
+  }
+})
 ```
 
 ```{ojs}

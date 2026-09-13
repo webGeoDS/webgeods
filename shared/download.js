@@ -74,4 +74,39 @@
     downloadBlob;
 
 
+  // ============================================================
+  // WebGeoDS.base64ToBytes(base64Str) -> Uint8Array
+  //
+  // Decodes a base64 string (e.g. a zipped shapefile returned from a
+  // Python cell — the only way to get binary bytes out of a cell
+  // value) into bytes ready for downloadBlob() above. Was copy-pasted
+  // in five separate tools before downloadButton()'s own shapefile
+  // option (see shared/ui.js) needed it too — promoted here instead
+  // of becoming a sixth copy.
+  // ============================================================
+
+  function base64ToBytes(base64Str) {
+
+    const binary =
+      atob(base64Str);
+
+    const bytes =
+      new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i++) {
+
+      bytes[i] =
+        binary.charCodeAt(i);
+
+    }
+
+    return bytes;
+
+  }
+
+
+  window.WebGeoDS.base64ToBytes =
+    base64ToBytes;
+
+
 })();
