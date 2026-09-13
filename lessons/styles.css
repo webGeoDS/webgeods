@@ -158,7 +158,13 @@
 }
 
 /* Output area — same shade as the editor body, one step darker than
-   the page background so the whole cell reads as a distinct panel. */
+   the page background so the whole cell reads as a distinct panel.
+   max-height/overflow matches .webgeods-table-scroll's own 340px --
+   articles in particular tend to auto-print a raw dict/GeoJSON result
+   as their cell's own output (tools mostly suppress it in favor of a
+   custom stat card/map), which can run to hundreds of lines; capping
+   it keeps the page scannable without hiding the result, just
+   scrolling it. */
 .webgeods-output {
   background: var(--surface-muted);
   border-top: 1px solid var(--border);
@@ -166,6 +172,8 @@
   font-family: 'IBM Plex Mono', monospace;
   font-size: 13px;
   min-height: 45px;
+  max-height: 340px;
+  overflow: auto;
   white-space: pre-wrap;
   color: var(--text);
 }
