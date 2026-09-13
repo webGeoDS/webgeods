@@ -1,0 +1,397 @@
+---
+title: "Network from Lines"
+date: 2026-09-12
+categories: [tool, network]
+description: "Turn a roads or rivers layer into a graph — nodes, edges, connected components — and see exactly how much a snap tolerance changes the answer. Free, runs entirely in your browser: the file never leaves your computer."
+page-layout: full
+---
+
+Upload a line layer (roads, rivers, any network of `LineString`
+features) and build a graph from it: nodes at the line endpoints, edges
+along the lines themselves. A line network is only ever as connected as
+its own noding — two segments that were meant to meet but miss by a few
+centimeters become two separate pieces of the graph unless you tell the
+tool how close counts as "the same point". The snap tolerance slider
+below makes that decision visible instead of silent.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your
+browser (Python via WebAssembly) — it's never uploaded to any server,
+including ours. Nothing to configure, nothing to trust: the code
+never gets the chance to see your data.
+:::
+
+```{.webgeods-python #network-example-py}
+#| package: geopandas
+import json
+
+# A deliberately instructive example, not just "some lines": a closed
+# block (4 edges, one connected piece), a fully separate cluster
+# elsewhere on the map, and a "spur" whose first endpoint sits about
+# 4m from the block's corner -- not exactly on it. At snap tolerance 0
+# that gap makes 3 components; raise the tolerance past ~4m and the
+# spur joins the block, leaving 2. That gap IS the lesson this tool
+# teaches -- a network is only as connected as its noding.
+features = [
+    {"type": "Feature", "properties": {"name": "block-n"},
+     "geometry": {"type": "LineString", "coordinates": [[12.4500, 41.9000], [12.4520, 41.9000]]}},
+    {"type": "Feature", "properties": {"name": "block-e"},
+     "geometry": {"type": "LineString", "coordinates": [[12.4520, 41.9000], [12.4520, 41.9020]]}},
+    {"type": "Feature", "properties": {"name": "block-s"},
+     "geometry": {"type": "LineString", "coordinates": [[12.4520, 41.9020], [12.4500, 41.9020]]}},
+    {"type": "Feature", "properties": {"name": "block-w"},
+     "geometry": {"type": "LineString", "coordinates": [[12.4500, 41.9020], [12.4500, 41.9000]]}},
+    {"type": "Feature", "properties": {"name": "spur-1"},
+     "geometry": {"type": "LineString", "coordinates": [[12.45205, 41.9000], [12.4540, 41.9000]]}},
+    {"type": "Feature", "properties": {"name": "spur-2"},
+     "geometry": {"type": "LineString", "coordinates": [[12.4540, 41.9000], [12.4540, 41.9020]]}},
+    {"type": "Feature", "properties": {"name": "island-1"},
+     "geometry": {"type": "LineString", "coordinates": [[12.4700, 41.9100], [12.4720, 41.9100]]}},
+    {"type": "Feature", "properties": {"name": "island-2"},
+     "geometry": {"type": "LineString", "coordinates": [[12.4720, 41.9100], [12.4720, 41.9120]]}},
+]
+
+with open("/uploaded.geojson", "w") as f:
+    json.dump({"type": "FeatureCollection", "features": features}, f)
+
+{"written": "/uploaded.geojson", "lines": len(features)}
+```
+
+```{.webgeods-python #network-inspect-py}
+#| package: geopandas
+import geopandas as gpd
+
+EMPTY_FC = {"type": "FeatureCollection", "features": []}
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+crs_warning = None
+summary_out = None
+if gdf is not None:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    elif str(gdf.crs) != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+
+    line_mask = gdf.geometry.geom_type.isin(["LineString", "MultiLineString"])
+    dropped = int((~line_mask).sum())
+    gdf = gdf[line_mask].reset_index(drop=True)
+
+    summary_out = {
+        "count": int(len(gdf)),
+        "dropped": dropped,
+        "crs": str(gdf.crs)
+    }
+
+{
+    "features": gdf.__geo_interface__ if gdf is not None else EMPTY_FC,
+    "crsWarning": crs_warning,
+    "summary": summary_out
+}
+```
+
+```{.webgeods-python #network-build-py}
+#| package: geopandas, igraph
+#| inject: snapTolerance
+import numpy as np
+import geopandas as gpd
+import igraph as ig
+from shapely.geometry import Point
+
+if "gdf" not in globals() or gdf is None or len(gdf) == 0:
+    raise RuntimeError("Run Inspect first (upload a file or load the example) before building a graph.")
+
+gdf_lines = gdf.explode(index_parts=False).reset_index(drop=True)
+
+# Metric working CRS: a snap tolerance and an edge length are real
+# distances, so they can't be computed in degrees. Same bbox-center
+# UTM auto-pick already used by Buffer & Proximity and Spatial
+# Clustering elsewhere on this site.
+minx, miny, maxx, maxy = gdf_lines.total_bounds
+center_lon = float((minx + maxx) / 2)
+center_lat = float((miny + maxy) / 2)
+utm_zone = int((center_lon + 180) // 6) + 1
+calc_epsg = (32600 if center_lat >= 0 else 32700) + utm_zone
+gdf_proj = gdf_lines.to_crs(epsg=calc_epsg)
+
+# Endpoints only: interior vertices are the line's SHAPE, not its
+# topology. One line feature = one edge between its two ends; the edge
+# keeps its real geometry on the map, not a straight chord.
+ends = np.array([
+    c for geom in gdf_proj.geometry
+    for c in (geom.coords[0][:2], geom.coords[-1][:2])
+], dtype=float)
+
+tolerance = max(0.0, float(snapTolerance))
+
+# Pairwise distance check (not grid rounding: rounding silently fails
+# to merge two endpoints a few cm apart that happen to straddle a cell
+# boundary -- exactly the failure mode a snap tolerance exists to
+# prevent) via plain numpy broadcasting rather than a KD-tree -- scipy
+# isn't vendored on this site and adding it just for this would repeat
+# the same "hidden weight" mistake already found and avoided with
+# networkx (which would have pulled in matplotlib). O(n^2) in the
+# number of endpoints, which is fine at this tool's scale; a large
+# upload would want a spatial index instead. A tiny floor (well under
+# a millimeter) instead of a literal 0 absorbs floating-point noise
+# from independent coordinate literals/serialization without changing
+# what "0 tolerance" means in practice.
+tol = max(tolerance, 1e-9)
+diff = ends[:, None, :] - ends[None, :, :]
+dist = np.sqrt((diff ** 2).sum(axis=2))
+upper = np.triu(np.ones(dist.shape, dtype=bool), k=1)
+pairs = np.argwhere((dist <= tol) & upper)
+
+parent = list(range(len(ends)))
+
+def find(i):
+    while parent[i] != i:
+        parent[i] = parent[parent[i]]
+        i = parent[i]
+    return i
+
+for a, b in pairs:
+    ra, rb = find(int(a)), find(int(b))
+    if ra != rb:
+        parent[rb] = ra
+
+node_of = [find(i) for i in range(len(ends))]
+unique_nodes = sorted(set(node_of))
+node_index = {n: i for i, n in enumerate(unique_nodes)}
+
+# MultiGraph-equivalent: igraph allows parallel edges by default (no
+# simplify() call below), since two distinct roads between the same
+# pair of junctions are two real edges -- collapsing them would
+# under-report both the edge count and the total length.
+edges = [
+    (node_index[node_of[2 * i]], node_index[node_of[2 * i + 1]])
+    for i in range(len(gdf_proj))
+]
+lengths = [float(geom.length) for geom in gdf_proj.geometry]
+
+g = ig.Graph(n=len(unique_nodes), edges=edges, directed=False)
+
+components = g.connected_components()
+membership = list(components.membership)
+sizes = components.sizes()
+order = sorted(range(len(sizes)), key=lambda c: sizes[c], reverse=True)
+rank_of = {c: r for r, c in enumerate(order)}
+component_of_vertex = [rank_of[c] for c in membership]
+
+degrees = g.degree()
+
+# Node representative = the MEAN of its snapped members, not an
+# arbitrary one -- a junction snapped from several endpoints sits in
+# their middle instead of jumping to whichever line happened to be
+# read first.
+reps = {}
+for i, n in enumerate(node_of):
+    reps.setdefault(node_index[n], []).append(ends[i])
+
+node_gdf = gpd.GeoDataFrame(
+    {
+        "node": list(range(len(unique_nodes))),
+        "degree": degrees,
+        "component": component_of_vertex
+    },
+    geometry=[Point(np.mean(reps[i], axis=0)) for i in range(len(unique_nodes))],
+    crs=gdf_proj.crs
+).to_crs("EPSG:4326")
+
+edge_gdf = gpd.GeoDataFrame(
+    {
+        "edge": list(range(len(edges))),
+        # "source"/"target" reference node_gdf's own "node" ids -- read
+        # by the force-directed diagram panel (shared/graph-diagram.js)
+        # to build its link list; unused by the map layer itself.
+        "source": [u for u, v in edges],
+        "target": [v for u, v in edges],
+        "lengthM": [round(l, 2) for l in lengths],
+        "component": [component_of_vertex[u] for u, v in edges]
+    },
+    geometry=list(gdf_lines.geometry),
+    crs="EPSG:4326"
+)
+
+total_m = sum(lengths)
+
+{
+    "nodes": node_gdf.__geo_interface__,
+    "edges": edge_gdf.__geo_interface__,
+    # matchPaint() keys on these; capped at 5 so the legend stays
+    # readable -- everything past that falls through to matchPaint's
+    # own fallback color, which is exactly what that fallback is for.
+    "componentIds": list(range(min(5, len(sizes)))),
+    "summary": {
+        "lines": int(len(gdf_lines)),
+        "nodes": int(g.vcount()),
+        "edges": int(g.ecount()),
+        "components": len(sizes),
+        "largestComponentNodes": int(sizes[order[0]]) if sizes else 0,
+        "deadEnds": int(sum(1 for d in degrees if d == 1)),
+        "intersections": int(sum(1 for d in degrees if d >= 3)),
+        "meanDegree": round(2 * g.ecount() / max(1, g.vcount()), 2),
+        "maxDegree": int(max(degrees)) if degrees else 0,
+        "totalLengthKm": round(total_m / 1000, 3),
+        "snapTolerance": tolerance,
+        "calculationCrs": f"EPSG:{calc_epsg}"
+    }
+}
+```
+
+*First run loads the Python engine — expect 30-40 seconds. Instant
+after that, and again each time you come back to this page.*
+
+<div id="nfl-dashboard"></div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+
+  // Bidirectional cross-link: the ONE function both the diagram's own
+  // click handler and the map's click handler call, so "select node
+  // N" always means the same thing regardless of which view triggered
+  // it -- highlights on the map AND marks it selected in the diagram,
+  // every time, from either direction. Looked up fresh each call
+  // (rather than closing over the `dashboard` variable declared
+  // below) so it reads the CURRENT map/diagram instances either way.
+  function selectNode(id) {
+
+    const dash =
+      WebGeoDS.Dashboard.find("network-from-lines");
+
+    dash?.map?.highlight("network-nodes-py", [Number(id)]);
+
+    dash?.diagram?.setSelected(id);
+
+  }
+
+  // Not assigned to a variable: nothing in this file needs to reach
+  // into the instance directly anymore -- selectNode() above looks it
+  // up fresh via WebGeoDS.Dashboard.find() instead, and both halves
+  // of the cross-link are declared inside the config itself
+  // (layers[].onClick, diagram.onNodeClick).
+  new WebGeoDS.Dashboard({
+    tool: "network-from-lines",
+    mount: "#nfl-dashboard",
+    map: { center: [12.46, 41.906], zoom: 14 }, // height: Dashboard's own responsive default (see DEFAULT_MAP_HEIGHT, shared/dashboard.js)
+    // Just the empty slot beside the map -- filled below by
+    // compute.diagram (the force-directed topology view), not by
+    // anything declared here. layout.sidePanel doesn't know or care
+    // what ends up inside it: it could equally be a second map, a
+    // Vega-Lite chart, or nothing at all.
+    layout: { sidePanel: { id: "nfl-diagram", flex: "1 1 280px", minWidth: "260px" } },
+    upload: { languages: ["python"], kind: "vector", label: "📁 Upload" },
+    example: {
+      cellId: "network-example-py",
+      kind: "geojson",
+      status: "✓ example data loaded — try Build Graph, then raise the snap tolerance."
+    },
+    inspect: {
+      cellId: "network-inspect-py",
+      layers: [
+        { source: "network-input-py", from: (v) => v.features, type: "line", fit: true }
+      ],
+      stats: (v) => {
+        const s = v.summary;
+        const rows = [["Lines", s ? s.count.toLocaleString() : "—"]];
+        if (s && s.dropped > 0) rows.push(["Non-line features skipped", s.dropped]);
+        if (v.crsWarning) rows.push(["CRS", v.crsWarning]);
+        return rows;
+      }
+    },
+    compute: {
+      cellId: "network-build-py",
+      label: "▶ Build graph",
+      busyLabel: "⌛ Building...",
+      inputs: [
+        { kind: "slider", name: "snapTolerance", label: "Snap tolerance (m)",
+          range: [0, 20], value: 0, step: 1 }
+      ],
+      layers: [
+        { source: "network-edges-py", from: (v) => v.edges, type: "line",
+          paint: (v) => WebGeoDS.matchPaint(v.componentIds, "component", { line: true, lineWidth: 3 }),
+          fit: true },
+        { source: "network-nodes-py", from: (v) => v.nodes, type: "circle",
+          paint: (v) => WebGeoDS.matchPaint(v.componentIds, "component", { radius: 5 }),
+          // Map -> diagram half of the cross-link (the diagram -> map
+          // half is the diagram config's own onNodeClick below) --
+          // declared right next to the layer it belongs to, instead
+          // of reaching into the map instance directly after ready().
+          onClick: (feature) => selectNode(feature.properties.node) }
+      ],
+      stats: (v) => {
+        const s = v.summary;
+        return [
+          ["Nodes", s.nodes.toLocaleString()],
+          ["Edges", s.edges.toLocaleString()],
+          ["Connected components", s.components],
+          ["Largest component (nodes)", s.largestComponentNodes],
+          ["Dead ends (degree 1)", s.deadEnds],
+          ["Intersections (degree ≥ 3)", s.intersections],
+          ["Mean degree", s.meanDegree],
+          ["Total length", `${s.totalLengthKm} km`],
+          ["Snap tolerance", `${s.snapTolerance} m`],
+          ["Calculation CRS", s.calculationCrs]
+        ];
+      },
+      legend: (v) => v.componentIds.map((id, i) => ({
+        color: WebGeoDS.DEFAULT_PALETTE[i % WebGeoDS.DEFAULT_PALETTE.length],
+        label: `Component ${id + 1}`
+      })),
+      download: {
+        // Tags each feature with kind: "node"/"edge" so the two are
+        // easy to filter back apart in QGIS or similar after download
+        // -- geometry type (Point vs LineString) alone works too, but
+        // an explicit property is one click instead of an expression.
+        getFeatures: (v) => ({
+          type: "FeatureCollection",
+          features: [
+            ...v.nodes.features.map((f) => ({ ...f, properties: { ...f.properties, kind: "node" } })),
+            ...v.edges.features.map((f) => ({ ...f, properties: { ...f.properties, kind: "edge" } }))
+          ]
+        }),
+        filenameSuffix: "-graph.geojson",
+        defaultFilename: "network-graph.geojson"
+      },
+      // The topology diagram: same nodes/edges as the map, laid out by
+      // force instead of geography -- answers "how is this connected",
+      // which is easy to lose track of on the map once things overlap.
+      // A pure function of the compute value, same as layers/stats/
+      // legend above -- Dashboard renders it into the layout.sidePanel
+      // slot (declared near the top of this config) and owns its
+      // create/destroy lifecycle.
+      diagram: {
+        nodes: (v) => v.nodes,
+        links: (v) => v.edges,
+        nodeColor: (f) => WebGeoDS.DEFAULT_PALETTE[(f.properties.component ?? 0) % WebGeoDS.DEFAULT_PALETTE.length],
+        linkColor: (f) => WebGeoDS.DEFAULT_PALETTE[(f.properties.component ?? 0) % WebGeoDS.DEFAULT_PALETTE.length],
+        onNodeClick: (id) => selectNode(id)
+      }
+    }
+  });
+
+});
+</script>
+
+<style>
+/* network-example-py/network-inspect-py/network-build-py are
+   functional (the CodeCell engine still runs them, orchestrated by
+   WebGeoDS.Dashboard above), just not shown — see
+   geojson-shapefile-validator.qmd for the full rationale and the
+   display:none pitfall (breaks maplibre-gl.js loading) already found
+   and avoided here from the start. */
+#network-example-py, #network-inspect-py, #network-build-py {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>

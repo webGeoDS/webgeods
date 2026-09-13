@@ -1,0 +1,687 @@
+---
+title: "Network from Lines: How Connected Is Connected"
+date: 2026-09-13
+categories: [article, network, bilingual]
+description: "An interactive lab with Python, R and MapLibre — turn a line layer into a graph, and see how a few meters of tolerance change how many pieces the network actually has."
+---
+
+A road network, a river system, a set of pipelines — any layer of
+lines is only a *network* once you decide which endpoints count as
+the same junction. Two segments that were meant to meet but miss by a
+few centimeters (a common noding gap in real data) become two
+separate, disconnected pieces of the graph unless you tell the
+algorithm how close is "close enough." That single decision — a snap
+tolerance, in meters — can change how many disconnected pieces a
+network has without changing a single coordinate.
+
+Want to explore this interactively, with an adjustable tolerance and
+the graph drawn directly on the map? Use the [standalone
+tool](/tools/network-from-lines.html) — same idea, adjustable live.
+This article fixes two tolerance values (0m and 5m) side by side, in
+both languages, to make the underlying algorithm easy to read from top
+to bottom — and draws the resulting graph too, as a diagram below the
+map.
+
+## 1. Upload your data
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; }
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python", "r"] });
+  mutable uploadStatus = result.message;
+}
+```
+
+No file uploaded? Both cells below fall back to the same eight-line
+example: a closed block (four segments forming one connected loop), a
+fully separate cluster elsewhere on the map, and a two-segment "spur"
+whose first endpoint sits about 4m from the block's corner — not
+exactly on it. That 4m gap is deliberately part of the example, not a
+mistake in it: it's what section 3 below is about.
+
+## 2. Same lines, two languages
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.49, 41.905], zoom: 13, height: "420px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+::: {.panel-tabset}
+
+## Python
+
+```{.webgeods-python #network-from-lines-py}
+#| package: geopandas, igraph
+import numpy as np
+import geopandas as gpd
+import igraph as ig
+from shapely.geometry import LineString, Point
+
+# Same eight-line layout as the standalone tool's own example -- see
+# the intro above for why the "spur" endpoint is offset on purpose.
+FALLBACK_GEOMETRIES = [
+    LineString([(12.4500, 41.9000), (12.4520, 41.9000)]),
+    LineString([(12.4520, 41.9000), (12.4520, 41.9020)]),
+    LineString([(12.4520, 41.9020), (12.4500, 41.9020)]),
+    LineString([(12.4500, 41.9020), (12.4500, 41.9000)]),
+    LineString([(12.45205, 41.9000), (12.4540, 41.9000)]),
+    LineString([(12.4540, 41.9000), (12.4540, 41.9020)]),
+    LineString([(12.4700, 41.9100), (12.4720, 41.9100)]),
+    LineString([(12.4720, 41.9100), (12.4720, 41.9120)])
+]
+
+gdf = None
+for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
+    try:
+        gdf = gpd.read_file(path)
+        break
+    except Exception:
+        pass
+
+crs_warning = None
+if gdf is None:
+    gdf = gpd.GeoDataFrame(geometry=FALLBACK_GEOMETRIES, crs="EPSG:4326")
+else:
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    elif str(gdf.crs) != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
+    gdf = gdf[gdf.geometry.geom_type.isin(["LineString", "MultiLineString"])]
+
+gdf = gdf.explode(index_parts=False).reset_index(drop=True)
+
+# UTM auto-pick from the bounding-box center -- same reasoning as this
+# site's Buffer & Proximity and Viewshed articles: a snap tolerance in
+# meters needs a projected CRS to mean an actual distance.
+minx, miny, maxx, maxy = gdf.total_bounds
+center_lon = float((minx + maxx) / 2)
+center_lat = float((miny + maxy) / 2)
+utm_zone = int((center_lon + 180) // 6) + 1
+calc_epsg = (32600 if center_lat >= 0 else 32700) + utm_zone
+gdf_proj = gdf.to_crs(epsg=calc_epsg)
+
+# Endpoints only: interior vertices are a line's SHAPE, not its
+# topology. Two per line -- ends[2*i] and ends[2*i+1] are line i's own
+# start and end.
+ends = np.array([
+    c for geom in gdf_proj.geometry
+    for c in (geom.coords[0][:2], geom.coords[-1][:2])
+], dtype=float)
+
+
+def build_graph(tolerance):
+    """Snap endpoints within `tolerance` meters of each other into the
+    same node, then build the graph. Same function, called twice below
+    with two different tolerances -- the only thing that changes
+    between the two results is this one number."""
+
+    tol = max(tolerance, 1e-9)  # a tiny floor, not a literal 0, absorbs
+                                 # floating-point noise between
+                                 # coordinates meant to be identical.
+
+    # Pairwise distances via plain numpy broadcasting, not a spatial
+    # index -- fine at this scale, and keeps the two languages doing
+    # the same recognizable thing line for line.
+    diff = ends[:, None, :] - ends[None, :, :]
+    dist = np.sqrt((diff ** 2).sum(axis=2))
+    upper = np.triu(np.ones(dist.shape, dtype=bool), k=1)
+    close_pairs = np.argwhere((dist <= tol) & upper)
+
+    # Union-find: merges endpoints that are close enough into one
+    # shared node id.
+    parent = list(range(len(ends)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a, b in close_pairs:
+        ra, rb = find(int(a)), find(int(b))
+        if ra != rb:
+            parent[rb] = ra
+
+    node_of = [find(i) for i in range(len(ends))]
+    unique_nodes = sorted(set(node_of))
+    node_index = {n: i for i, n in enumerate(unique_nodes)}
+
+    edges = [
+        (node_index[node_of[2 * i]], node_index[node_of[2 * i + 1]])
+        for i in range(len(gdf_proj))
+    ]
+
+    g = ig.Graph(n=len(unique_nodes), edges=edges, directed=False)
+    membership = list(g.connected_components().membership)
+
+    # Everything below builds the graph's own geometry, for the diagram
+    # panel further down -- kept inside this same function (not a
+    # second computation) so the diagram always draws exactly the graph
+    # these counts describe. Node representative = the MEAN of its
+    # snapped members, so a snapped junction sits in their middle
+    # instead of jumping to whichever line happened to be read first.
+    reps = {}
+    for i, n in enumerate(node_of):
+        reps.setdefault(node_index[n], []).append(ends[i])
+
+    node_gdf = gpd.GeoDataFrame(
+        {"node": list(range(len(unique_nodes))), "component": membership},
+        geometry=[Point(np.mean(reps[i], axis=0)) for i in range(len(unique_nodes))],
+        crs=gdf_proj.crs
+    ).to_crs("EPSG:4326")
+
+    edge_gdf = gpd.GeoDataFrame(
+        {
+            "source": [u for u, v in edges],
+            "target": [v for u, v in edges],
+            "component": [membership[u] for u, v in edges]
+        },
+        geometry=list(gdf_proj.geometry),
+        crs=gdf_proj.crs
+    ).to_crs("EPSG:4326")
+
+    return {
+        "nodes": g.vcount(),
+        "edges": g.ecount(),
+        "components": len(g.connected_components()),
+        "nodeFeatures": node_gdf.__geo_interface__,
+        "edgeFeatures": edge_gdf.__geo_interface__
+    }
+
+
+{
+    "features": gdf.__geo_interface__,
+    "crsWarning": crs_warning,
+    "calculationCrs": f"EPSG:{calc_epsg}",
+    "at0m": build_graph(0),
+    "at5m": build_graph(5)
+}
+```
+
+## R
+
+```{.webgeods-r #network-from-lines-r}
+#| package: sf, igraph, geojsonsf, jsonlite
+library(sf)
+library(igraph)
+library(geojsonsf)
+
+# Same eight-line layout as the Python tab -- see the intro above for
+# why the "spur" endpoint is offset on purpose.
+fallback_geom <- st_sfc(
+  st_linestring(rbind(c(12.4500, 41.9000), c(12.4520, 41.9000))),
+  st_linestring(rbind(c(12.4520, 41.9000), c(12.4520, 41.9020))),
+  st_linestring(rbind(c(12.4520, 41.9020), c(12.4500, 41.9020))),
+  st_linestring(rbind(c(12.4500, 41.9020), c(12.4500, 41.9000))),
+  st_linestring(rbind(c(12.45205, 41.9000), c(12.4540, 41.9000))),
+  st_linestring(rbind(c(12.4540, 41.9000), c(12.4540, 41.9020))),
+  st_linestring(rbind(c(12.4700, 41.9100), c(12.4720, 41.9100))),
+  st_linestring(rbind(c(12.4720, 41.9100), c(12.4720, 41.9120))),
+  crs = 4326
+)
+
+data <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  data <- tryCatch(st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(data)) break
+}
+
+crs_warning <- NULL
+if (is.null(data)) {
+  data <- st_sf(geometry = fallback_geom)
+} else if (is.na(st_crs(data))) {
+  st_crs(data) <- 4326
+  crs_warning <- "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+} else if (!isTRUE(st_crs(data) == st_crs(4326))) {
+  data <- st_transform(data, 4326)
+}
+data <- data[st_geometry_type(data) %in% c("LINESTRING", "MULTILINESTRING"), ]
+data <- st_cast(st_cast(data, "MULTILINESTRING"), "LINESTRING", warn = FALSE)
+
+# UTM auto-pick from the bounding-box center -- same reasoning as this
+# site's Buffer & Proximity and Viewshed articles: a snap tolerance in
+# meters needs a projected CRS to mean an actual distance.
+bnd <- st_bbox(data)
+center_lon <- (bnd[["xmin"]] + bnd[["xmax"]]) / 2
+center_lat <- (bnd[["ymin"]] + bnd[["ymax"]]) / 2
+utm_zone <- floor((center_lon + 180) / 6) + 1
+calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
+data_proj <- st_transform(data, calc_epsg)
+
+# Endpoints only: interior vertices are a line's SHAPE, not its
+# topology. Two rows per line -- row 2*i-1 and row 2*i are line i's
+# own start and end (1-indexed, R-style).
+ends <- do.call(rbind, lapply(st_geometry(data_proj), function(geom) {
+  coords <- st_coordinates(geom)[, c("X", "Y"), drop = FALSE]
+  rbind(coords[1, ], coords[nrow(coords), ])
+}))
+
+build_graph <- function(tolerance) {
+  # Snap endpoints within `tolerance` meters of each other into the
+  # same node, then build the graph. Same function, called twice below
+  # with two different tolerances -- the only thing that changes
+  # between the two results is this one number.
+
+  tol <- max(tolerance, 1e-9)  # a tiny floor, not a literal 0, absorbs
+                                # floating-point noise between
+                                # coordinates meant to be identical.
+
+  # Pairwise distances via a plain distance matrix, not a spatial
+  # index -- fine at this scale, and keeps the two languages doing the
+  # same recognizable thing line for line.
+  n <- nrow(ends)
+  dist_mat <- as.matrix(dist(ends))
+
+  # Union-find: merges endpoints that are close enough into one shared
+  # node id. Named uf_parent, not parent -- plain `parent` silently
+  # resolved to an unrelated function from one of the loaded packages
+  # instead of this vector, confirmed empirically (a real "object of
+  # type 'closure' is not subsettable" error, not a hypothetical risk).
+  # Only the nested find() needs <<- (it writes into build_graph's
+  # scope from one level down); the loop below already runs in that
+  # same scope, so it assigns with a plain <-.
+  uf_parent <- seq_len(n)
+  find <- function(i) {
+    while (uf_parent[i] != i) {
+      uf_parent[i] <<- uf_parent[uf_parent[i]]
+      i <- uf_parent[i]
+    }
+    i
+  }
+  for (i in seq_len(n - 1)) {
+    for (j in seq((i + 1), n)) {
+      if (dist_mat[i, j] <= tol) {
+        ri <- find(i)
+        rj <- find(j)
+        if (ri != rj) uf_parent[rj] <- ri
+      }
+    }
+  }
+
+  node_of <- vapply(seq_len(n), find, integer(1))
+  unique_nodes <- sort(unique(node_of))
+  node_index <- setNames(seq_along(unique_nodes), unique_nodes)
+
+  n_lines <- nrow(data_proj)
+  edges <- integer(0)
+  for (i in seq_len(n_lines)) {
+    edges <- c(
+      edges,
+      node_index[[as.character(node_of[2 * i - 1])]],
+      node_index[[as.character(node_of[2 * i])]]
+    )
+  }
+
+  g <- make_graph(edges, n = length(unique_nodes), directed = FALSE)
+  membership <- components(g)$membership
+
+  # Everything below builds the graph's own geometry, for the diagram
+  # panel further down -- kept inside this same function (not a second
+  # computation) so the diagram always draws exactly the graph these
+  # counts describe. Node representative = the MEAN of its snapped
+  # members, so a snapped junction sits in their middle instead of
+  # jumping to whichever line happened to be read first. `edges` above
+  # is already a flat (source1, target1, source2, target2, ...) vector
+  # of graph vertex ids, so line i's source/target are just its two
+  # entries -- no need to look node_of/node_index up a second time.
+  node_points <- lapply(seq_along(unique_nodes), function(i) {
+    members <- ends[node_of == unique_nodes[i], , drop = FALSE]
+    st_point(colMeans(members))
+  })
+  node_sf <- st_transform(
+    st_sf(
+      node = seq_along(unique_nodes),
+      component = membership,
+      geometry = st_sfc(node_points, crs = calc_epsg)
+    ),
+    4326
+  )
+
+  edge_source <- edges[seq(1, 2 * n_lines, by = 2)]
+  edge_target <- edges[seq(2, 2 * n_lines, by = 2)]
+  edge_sf <- st_transform(
+    st_sf(
+      edge = seq_len(n_lines),
+      source = edge_source,
+      target = edge_target,
+      component = membership[edge_source],
+      geometry = st_geometry(data_proj)
+    ),
+    4326
+  )
+
+  list(
+    nodes = jsonlite::unbox(vcount(g)),
+    edges = jsonlite::unbox(ecount(g)),
+    components = jsonlite::unbox(components(g)$no),
+    nodeFeatures = jsonlite::fromJSON(sf_geojson(node_sf, simplify = FALSE), simplifyVector = FALSE),
+    edgeFeatures = jsonlite::fromJSON(sf_geojson(edge_sf, simplify = FALSE), simplifyVector = FALSE)
+  )
+}
+
+result <- list(
+  # simplify = FALSE: sf_geojson()'s default (TRUE) returns a bare
+  # vector of individual GeoJSON geometries instead of one
+  # FeatureCollection when the sf object has no attribute columns --
+  # exactly this article's fallback data (geometry only, no other
+  # columns) -- forced off so the shape matches Python's
+  # __geo_interface__ (always a FeatureCollection) regardless.
+  features = jsonlite::fromJSON(sf_geojson(data, simplify = FALSE), simplifyVector = FALSE),
+  crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning),
+  calculationCrs = jsonlite::unbox(paste0("EPSG:", calc_epsg)),
+  at0m = build_graph(0),
+  at5m = build_graph(5)
+)
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+mutable pySummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable rSummary = null
+```
+
+```{ojs}
+//| echo: false
+mutable crsWarning = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+LINE_MAP_PAINT = ({
+  "line-color": "#3d5a73",
+  "line-width": 3
+})
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// `instance` (the live WebGeoDS.renderForceGraph() handle) is a plain
+// mutated property, not a second `mutable` -- reading/writing it below
+// never triggers OJS's own reactivity, unlike a `mutable diagram0m`
+// would have (found the hard way: referencing a mutable's current
+// value from inside resetNetworkArticle made THAT cell, and the reset
+// button built from it, rebuild every time a diagram was (re)drawn).
+graphPanel = (label) => {
+  const wrap = document.createElement("div");
+  wrap.style.flex = "1";
+  wrap.style.minWidth = "260px";
+
+  const heading = document.createElement("div");
+  heading.className = "webgeods-label";
+  heading.textContent = label;
+  wrap.appendChild(heading);
+
+  const box = document.createElement("div");
+  box.style.cssText = "height: 220px; border: 1px solid #d8cdb8; border-radius: 4px;";
+  wrap.appendChild(box);
+
+  return { wrap, box, instance: null };
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+graph0m = graphPanel("Graph at 0m")
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+graph5m = graphPanel("Graph at 5m")
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+graphsRow = {
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "16px";
+  row.append(graph0m.wrap, graph5m.wrap);
+  return row;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Same palette the standalone tool colors its own graph with
+// (WebGeoDS.DEFAULT_PALETTE, shared/ui.js) -- one color per connected
+// component, so "how many colors" is a direct visual answer to "how
+// many pieces."
+componentColor = (f) => WebGeoDS.DEFAULT_PALETTE[(f.properties.component ?? 0) % WebGeoDS.DEFAULT_PALETTE.length]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Draws the map + both diagrams from WHICHEVER language's result comes
+// in first -- called from both the Python and the R effect cells
+// below, so a reader who runs only one language (in either order)
+// still sees the map and the graphs, not a silently empty page.
+// Harmless if both run: the second call just redraws the same picture
+// the first one already drew, since Python and R compute the
+// identical graph.
+drawNetwork = async (result) => {
+  mutable crsWarning = result.crsWarning;
+  await sharedMap.setGeoJSON("network-from-lines-map", result.features, { paint: LINE_MAP_PAINT });
+  await sharedMap.fitToData(result.features);
+
+  graph0m.instance?.destroy();
+  graph0m.instance = WebGeoDS.renderForceGraph(
+    graph0m.box,
+    { nodes: result.at0m.nodeFeatures, links: result.at0m.edgeFeatures },
+    { nodeColor: componentColor, linkColor: componentColor }
+  );
+  graph5m.instance?.destroy();
+  graph5m.instance = WebGeoDS.renderForceGraph(
+    graph5m.box,
+    { nodes: result.at5m.nodeFeatures, links: result.at5m.edgeFeatures },
+    { nodeColor: componentColor, linkColor: componentColor }
+  );
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+pyResult = WebGeoDS.getCellValue("network-from-lines-py", Generators)
+{
+  if (pyResult) {
+    mutable pySummary = pyResult;
+    await drawNetwork(pyResult);
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+rResult = WebGeoDS.getCellValue("network-from-lines-r", Generators)
+{
+  if (rResult) {
+    mutable rSummary = rResult;
+    await drawNetwork(rResult);
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+crsWarningEl = {
+  const div = document.createElement("div");
+  div.className = "webgeods-panel-status";
+  if (crsWarning) div.textContent = `⚠️ ${crsWarning}`;
+  return div;
+}
+```
+
+${crsWarningEl}
+
+```{ojs}
+//| echo: false
+statCard = (label, s) => {
+  const wrap = document.createElement("div");
+  wrap.style.flex = "1";
+  wrap.style.minWidth = "260px";
+
+  const heading = document.createElement("div");
+  heading.className = "webgeods-label";
+  heading.textContent = label;
+  wrap.appendChild(heading);
+
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  wrap.appendChild(box);
+
+  const row = (rowLabel, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = rowLabel;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!s) {
+    row("Calculation CRS", "—");
+    return wrap;
+  }
+
+  row("Calculation CRS", s.calculationCrs);
+  row("At 0m — nodes / edges / components", `${s.at0m.nodes} / ${s.at0m.edges} / ${s.at0m.components}`);
+  row("At 5m — nodes / edges / components", `${s.at5m.nodes} / ${s.at5m.edges} / ${s.at5m.components}`);
+
+  return wrap;
+}
+```
+
+```{ojs}
+//| echo: false
+statCardsRow = {
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.flexWrap = "wrap";
+  row.style.gap = "16px";
+  row.append(statCard("Python", pySummary), statCard("R", rSummary));
+  return row;
+}
+```
+
+${statCardsRow}
+
+The map above shows *where* the lines are; the two diagrams below show
+*how they're connected* — same graph the counts above describe, laid
+out by force instead of geography, colored by connected component.
+Drawn from whichever language you ran (if you run both, the second one
+just redraws the same picture — Python and R agree on the graph, so
+there's nothing a second drawing would show differently).
+
+${graphsRow}
+
+```{ojs}
+//| echo: false
+resetNetworkArticle = async () => {
+  if (sharedMap.getGeoJSON("network-from-lines-map")) {
+    await sharedMap.setGeoJSON("network-from-lines-map", { type: "FeatureCollection", features: [] });
+  }
+  graph0m.instance?.destroy();
+  graph0m.instance = null;
+  graph5m.instance?.destroy();
+  graph5m.instance = null;
+  mutable pySummary = null;
+  mutable rSummary = null;
+  mutable crsWarning = null;
+}
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+resetMapButton = WebGeoDS.resetButton(resetNetworkArticle, "🔄 Reset map and cards")
+```
+
+${resetMapButton}
+
+## 3. Same lines, two different answers
+
+The numbers above describe the built-in fallback specifically — if you
+uploaded your own file, the counts will differ, but the same effect is
+what to look for. Both languages ran the exact same two tolerances (0m
+and 5m) on the exact same eight lines, and got the same shape of
+answer:
+
+- **At 0m**, the "spur" (two segments starting about 4m from the
+  block's corner) counts as its own piece — three components in total:
+  the block, the spur, and the fully separate cluster.
+- **At 5m**, that 4m gap is within tolerance, so the spur's near
+  endpoint merges into the block's corner — two components: the
+  now-joined block+spur, and the still-separate cluster.
+
+Nothing about the geometry changed between the two runs — same
+coordinates, same lines. Only the *definition of "the same point"*
+changed, and that alone was enough to change how many pieces the
+network has. This is why real-world network analysis (road networks,
+utility networks, hydrology) always involves a noding/snapping step
+before anything else: the raw geometry rarely already agrees with
+itself down to the last centimeter, and the tolerance you pick is a
+real analytical decision, not a technicality to skip past.
+
+## 4. Where to next
+
+- **Want an adjustable tolerance, the graph drawn directly on the map
+  itself, and a way to click a node and see it highlighted in both
+  views at once?** → The [standalone Network from Lines
+  tool](/tools/network-from-lines.html) runs the same algorithm with a
+  tolerance you control live, and lets you download the result.
+- **Wondering why the coordinate system needed picking at all?** →
+  [Coordinate Reference Systems](crs-mismatch.qmd) covers the
+  geographic/projected distinction this article leaned on in section 2.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

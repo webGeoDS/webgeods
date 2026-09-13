@@ -17,6 +17,9 @@ project:
     - "upload.js"
     - "download.js"
     - "ui.js"
+    - "dashboard.js"
+    - "d3.min.js"
+    - "graph-diagram.js"
     - "styles.css"
     - "alidade_smooth.json"
     - "webgeods-logo.svg"
@@ -85,6 +88,10 @@ website:
             text: Cluster
           - href: tools/spatial-classifier.qmd
             text: Classify
+          # Fourth group, same "---"-as-anchor mechanism as above.
+          - text: "---"
+          - href: tools/network-from-lines.qmd
+            text: Build Graph
       - text: Articles
         menu:
           - href: articles.qmd
@@ -114,12 +121,16 @@ website:
             text: Cluster
           - href: posts/spatial-classification.qmd
             text: Classify
+          - text: "---"
+          - href: posts/network-from-lines.qmd
+            text: Build Graph
       - about.qmd
-    # Three groups per dropdown: "Vector" (renamed 2026-09-11 from
+    # Four groups per dropdown: "Vector" (renamed 2026-09-11 from
     # "Spatial Data Quality" once Buffer joined it as this group's
     # first non-quality-check tool — see roadmap-acquisizione.md),
-    # "Raster" (started 2026-09-06), and "GeoML" (started 2026-09-09)
-    # — see include-after-body's script for how the "---" dividers
+    # "Raster" (started 2026-09-06), "GeoML" (started 2026-09-09), and
+    # "Network" (started 2026-09-12) —
+    # see include-after-body's script for how the "---" dividers
     # above become labeled headers.
   open-graph: true
   # sitemap.xml is not a key of its own: Quarto generates it automatically in
@@ -181,6 +192,9 @@ format:
           <script src="/upload.js"></script>
           <script src="/download.js"></script>
           <script src="/ui.js"></script>
+          <script src="/dashboard.js"></script>
+          <script src="/d3.min.js"></script>
+          <script src="/graph-diagram.js"></script>
           <script>
             // Quarto's navbar schema has no non-clickable header item
             // inside a dropdown, and nested `menu:` submenus aren't
@@ -190,11 +204,12 @@ format:
             // here instead, right where its own "---" divider already
             // marks its place. Labels are matched to dividers by
             // POSITION (first divider -> first label, second ->
-            // second, ...) -- both dropdowns carry the same two groups
-            // in the same order, but this doesn't assume they always
-            // will.
+            // second, ...) -- this doesn't assume both dropdowns carry
+            // the same number of groups, in case they ever diverge
+            // again in the future: forEach below only ever iterates
+            // the dividers actually present in each dropdown.
             document.addEventListener("DOMContentLoaded", () => {
-              const GROUP_LABELS = ["Vector", "Raster", "GeoML"];
+              const GROUP_LABELS = ["Vector", "Raster", "GeoML", "Network"];
               ["nav-menu-tools", "nav-menu-articles"].forEach((id) => {
                 const toggle = document.getElementById(id);
                 const dividers = toggle?.nextElementSibling?.querySelectorAll(".dropdown-divider");

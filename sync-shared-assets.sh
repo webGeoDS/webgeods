@@ -19,6 +19,9 @@ FILES=(
   upload.js
   download.js
   ui.js
+  dashboard.js
+  d3.min.js
+  graph-diagram.js
   styles.css
   _brand.yml
   webgeods-cells.lua

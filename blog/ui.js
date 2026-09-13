@@ -17,14 +17,18 @@
  *
  * Deliberately NOT included here: the upload-control wiring (mutable
  * uploadStatus/uploadBusy/uploadedFiles, the onChange handler,
- * uploadStatusEl) is also duplicated across tools, but OJS's
- * `mutable` declarations have to live as the document's own top-level
- * cells for Quarto's reactivity graph to see them — a plain JS
- * function called from inside a cell can't create new reactive
- * bindings on the caller's behalf. That duplication is a candidate
- * for a Lua filter (expanding a shortcode into the necessary `mutable`
- * cells at render time, which *can* do this), not for a runtime
- * helper — left alone here on purpose, not missed.
+ * uploadStatusEl) is also duplicated across hand-wired OJS tools, but
+ * OJS's `mutable` declarations have to live as the document's own
+ * top-level cells for Quarto's reactivity graph to see them — a plain
+ * JS function called from inside a cell can't create new reactive
+ * bindings on the caller's behalf. A Lua filter can't do this either:
+ * it transforms the Pandoc AST, which Quarto's OJS engine never sees —
+ * confirmed by an earlier failed attempt at exactly this, documented
+ * in webgeods-cells.lua's own docstring. The actual fix, once a tool
+ * needed it enough to be worth it: WebGeoDS.Dashboard (dashboard.js)
+ * sidesteps the whole problem by not using `mutable` at all — its
+ * state is a plain JS object, managed the same imperative way
+ * WebGeoDSMap/WebGeoDSCodeCell already manage theirs.
  *
  * No ES module syntax so this can be included directly by Quarto.
  */
@@ -163,6 +167,14 @@
   // real-world dataset can trigger legitimately, not just in theory.
   // ============================================================
 
+  // Also exported directly (WebGeoDS.DEFAULT_PALETTE, see bottom of
+  // this file): matchPaint() uses it as its own default, but a
+  // caller building a legend or a second view (e.g. a force diagram,
+  // graph-diagram.js) needs the SAME colors to stay visually
+  // consistent with the map -- CLUSTER_PALETTE/CLASS_PALETTE
+  // (spatial-clustering-explorer.qmd/spatial-classifier.qmd) had
+  // already hand-duplicated this exact array once each before a third
+  // tool (network-from-lines.qmd) needed it too.
   const DEFAULT_PALETTE =
     ["#ab502b", "#42583c", "#3d5a73", "#c48a2e", "#8b2f24"];
 
@@ -194,6 +206,13 @@
         "fill-color": colorExpr,
         "fill-opacity": opts.fillOpacity ?? 0.45,
         "fill-outline-color": opts.fillOutline ?? "rgba(0,0,0,0)"
+      };
+    }
+
+    if (opts.line) {
+      return {
+        "line-color": colorExpr,
+        "line-width": opts.lineWidth ?? 2
       };
     }
 
@@ -316,12 +335,26 @@
   // ============================================================
   // downloadButton(options) -- the "⬇ Download" outline button.
   // options: { getFeatures, filenameSuffix, enabled, tool,
-  // defaultFilename, mimeType, getBaseName }. `enabled` and
+  // defaultFilename, mimeType, getBaseName, shapefile }. `enabled` and
   // `getFeatures`/`getBaseName` are read once at creation time, same
   // as every tool's own version already did (the button is rebuilt by
   // its OJS cell whenever the underlying state it closes over
   // changes, so this matches existing behavior exactly, not a
   // regression to "static").
+  //
+  // `shapefile` (optional): { cellId, uploadKind, filenameSuffix,
+  // defaultFilename } -- mirrors the ORIGINAL upload format instead of
+  // always exporting GeoJSON, same convention geojson-shapefile-
+  // validator.qmd established on its own hand-built button first.
+  // `uploadKind` is "zip"/"shapefile" (see shared/upload.js's kind
+  // classification) exactly when the upload WAS a shapefile; when it
+  // is, clicking Download runs `cellId` (a Python cell that
+  // re-exports the CURRENT result via geopandas.to_file() + zips it +
+  // returns it base64-encoded, same pattern as geometry-export-shp-py)
+  // instead of serializing getFeatures() as GeoJSON. Read once at
+  // creation time same as everything else here, so the calling cell
+  // must reference `uploadKind` directly for OJS to re-run this
+  // whenever it changes (see each tool's own downloadButton cell).
   // ============================================================
 
   function downloadButton({
@@ -331,7 +364,8 @@
     defaultFilename,
     enabled,
     tool,
-    mimeType = "application/geo+json"
+    mimeType = "application/geo+json",
+    shapefile = null
   }) {
 
     const button =
@@ -349,21 +383,38 @@
     button.disabled =
       !enabled;
 
+    const wantsShapefile =
+      () =>
+        !!shapefile &&
+        (shapefile.uploadKind === "zip" || shapefile.uploadKind === "shapefile");
+
     button.onclick =
       async () => {
-        const features = getFeatures();
-        if (!features) return;
+        const asShapefile = wantsShapefile();
+        const features = asShapefile ? null : getFeatures();
+        if (!asShapefile && !features) return;
         button.disabled = true;
         const originalText = button.textContent;
         button.textContent = "⌛ Preparing...";
         try {
           const base = getBaseName ? getBaseName() : null;
-          window.WebGeoDS.downloadBlob(
-            JSON.stringify(features, null, 2),
-            base ? `${base}${filenameSuffix}` : defaultFilename,
-            mimeType,
-            { tool }
-          );
+          if (asShapefile) {
+            await window.WebGeoDS.CodeCell.find(shapefile.cellId).run();
+            const base64 = document.getElementById(shapefile.cellId).value;
+            window.WebGeoDS.downloadBlob(
+              window.WebGeoDS.base64ToBytes(base64),
+              base ? `${base}${shapefile.filenameSuffix}` : shapefile.defaultFilename,
+              "application/zip",
+              { tool }
+            );
+          } else {
+            window.WebGeoDS.downloadBlob(
+              JSON.stringify(features, null, 2),
+              base ? `${base}${filenameSuffix}` : defaultFilename,
+              mimeType,
+              { tool }
+            );
+          }
         } finally {
           button.disabled = false;
           button.textContent = originalText;
@@ -514,6 +565,7 @@
   window.WebGeoDS.statCard = statCard;
   window.WebGeoDS.legend = legend;
   window.WebGeoDS.matchPaint = matchPaint;
+  window.WebGeoDS.DEFAULT_PALETTE = DEFAULT_PALETTE;
   window.WebGeoDS.toOutlineFeatures = toOutlineFeatures;
   window.WebGeoDS.uploadStatusEl = uploadStatusEl;
   window.WebGeoDS.resetButton = resetButton;
