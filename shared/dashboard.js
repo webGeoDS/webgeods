@@ -122,6 +122,20 @@
  *                           // optional, needs layout.sidePanel AND
  *                           // graph-diagram.js loaded -- see
  *                           // _renderDiagram() below.
+ *                table: { sources: ["my-source-py"], // string or
+ *                         array of source ids -- NOT a function of
+ *                         value, unlike layers/stats/legend: which
+ *                         sources exist is known at config time (the
+ *                         same ids `compute.layers` already declares),
+ *                         only their CONTENT changes with each
+ *                         compute, which map-table.js's own
+ *                         _tableController() already tracks itself
+ *                         (see _init() below),
+ *                         id, emptyMessage, rowClassName, iconColumns }
+ *                         // optional -- passthrough to
+ *                         _tableController() (shared/map-table.js),
+ *                         same options tableCell() itself takes minus
+ *                         Generators (this needs none),
  *                onResult: (value, inputs) => { ... } } // optional --
  *                an escape hatch for anything NOT expressible as a
  *                pure function of the compute value (layers/stats/
@@ -266,6 +280,17 @@
       this._diagram =
         null;
 
+      // See _init() -- the optional compute.table slot, created once
+      // the map exists (map.js's _tableController() needs it) rather
+      // than lazily on first Compute like the diagram/chart: a table
+      // tracks a fixed source id and self-updates via its own
+      // "sourcedata" listener, so there's no compute VALUE it needs
+      // to wait for -- table.js's own emptyMessage already covers
+      // "nothing uploaded yet" the same way every hand-wired tool's
+      // tableCell() call already relies on.
+      this._tableController =
+        null;
+
       _instances.set(
         config.tool,
         this
@@ -314,6 +339,22 @@
     get diagram() {
 
       return this._diagram || null;
+
+    }
+
+    // The map.js _tableController() handle from compute.table (null
+    // if that config option isn't used, or before the map itself is
+    // ready -- see _init()) -- same reasoning as `map`/`diagram`
+    // above: `{ element, select, selectMany, getSelectedKey,
+    // getSelectedKeys }`, so a tool can drive it externally (e.g. a
+    // chart's onSelect calling dashboard.table?.selectMany(keys))
+    // exactly like it already can with WebGeoDS.Map.
+    // findTableSelection(id) for a hand-wired tableCell() call --
+    // this is that same capability, just reached directly instead of
+    // via a lookup, because Dashboard already holds the reference.
+    get table() {
+
+      return this._tableController || null;
 
     }
 
@@ -377,6 +418,32 @@
 
         this._map.element.style.marginTop =
           "0";
+
+      }
+
+      // compute.table -- see this.tableEl in shared/dashboard-dom.js
+      // and _tableController() in shared/map-table.js. Created once,
+      // here, not re-created per Compute (unlike _renderDiagram()):
+      // _tableController() tracks a fixed source id and self-updates
+      // via its own MapLibre "sourcedata" listener, so it needs no
+      // signal from Dashboard about WHEN a compute finished, only
+      // that the map already exists.
+      const tableCfg =
+        this.config.compute?.table;
+
+      if (tableCfg && this.tableEl) {
+
+        this._tableController =
+          this._map._tableController(
+            tableCfg.sources,
+            this.tableEl,
+            {
+              id: tableCfg.id,
+              emptyMessage: tableCfg.emptyMessage,
+              rowClassName: tableCfg.rowClassName,
+              iconColumns: tableCfg.iconColumns
+            }
+          );
 
       }
 
@@ -1106,6 +1173,14 @@
     // ==========================================================
 
     destroy() {
+
+      // Unlike _diagram (recreated per Compute, so already torn down
+      // in _renderDiagram() before a new one replaces it),
+      // _tableController lives for the Dashboard's whole lifetime --
+      // its own map "sourcedata"/"click" listeners and its
+      // WebGeoDSMap._tableSelections entry would otherwise leak past
+      // this instance's own destroy().
+      this._tableController?.destroy();
 
       if (this._map) {
 

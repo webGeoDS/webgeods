@@ -184,21 +184,29 @@
 
 
   // ==========================================================
-  // tableCell(sourceIds, containerId, Generators, options)
+  // _tableController(sourceIds, containerId, options) -- the engine
+  // tableCell() (below) wraps for an {ojs} cell, and WebGeoDS.
+  // Dashboard (shared/dashboard.js's _init()) calls directly for its
+  // OWN declarative `compute.table` field. Split out (2026-09-14) so
+  // Dashboard -- which uses no `mutable`/Generators/{ojs} cell by
+  // design (see dashboard.js's own doc comment) -- can drive the same
+  // render/selection/click-binding machinery without needing an OJS
+  // reactive wrapper it has no way to provide. Returns `{ element,
+  // select(key), selectMany(keys), getSelectedKey(), getSelectedKeys(),
+  // setOnRender(fn), destroy() }` -- `setOnRender()` is how a caller
+  // learns a re-render happened (tableCell() below uses it to call
+  // Observable's own `change()`; Dashboard doesn't need it at all,
+  // since it just inserts `element` once and every future render
+  // mutates that same node in place).
   //
   // `containerId` is optional: omit it (or pass null/undefined) and
-  // tableCell() creates its OWN <div> once, the same idiom as this
-  // class's own constructor (`new WebGeoDS.Map({...})` with no id
+  // this creates its OWN <div> once, the same idiom as this class's
+  // own constructor (`new WebGeoDS.Map({...})` with no id
   // auto-creates its container) — no hand-written `<div id="...">`
-  // needed elsewhere in the page. The cell then yields that element
-  // on every render, so a plain (non `output: false`) {ojs} cell
-  // assigning `tableCell(...)` displays it automatically via
-  // Observable's own "a cell whose value is a DOM Node gets shown"
-  // convention — same SAME element reference every time, just
-  // rebuilt in place by shared/table.js's render(), so it never
-  // needs to "move". Passing an explicit string still works exactly
-  // as before (looked up via getElementById inside
-  // table()/Table.render()).
+  // needed elsewhere in the page. Passing an explicit string still
+  // works exactly as before (looked up via getElementById inside
+  // table()/Table.render()); Dashboard always passes an actual
+  // Element (its own `tableEl`, created in shared/dashboard-dom.js).
   //
   // One-line OJS wiring for table() above, self-reactive to
   // MapLibre's own "sourcedata" event instead of requiring the
@@ -313,23 +321,11 @@
   // reachable.
   // ==========================================================
 
-  WebGeoDSMap.prototype.tableCell = function (
+  WebGeoDSMap.prototype._tableController = function (
     sourceIds,
     containerId,
-    Generators,
     options = {}
   ) {
-
-    if (
-      !Generators ||
-      typeof Generators.observe !== "function"
-    ) {
-
-      throw new TypeError(
-        "WebGeoDS.Map: tableCell()'s Generators argument is missing or invalid — pass the Generators available in the calling {ojs} cell."
-      );
-
-    }
 
     const auto =
       sourceIds === undefined ||
@@ -444,113 +440,70 @@
 
       };
 
-    return Generators.observe((change) => {
+    // A Set, not a single key: a table-row click or a map click
+    // still ever selects exactly one, but a THIRD consumer (the
+    // Vega-Lite class-distribution chart) selects every feature
+    // belonging to a class — see selectByKeys() below. selectByKey
+    // (singular) is a thin wrapper kept for the two single-feature
+    // callers.
+    let selectedKeys =
+      new Set();
 
-      // A Set, not a single key: a table-row click or a map click
-      // still ever selects exactly one, but a THIRD consumer (the
-      // Vega-Lite class-distribution chart) selects every feature
-      // belonging to a class — see selectByKeys() below. selectByKey
-      // (singular) is a thin wrapper kept for the two single-feature
-      // callers.
-      let selectedKeys =
-        new Set();
+    // Set via setOnRender() below by whichever caller needs to know
+    // a render happened (tableCell()'s own OJS wrapper, to call
+    // Observable's change()) -- null (a no-op) for a caller like
+    // Dashboard that just reads `element` once and lets it mutate in
+    // place.
+    let onRender =
+      null;
 
-      // Fires WebGeoDSMap.SELECTION_CHANGE_EVENT on `container` --
-      // the public entry point's other half (findTableSelection()'s
-      // .select()/.getSelectedKey() are the "drive it" half). Any
-      // consumer (a Vega-Lite chart cell, or another future one) can
-      // addEventListener() on the same container object it already
-      // got back from tableCell() to react to a selection made by
-      // ANY cause: a map click, a table row click, or another
-      // consumer's own .select()/.selectMany() call. Called from
-      // every place `selectedKeys` actually changes, below.
-      // `detail.key` stays the single-key contract existing
-      // consumers already rely on (null when the selection is empty
-      // OR holds more than one key); `detail.keys` is the full set,
-      // for a multi-select-aware consumer.
-      const announceSelection =
-        () => {
+    // Fires WebGeoDSMap.SELECTION_CHANGE_EVENT on `container` --
+    // the public entry point's other half (findTableSelection()'s
+    // .select()/.getSelectedKey() are the "drive it" half). Any
+    // consumer (a Vega-Lite chart cell, or another future one) can
+    // addEventListener() on the same container object it already
+    // got back from tableCell() to react to a selection made by
+    // ANY cause: a map click, a table row click, or another
+    // consumer's own .select()/.selectMany() call. Called from
+    // every place `selectedKeys` actually changes, below.
+    // `detail.key` stays the single-key contract existing
+    // consumers already rely on (null when the selection is empty
+    // OR holds more than one key); `detail.keys` is the full set,
+    // for a multi-select-aware consumer.
+    const announceSelection =
+      () => {
 
-          const keys =
-            [...selectedKeys];
+        const keys =
+          [...selectedKeys];
 
-          containerEl?.dispatchEvent(
-            new CustomEvent(
-              WebGeoDSMap.SELECTION_CHANGE_EVENT,
-              { detail: { key: keys.length === 1 ? keys[0] : null, keys } }
-            )
+        containerEl?.dispatchEvent(
+          new CustomEvent(
+            WebGeoDSMap.SELECTION_CHANGE_EVENT,
+            { detail: { key: keys.length === 1 ? keys[0] : null, keys } }
+          )
+        );
+
+      };
+
+    const render =
+      async () => {
+
+        // A selected feature can disappear out from under the
+        // selection (e.g. the page's own "Reset map and table"
+        // button empties the tracked source it came from) — drop
+        // any key that no longer resolves to anything instead of
+        // leaving a stale overlay highlighted on the map.
+        const stillValid =
+          [...selectedKeys].filter(
+            (key) => findFeatureByKey(key)
           );
 
-        };
+        if (stillValid.length !== selectedKeys.size) {
 
-      const render =
-        async () => {
+          selectedKeys =
+            new Set(stillValid);
 
-          // A selected feature can disappear out from under the
-          // selection (e.g. the page's own "Reset map and table"
-          // button empties the tracked source it came from) — drop
-          // any key that no longer resolves to anything instead of
-          // leaving a stale overlay highlighted on the map.
-          const stillValid =
-            [...selectedKeys].filter(
-              (key) => findFeatureByKey(key)
-            );
-
-          if (stillValid.length !== selectedKeys.size) {
-
-            selectedKeys =
-              new Set(stillValid);
-
-            if (selectedKeys.size === 0) {
-
-              await this.removeGeoJSON(
-                SELECTION_SOURCE_ID
-              );
-
-            } else {
-
-              const features =
-                stillValid.map(findFeatureByKey);
-
-              await this.setGeoJSON(
-                SELECTION_SOURCE_ID,
-                { type: "FeatureCollection", features },
-                { paint: selectionPaint(features) }
-              );
-
-            }
-
-            announceSelection();
-
-          }
-
-          await this.table(
-            trackedIds(),
-            container,
-            { ...options, selectedKeys, onRowClick: (row) => selectByKeys([row.__key]) }
-          );
-
-          // The SAME container every time (string id or the element
-          // created above) — see the doc comment for why this makes
-          // a plain {ojs} cell auto-display it correctly.
-          change(container);
-
-        };
-
-      const selectByKeys =
-        async (keys) => {
-
-          const uniqueKeys =
-            [...new Set(keys)];
-
-          const isSameSelection =
-            uniqueKeys.length === selectedKeys.size &&
-            uniqueKeys.every((key) => selectedKeys.has(key));
-
-          if (isSameSelection) {
-
-            selectedKeys =
-              new Set();
+          if (selectedKeys.size === 0) {
 
             await this.removeGeoJSON(
               SELECTION_SOURCE_ID
@@ -558,22 +511,8 @@
 
           } else {
 
-            const resolved =
-              uniqueKeys
-                .map((key) => [key, findFeatureByKey(key)])
-                .filter(([, feature]) => feature);
-
-            if (resolved.length === 0) {
-
-              return;
-
-            }
-
-            selectedKeys =
-              new Set(resolved.map(([key]) => key));
-
             const features =
-              resolved.map(([, feature]) => feature);
+              stillValid.map(findFeatureByKey);
 
             await this.setGeoJSON(
               SELECTION_SOURCE_ID,
@@ -581,160 +520,301 @@
               { paint: selectionPaint(features) }
             );
 
-            await this.fitToData(
-              { type: "FeatureCollection", features }
-            );
-
           }
 
           announceSelection();
 
-          await render();
-
-        };
-
-      const selectByKey =
-        (key) =>
-          selectByKeys([key]);
-
-      // Public entry point -- see WebGeoDSMap.findTableSelection()'s
-      // doc comment above. Exposed TWO ways, for two different
-      // consumers of the same capability:
-      //   - directly on `container` (.select/.selectMany/
-      //     .getSelectedKey) -- ergonomic for a chart {ojs} cell in
-      //     the SAME document, which already holds `container` as
-      //     its own cell value (e.g. `pyTopologyTable`) and can call
-      //     `pyTopologyTable.select(key)` with no lookup;
-      //   - via WebGeoDSMap._tableSelections, keyed by `selectionId`
-      //     -- for a consumer that ISN'T itself an {ojs} cell (a
-      //     plain <script>) or doesn't hold that reference, reached
-      //     instead via WebGeoDS.Map.findTableSelection(id).
-      // `.select(key)` is `selectByKeys([key])`: calling it
-      // externally is indistinguishable from a click, including the
-      // toggle-off-if-already-selected behavior. `.selectMany(keys)`
-      // is the same mechanism for a consumer that selects several
-      // features at once (e.g. "every point belonging to this
-      // class") -- both drive the SAME underlying selection, so a
-      // single-select click and a multi-select call from a chart
-      // stay in sync no matter which one touched it last.
-      // `container.dataset.webgeodsSelectionId` surfaces the
-      // resolved id either way (explicit `options.id` or the
-      // auto-generated fallback) so it's discoverable from the
-      // element alone.
-      if (containerEl) {
-
-        containerEl.select =
-          selectByKey;
-
-        containerEl.selectMany =
-          selectByKeys;
-
-        containerEl.getSelectedKey =
-          () => [...selectedKeys][0] ?? null;
-
-        containerEl.getSelectedKeys =
-          () => selectedKeys;
-
-        containerEl.dataset.webgeodsSelectionId =
-          selectionId;
-
-      }
-
-      WebGeoDSMap._tableSelections.set(
-        selectionId,
-        {
-          select: selectByKey,
-          selectMany: selectByKeys,
-          getSelectedKey: () => [...selectedKeys][0] ?? null,
-          getSelectedKeys: () => selectedKeys,
-          element: containerEl
         }
-      );
 
-      render();
+        await this.table(
+          trackedIds(),
+          container,
+          { ...options, selectedKeys, onRowClick: (row) => selectByKeys([row.__key]) }
+        );
 
-      const sourceHandler =
-        (e) => {
+        // Notifies whoever called setOnRender() (tableCell()'s own
+        // OJS wrapper calls Observable's change() here; a caller
+        // like Dashboard, with no such wrapper, leaves this null and
+        // just lets `container` mutate in place instead).
+        onRender?.();
 
-          if (
-            e.dataType === "source" &&
-            e.sourceDataType === "content" &&
-            isTracked(e.sourceId)
-          ) {
+      };
 
-            render();
+    const selectByKeys =
+      async (keys) => {
 
-          }
+        const uniqueKeys =
+          [...new Set(keys)];
 
-        };
+        const isSameSelection =
+          uniqueKeys.length === selectedKeys.size &&
+          uniqueKeys.every((key) => selectedKeys.has(key));
 
-      const clickHandler =
-        (e) => {
+        if (isSameSelection) {
 
-          const layers =
-            trackedIds().filter(
-              (id) => this.map.getLayer(id)
-            );
+          selectedKeys =
+            new Set();
 
-          const clicked =
-            layers.length > 0 ?
-              this.map.queryRenderedFeatures(e.point, { layers }) :
-              [];
+          await this.removeGeoJSON(
+            SELECTION_SOURCE_ID
+          );
 
-          if (clicked.length === 0) {
+        } else {
 
-            if (selectedKeys.size > 0) {
+          const resolved =
+            uniqueKeys
+              .map((key) => [key, findFeatureByKey(key)])
+              .filter(([, feature]) => feature);
 
-              // Passing the SAME set again is selectByKeys()'s own
-              // toggle-off path (isSameSelection) -- clears whether
-              // the current selection is one feature (a table/map
-              // click) or a whole class (a chart bar selection),
-              // with no separate "clear everything" branch to keep
-              // in sync with it.
-              selectByKeys(
-                [...selectedKeys]
-              );
+          if (resolved.length === 0) {
 
-            }
-
-          } else {
-
-            selectByKey(
-              `${clicked[0].source}:${clicked[0].id}`
-            );
+            return;
 
           }
 
-        };
+          selectedKeys =
+            new Set(resolved.map(([key]) => key));
 
-      this.map.on(
-        "sourcedata",
-        sourceHandler
-      );
+          const features =
+            resolved.map(([, feature]) => feature);
 
-      this.map.on(
-        "click",
-        clickHandler
-      );
+          await this.setGeoJSON(
+            SELECTION_SOURCE_ID,
+            { type: "FeatureCollection", features },
+            { paint: selectionPaint(features) }
+          );
 
-      return () => {
+          await this.fitToData(
+            { type: "FeatureCollection", features }
+          );
 
-        this.map.off("sourcedata", sourceHandler);
-        this.map.off("click", clickHandler);
+        }
 
-        // Only if WE own that entry -- if another render()/instance
-        // (e.g. under a shortened id collision) has already
-        // overwritten it, leave that one alone rather than deleting
-        // out from under it.
-        if (WebGeoDSMap._tableSelections.get(selectionId)?.element === containerEl) {
+        announceSelection();
 
-          WebGeoDSMap._tableSelections.delete(
-            selectionId
+        await render();
+
+      };
+
+    const selectByKey =
+      (key) =>
+        selectByKeys([key]);
+
+    // Public entry point -- see WebGeoDSMap.findTableSelection()'s
+    // doc comment above. Exposed THREE ways, for three different
+    // consumers of the same capability:
+    //   - directly on `container` (.select/.selectMany/
+    //     .getSelectedKey) -- ergonomic for a chart {ojs} cell in
+    //     the SAME document, which already holds `container` as
+    //     its own cell value (e.g. `pyTopologyTable`) and can call
+    //     `pyTopologyTable.select(key)` with no lookup;
+    //   - via WebGeoDSMap._tableSelections, keyed by `selectionId`
+    //     -- for a consumer that ISN'T itself an {ojs} cell (a
+    //     plain <script>) or doesn't hold that reference, reached
+    //     instead via WebGeoDS.Map.findTableSelection(id);
+    //   - on the object THIS method itself returns (below) -- for
+    //     WebGeoDS.Dashboard, which holds that reference directly
+    //     (`dashboard.table`) and needs neither of the above.
+    // `.select(key)` is `selectByKeys([key])`: calling it
+    // externally is indistinguishable from a click, including the
+    // toggle-off-if-already-selected behavior. `.selectMany(keys)`
+    // is the same mechanism for a consumer that selects several
+    // features at once (e.g. "every point belonging to this
+    // class") -- both drive the SAME underlying selection, so a
+    // single-select click and a multi-select call from a chart
+    // stay in sync no matter which one touched it last.
+    // `container.dataset.webgeodsSelectionId` surfaces the
+    // resolved id either way (explicit `options.id` or the
+    // auto-generated fallback) so it's discoverable from the
+    // element alone.
+    if (containerEl) {
+
+      containerEl.select =
+        selectByKey;
+
+      containerEl.selectMany =
+        selectByKeys;
+
+      containerEl.getSelectedKey =
+        () => [...selectedKeys][0] ?? null;
+
+      containerEl.getSelectedKeys =
+        () => selectedKeys;
+
+      containerEl.dataset.webgeodsSelectionId =
+        selectionId;
+
+    }
+
+    WebGeoDSMap._tableSelections.set(
+      selectionId,
+      {
+        select: selectByKey,
+        selectMany: selectByKeys,
+        getSelectedKey: () => [...selectedKeys][0] ?? null,
+        getSelectedKeys: () => selectedKeys,
+        element: containerEl
+      }
+    );
+
+    render();
+
+    const sourceHandler =
+      (e) => {
+
+        if (
+          e.dataType === "source" &&
+          e.sourceDataType === "content" &&
+          isTracked(e.sourceId)
+        ) {
+
+          render();
+
+        }
+
+      };
+
+    const clickHandler =
+      (e) => {
+
+        const layers =
+          trackedIds().filter(
+            (id) => this.map.getLayer(id)
+          );
+
+        const clicked =
+          layers.length > 0 ?
+            this.map.queryRenderedFeatures(e.point, { layers }) :
+            [];
+
+        if (clicked.length === 0) {
+
+          if (selectedKeys.size > 0) {
+
+            // Passing the SAME set again is selectByKeys()'s own
+            // toggle-off path (isSameSelection) -- clears whether
+            // the current selection is one feature (a table/map
+            // click) or a whole class (a chart bar selection),
+            // with no separate "clear everything" branch to keep
+            // in sync with it.
+            selectByKeys(
+              [...selectedKeys]
+            );
+
+          }
+
+        } else {
+
+          selectByKey(
+            `${clicked[0].source}:${clicked[0].id}`
           );
 
         }
 
       };
+
+    this.map.on(
+      "sourcedata",
+      sourceHandler
+    );
+
+    this.map.on(
+      "click",
+      clickHandler
+    );
+
+    return {
+
+      element:
+        container,
+
+      select:
+        selectByKey,
+
+      selectMany:
+        selectByKeys,
+
+      getSelectedKey:
+        () => [...selectedKeys][0] ?? null,
+
+      getSelectedKeys:
+        () => selectedKeys,
+
+      setOnRender:
+        (fn) => { onRender = fn; },
+
+      destroy:
+        () => {
+
+          this.map.off("sourcedata", sourceHandler);
+          this.map.off("click", clickHandler);
+
+          // Only if WE own that entry -- if another render()/instance
+          // (e.g. under a shortened id collision) has already
+          // overwritten it, leave that one alone rather than deleting
+          // out from under it.
+          if (WebGeoDSMap._tableSelections.get(selectionId)?.element === containerEl) {
+
+            WebGeoDSMap._tableSelections.delete(
+              selectionId
+            );
+
+          }
+
+        }
+
+    };
+
+  };
+
+
+  // ==========================================================
+  // tableCell(sourceIds, containerId, Generators, options) -- the
+  // {ojs}-cell wrapper around _tableController() above. One-line OJS
+  // wiring for table(), self-reactive to MapLibre's own "sourcedata"
+  // event instead of requiring the calling {ojs} cell to build that
+  // reactivity by hand (the earlier topology-fix.qmd design: a
+  // separate Generators.observe() cell plus a following `{ ... }`
+  // block just to get this).
+  //
+  // A plain (non `output: false`) {ojs} cell assigning
+  // `tableCell(...)` displays the result automatically via
+  // Observable's own "a cell whose value is a DOM Node gets shown"
+  // convention -- the SAME element reference every time, just
+  // rebuilt in place by shared/table.js's render(), so it never
+  // needs to "move". `change()` is called once per _tableController()
+  // render (see its own setOnRender() call below), same timing as
+  // before this was split into two functions.
+  // ==========================================================
+
+  WebGeoDSMap.prototype.tableCell = function (
+    sourceIds,
+    containerId,
+    Generators,
+    options = {}
+  ) {
+
+    if (
+      !Generators ||
+      typeof Generators.observe !== "function"
+    ) {
+
+      throw new TypeError(
+        "WebGeoDS.Map: tableCell()'s Generators argument is missing or invalid — pass the Generators available in the calling {ojs} cell."
+      );
+
+    }
+
+    return Generators.observe((change) => {
+
+      const controller =
+        this._tableController(sourceIds, containerId, options);
+
+      controller.setOnRender(
+        () => change(controller.element)
+      );
+
+      return controller.destroy;
 
     });
 

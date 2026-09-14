@@ -381,11 +381,27 @@
 
     }
 
+    // compute.table -- an EXTRA slot below the legend, for a tool
+    // that wants a feature table (map<->table cross-link, same
+    // engine every hand-wired tableCell() call already uses -- see
+    // _tableController() in shared/map-table.js). Created here
+    // (empty div, appended to root) but not wired up until _init()
+    // (shared/dashboard.js), which needs this._map to exist first --
+    // "no compute.table configured" leaves `this.tableEl` undefined,
+    // same convention as sidePanelEl above.
+    if (config.compute?.table) {
+
+      this.tableEl =
+        document.createElement("div");
+
+    }
+
     this.root.append(
       panel,
       this.statsEl,
       sidePanelCfg ? this._mapRow : this.mapSlotEl,
-      this.legendWrapEl
+      this.legendWrapEl,
+      ...(this.tableEl ? [this.tableEl] : [])
     );
 
 

@@ -458,6 +458,20 @@ document.addEventListener("DOMContentLoaded", () => {
         color: WebGeoDS.DEFAULT_PALETTE[i % WebGeoDS.DEFAULT_PALETTE.length],
         label
       })),
+      // Declarative table (compute.table -- Dashboard's first use of
+      // it, replacing what used to be a hand-wired tableCell() OJS
+      // cell below): the training points, cross-linked to the chart
+      // via dashboard.table below and to the map by the training
+      // layer's own onClick above. The grid/classification-areas
+      // table further down this page stays hand-wired -- it has no
+      // cross-link role of its own, and compute.table (v1) covers
+      // one table per tool, the same "wait for a second real need"
+      // discipline this project already applies elsewhere.
+      table: {
+        sources: ["spatial-classifier-training-py"],
+        id: "sc-training-table",
+        emptyMessage: "No results yet"
+      },
       download: {
         getFeatures: (v) => v.originalCrsFeatures,
         filenameSuffix: "-classified-surface.geojson",
@@ -593,16 +607,19 @@ document.addEventListener("DOMContentLoaded", () => {
           keyField: "cls",
           // Chart -> map+table half of the cross-link. Reuses the
           // SAME selection mechanism a map click or a table-row click
-          // already drives (WebGeoDS.Map.findTableSelection(), see
-          // classifierTable's own doc comment further down this page)
-          // instead of shared/map.js's separate highlight() helper --
-          // highlight() only touches the map, leaving the table's own
-          // row styling out of sync, AND (found live, while testing
-          // this) its featureIds filter silently matched nothing:
-          // v.trainingFeatures.features[].id comes through as a STRING
-          // (geopandas's own __geo_interface__ -> JSON -> JS bridge),
-          // but MapLibre's actual rendered feature ids are numbers, so
-          // a string/number-mismatched filter matched zero features.
+          // already drives -- reached directly as `dashboard.table`
+          // now that the table is compute.table (Dashboard's own
+          // declarative field, see the config above), not a
+          // WebGeoDS.Map.findTableSelection(id) lookup as it was
+          // before that field existed -- instead of shared/map.js's
+          // separate highlight() helper: highlight() only touches the
+          // map, leaving the table's own row styling out of sync, AND
+          // (found live, while testing this) its featureIds filter
+          // silently matched nothing: v.trainingFeatures.features[].id
+          // comes through as a STRING (geopandas's own
+          // __geo_interface__ -> JSON -> JS bridge), but MapLibre's
+          // actual rendered feature ids are numbers, so a
+          // string/number-mismatched filter matched zero features.
           // Routing through selectMany() -- built FOR real MapLibre
           // ids -- sidesteps that whole class of bug and keeps
           // map+table in sync in one call, selecting EVERY point of
@@ -613,7 +630,7 @@ document.addEventListener("DOMContentLoaded", () => {
           onSelect: (cls) => {
 
             const tableSelection =
-              WebGeoDS.Map.findTableSelection("sc-training-table");
+              dashboard.table;
 
             if (!tableSelection) {
               return;
@@ -684,14 +701,12 @@ classifierDashboard = {
 ```{ojs}
 //| echo: false
 //| output: false
-// Explicit id: reached from the chart's own onSelect (a plain
-// <script>, not an {ojs} cell) via WebGeoDS.Map.findTableSelection(id)
-// -- same idiom shared/map.js's own doc comment names for a consumer
-// that isn't an {ojs} cell holding this container directly.
-classifierTable = classifierDashboard.map.tableCell(["spatial-classifier-training-py"], null, Generators, {
-  id: "sc-training-table",
-  emptyMessage: "No results yet"
-})
+// The training-points table itself is now compute.table (see the
+// Dashboard config above) -- dashboard.table is the SAME
+// _tableController() handle a hand-wired tableCell() call would have
+// returned, reached directly (no WebGeoDS.Map.findTableSelection(id)
+// lookup needed) since classifierDashboard already holds it.
+classifierTable = classifierDashboard.table.element
 ```
 
 ```{ojs}
@@ -707,7 +722,7 @@ classifierTable = classifierDashboard.map.tableCell(["spatial-classifier-trainin
 // selected feature, so an id half maps straight back to a
 // trainingFeatures entry via its own top-level `id`.
 {
-  classifierTable.addEventListener(WebGeoDS.Map.SELECTION_CHANGE_EVENT, (e) => {
+  classifierDashboard.table.element.addEventListener(WebGeoDS.Map.SELECTION_CHANGE_EVENT, (e) => {
     const keys = e.detail.keys;
     if (keys.length === 0) {
       window.scClassChart?.setSelected(null);
