@@ -505,7 +505,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
           }
         }, {
-          selectParam: "componentSelect",
+          selectParams: ["componentSelect"],
           externalParam: "componentExternal",
           keyField: "component",
           // Chart -> map+diagram half of the cross-link: highlights

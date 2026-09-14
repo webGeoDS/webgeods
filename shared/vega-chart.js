@@ -17,42 +17,51 @@
  * a thin wrapper library would just add a layer of indirection to
  * reach the same View API this file already uses straight.
  *
- * THE TWO-PARAM PATTERN THIS RELIES ON (required, not inferred --
- * same "explicit over guessed" reasoning as Dashboard's own
- * `layers[].type`): reading/writing Vega-Lite's OWN compiled
- * selection store directly turned out to be fragile, undocumented
- * internal machinery (`view.data(paramName + "_store")` changesets
- * silently no-op -- confirmed empirically, not assumed, before
- * settling on this design). Instead, every spec passed to this module
- * must declare TWO params:
+ * THE PARAM PATTERN THIS RELIES ON (required, not inferred -- same
+ * "explicit over guessed" reasoning as Dashboard's own `layers[].
+ * type`): reading/writing Vega-Lite's OWN compiled selection store
+ * directly turned out to be fragile, undocumented internal machinery
+ * (`view.data(paramName + "_store")` changesets silently no-op --
+ * confirmed empirically, not assumed, before settling on this
+ * design). Instead, every spec passed to this module must declare ONE
+ * real Vega-Lite point-selection param PER clickable view, plus ONE
+ * plain signal param shared by all of them:
  *
  *   "params": [
  *     { "name": "yourSelectParam", "select": { "type": "point", "fields": ["yourKeyField"] } },
  *     { "name": "yourExternalParam", "value": null }
  *   ]
  *
- * -- one real Vega-Lite point-selection param (drives the chart's own
- * click interaction and whatever encoding conditions on it, e.g.
- * `"condition": {"param": "yourSelectParam", ...}`), and one plain
- * signal param with no `select` binding, used as the single shared
- * "current selection" value BOTH directions read and write. A click
- * copies the point-selection's value into the plain param (internal
- * to this module); `setSelected()` writes the plain param directly.
- * The chart's own encoding should condition on the PLAIN param (e.g.
- * `"test": "datum.yourKeyField === yourExternalParam"`), not the
- * point-selection param, so both directions repaint it identically.
+ * -- the point-selection param drives that view's own click
+ * interaction and whatever encoding conditions on it; the plain
+ * signal param (no `select` binding) is the single shared "current
+ * selection" value every direction reads and writes, REGARDLESS of
+ * which view a click landed in. A click copies its own point-
+ * selection's value into the plain param (internal to this module);
+ * `setSelected()` writes the plain param directly. Every view's
+ * encoding should condition on the PLAIN param (e.g. `"test":
+ * "datum.yourKeyField === yourExternalParam"`), not its own point-
+ * selection param, so every view -- and a cross-linked map/table --
+ * repaints identically no matter which one drove the change.
+ *
+ * A single spec with several clickable views (e.g. two Vega-Lite
+ * `vconcat` panels sharing one map/table cross-link) needs its own
+ * uniquely-named point-selection param PER view, all listed in
+ * `opts.selectParams`, but still only ONE shared `externalParam` --
+ * see Spatial Classifier's own two-chart sidePanel for a real example.
  *
  * Usage:
  *
  *   const chart = WebGeoDS.renderVegaChart("#my-chart", spec, {
- *     selectParam: "yourSelectParam",
+ *     selectParams: ["yourSelectParam"],  // one entry per clickable view
  *     externalParam: "yourExternalParam",
  *     keyField: "yourKeyField",     // which field of the selection tuple is "the" key
  *     onSelect: (key) => { ... }    // cross-link hook: highlight this key on the map/table
  *   });
  *
  *   chart.setSelected(key);   // called FROM the map/table side, to
- *                             // highlight the matching bar/point here
+ *                             // highlight the matching bar/point here,
+ *                             // in EVERY view at once
  *   chart.destroy();
  *
  * `spec` is themed automatically (transparent background, no view
@@ -147,18 +156,18 @@
     }
 
     const {
-      selectParam,
+      selectParams,
       externalParam,
       keyField,
       onSelect
     } = opts;
 
-    if (!selectParam || !externalParam || !keyField) {
+    if (!Array.isArray(selectParams) || selectParams.length === 0 || !externalParam || !keyField) {
 
       throw new Error(
-        "WebGeoDS.renderVegaChart: opts.selectParam, opts.externalParam, " +
-        "and opts.keyField are all required -- see this file's own doc " +
-        "comment for the two-param spec pattern they refer to."
+        "WebGeoDS.renderVegaChart: opts.selectParams (a non-empty array), " +
+        "opts.externalParam, and opts.keyField are all required -- see " +
+        "this file's own doc comment for the param pattern they refer to."
       );
 
     }
@@ -183,32 +192,40 @@
     // just also copies that same value into the plain external param,
     // so setSelected() and a click end up driving the exact same
     // signal, and calls the cross-link hook the same way a map
-    // layer's onClick/a diagram's onNodeClick already do.
+    // layer's onClick/a diagram's onNodeClick already do. ONE listener
+    // per entry in selectParams -- every clickable view funnels into
+    // the SAME selectedKey/externalParam/onSelect below, so it makes
+    // no difference to a map/table cross-link which view a click
+    // actually landed in.
     //
     // .runAsync() (not the more obvious .run()), and no `await` here:
     // this listener fires WHILE Vega's own dataflow run (the one the
     // click itself triggered) is still in progress -- a synchronous
     // .run() re-enters it and throws "Dataflow already running"
     // (confirmed empirically). .runAsync() queues instead.
-    view.addSignalListener(selectParam, (name, value) => {
+    for (const selectParam of selectParams) {
 
-      const key =
-        value?.[keyField]?.[0] ?? null;
+      view.addSignalListener(selectParam, (name, value) => {
 
-      if (key === selectedKey) {
+        const key =
+          value?.[keyField]?.[0] ?? null;
 
-        return;
+        if (key === selectedKey) {
 
-      }
+          return;
 
-      selectedKey =
-        key;
+        }
 
-      view.signal(externalParam, key).runAsync();
+        selectedKey =
+          key;
 
-      onSelect?.(key);
+        view.signal(externalParam, key).runAsync();
 
-    });
+        onSelect?.(key);
+
+      });
+
+    }
 
     function setSelected(key) {
 

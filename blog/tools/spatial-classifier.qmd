@@ -216,6 +216,26 @@ model.fit(X_train, y_train)
 
 accuracy = float((model.predict(X_test) == y_test).mean()) if X_test is not None else None
 
+# Per-class held-out accuracy -- feeds the second sidePanel chart
+# (accuracy by class, next to the class-distribution chart): the
+# overall accuracy above can hide a model that's perfect on the
+# majority class and useless on a rare one. A class absent from
+# class_accuracy (rather than 0.0) means "no held-out points for this
+# class" -- a singleton-class point (see splittable_classes above), or
+# no test split at all -- not "the model got it wrong every time",
+# which 0.0 would misleadingly claim.
+class_accuracy = {}
+if X_test is not None:
+    y_pred_test = model.predict(X_test)
+    for c in class_labels:
+        test_mask = y_test == c
+        n = int(test_mask.sum())
+        if n > 0:
+            class_accuracy[c] = {
+                "accuracy": float((y_pred_test[test_mask] == y_test[test_mask]).mean()),
+                "testCount": n
+            }
+
 # Regular square-cell grid over the *full uploaded extent* (gdf's own
 # bounds, not just the labeled subset) -- gridResolution cells along
 # the longer side, square cells derived from that, capped in count by
@@ -286,6 +306,7 @@ training_wgs84 = training_wgs84.rename(columns={classColumn: "class"})
         # testing), reused here for the class-distribution chart
         # instead of a second pass over the same data.
         "classCounts": class_counts,
+        "classAccuracy": class_accuracy,
         "labeledCount": int(len(labeled)),
         "excludedCount": excluded_count,
         "trainCount": int(len(X_train)),
@@ -447,17 +468,21 @@ document.addEventListener("DOMContentLoaded", () => {
           defaultFilename: "classified-surface-shapefile.zip"
         }
       },
-      // The class-distribution chart: how many TRAINING points support
-      // each class -- a pure function of the compute value, same as
-      // layers/stats/legend above, but rendered via onResult rather
-      // than a declarative Dashboard field of its own. Dashboard's
-      // compute.diagram exists only because network-from-lines.qmd
-      // needed it first; a second, near-identical `compute.chart`
-      // field would just duplicate that same shape for one more
-      // renderer -- onResult (Dashboard's own general escape hatch)
-      // already covers this without Dashboard needing to know
-      // anything about Vega-Lite. Promote to a real field only if a
-      // THIRD tool wants the same pattern.
+      // Two class-distribution charts, stacked via Vega-Lite's own
+      // `vconcat` inside ONE spec -- how many training points support
+      // each class, and how accurate the model is on each class's
+      // held-out points -- both pure functions of the compute value,
+      // same as layers/stats/legend above, but rendered via onResult
+      // rather than a declarative Dashboard field of its own (see
+      // Dashboard's own doc comment on compute.diagram for why
+      // onResult, not a second field, covers this). A single spec
+      // (not two separate renderVegaChart() calls bridged by JS) means
+      // Vega-Lite's own dataflow keeps the two panels in sync with no
+      // custom code for that part -- only the cross-link OUT to map/
+      // table (identical either way) is this file's job. BOTH panels
+      // are independently clickable: shared/vega-chart.js's
+      // selectParams accepts one point-selection param per view, all
+      // funneled into the same shared classExternal/onSelect below.
       onResult: async (v) => {
 
         const dashboard =
@@ -471,50 +496,86 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
-        const rows =
+        const distRows =
           Object.entries(v.summary.classCounts).map(([cls, count]) => ({ cls, count }));
+
+        // Classes with NO held-out points (a singleton class, or no
+        // test split at all -- see class_accuracy's own doc comment in
+        // the compute cell above) are simply absent here, not shown at
+        // 0% -- an untested class isn't the same claim as "always
+        // wrong".
+        const accRows =
+          Object.entries(v.summary.classAccuracy)
+            .map(([cls, a]) => ({ cls, accuracy: a.accuracy, testCount: a.testCount }));
+
+        // Shared color scale/condition, used identically by both
+        // panels below -- written once rather than duplicated, so the
+        // two can't silently drift apart.
+        const classColor = {
+          "condition": { "test": "datum.cls === classExternal", "value": "#ffeb3b" },
+          "field": "cls",
+          "type": "nominal",
+          "scale": { "domain": v.summary.classLabels, "range": WebGeoDS.DEFAULT_PALETTE },
+          "legend": null
+        };
 
         window.scClassChart = await WebGeoDS.renderVegaChart(dashboard.sidePanelEl, {
           "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-          "width": "container",
-          "height": "container",
-          "autosize": { "type": "fit", "contains": "padding" },
-          "data": { "values": rows },
+          // Shared across BOTH panels below -- declared at THIS level
+          // (not inside either panel's own spec), the same reasoning
+          // shared/vega-chart.js's own doc comment gives for a
+          // multi-view spec. Each panel's OWN "params" entry (its
+          // point-selection) stays scoped to that panel alone.
           "params": [
-            // Vega-Lite's own default clear trigger (dblclick) is kept
-            // as-is here: tried overriding it to "click" for a more
-            // intuitive single-click-to-deselect, found LIVE (via
-            // Playwright, not just reasoning) that it also intercepts
-            // the SAME click that selects a bar in the first place --
-            // one physical click firing both "select" and "clear"
-            // raced and silently cancelled the selection. Reverted
-            // rather than risk the real, reported bug (chart -> map/
-            // table not propagating) for a minor, unreported UX
-            // polish item.
-            { "name": "classSelect", "select": { "type": "point", "fields": ["cls"] } },
             { "name": "classExternal", "value": null }
           ],
-          "mark": "bar",
-          "encoding": {
-            "x": { "field": "cls", "type": "nominal", "title": "Class" },
-            "y": { "field": "count", "type": "quantitative", "title": "Training points" },
-            "color": {
-              // Selected -> the same yellow shared/map.js's own
-              // highlight() uses (--dataviz-selection), so a
-              // selection looks the same regardless of which view
-              // (map or chart) it started from. Not selected -> the
-              // class's own color, same palette/order as the map and
-              // legend, so the chart reads as "the same classes",
-              // not a fourth unrelated color scheme.
-              "condition": { "test": "datum.cls === classExternal", "value": "#ffeb3b" },
-              "field": "cls",
-              "type": "nominal",
-              "scale": { "domain": v.summary.classLabels, "range": WebGeoDS.DEFAULT_PALETTE },
-              "legend": null
+          "vconcat": [
+            {
+              "width": "container",
+              "height": 130,
+              "data": { "values": distRows },
+              // Vega-Lite's own default clear trigger (dblclick) is
+              // kept as-is: tried overriding it to "click" for a more
+              // intuitive single-click-to-deselect, found LIVE (via
+              // Playwright, not just reasoning) that it also
+              // intercepts the SAME click that selects a bar in the
+              // first place -- one physical click firing both
+              // "select" and "clear" raced and silently cancelled the
+              // selection. Reverted rather than risk the real,
+              // reported bug (chart -> map/table not propagating) for
+              // a minor, unreported UX polish item.
+              "params": [
+                { "name": "classSelectDist", "select": { "type": "point", "fields": ["cls"] } }
+              ],
+              "mark": "bar",
+              "encoding": {
+                "x": { "field": "cls", "type": "nominal", "title": "Class" },
+                "y": { "field": "count", "type": "quantitative", "title": "Training points" },
+                // Selected -> the same yellow shared/map.js's own
+                // highlight() uses (--dataviz-selection), so a
+                // selection looks the same regardless of which view
+                // (map, either chart panel) it started from.
+                "color": classColor
+              }
+            },
+            {
+              "width": "container",
+              "height": 100,
+              "data": { "values": accRows },
+              "params": [
+                { "name": "classSelectAcc", "select": { "type": "point", "fields": ["cls"] } }
+              ],
+              "mark": "bar",
+              "encoding": {
+                "x": { "field": "cls", "type": "nominal", "title": "Class" },
+                "y": { "field": "accuracy", "type": "quantitative", "title": "Held-out accuracy",
+                       "scale": { "domain": [0, 1] }, "axis": { "format": "%" } },
+                "color": classColor
+              }
             }
-          }
+          ]
         }, {
-          selectParam: "classSelect",
+          selectParams: ["classSelectDist", "classSelectAcc"],
           externalParam: "classExternal",
           keyField: "cls",
           // Chart -> map+table half of the cross-link. Reuses the
