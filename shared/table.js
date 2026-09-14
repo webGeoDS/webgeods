@@ -24,6 +24,10 @@
  *                    // shared/styles.css), rowClassName above still sees
  *                    // the untransformed row values
  *     selectedKey,   // string|null — optional, marks the matching row selected
+ *     selectedKeys,  // Set<string>|null — optional, marks EVERY matching row
+ *                    // selected (multi-select — e.g. "every row belonging to
+ *                    // the class a chart bar represents"); independent of
+ *                    // selectedKey, checked in addition to it
  *     onRowClick,    // (row) => void — optional
  *     emptyMessage   // string — shown instead of a table when data is empty
  *   })
@@ -96,6 +100,7 @@
       rowClassName,
       iconColumns = [],
       selectedKey = null,
+      selectedKeys = null,
       onRowClick,
       emptyMessage = "No results"
     } = {}
@@ -186,7 +191,8 @@
       const classNames =
         [
           rowClassName?.(row) || "",
-          row.__key !== undefined && row.__key === selectedKey ?
+          row.__key !== undefined &&
+          (row.__key === selectedKey || selectedKeys?.has(row.__key)) ?
             "webgeods-row-selected" :
             ""
         ].filter(Boolean);

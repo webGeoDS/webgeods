@@ -335,12 +335,14 @@
     // findTableSelection(id) — look up a live tableCell() call's
     // selection controller by its id (see tableCell()'s own doc
     // comment for the full story). Returns
-    // { select(key), getSelectedKey(), element } or undefined if no
-    // tableCell() with that id is currently mounted. `select(key)`
-    // mirrors clicking that row/feature by hand — same toggle-off-if-
-    // already-selected behavior; `element` is the same container
-    // tableCell() returned, the thing to addEventListener()
-    // SELECTION_CHANGE_EVENT on.
+    // { select(key), selectMany(keys), getSelectedKey(),
+    // getSelectedKeys(), element } or undefined if no tableCell() with
+    // that id is currently mounted. `select(key)` mirrors clicking
+    // that row/feature by hand — same toggle-off-if-already-selected
+    // behavior; `selectMany(keys)` is the same mechanism for selecting
+    // several features at once (e.g. every point in a class); `element`
+    // is the same container tableCell() returned, the thing to
+    // addEventListener() SELECTION_CHANGE_EVENT on.
     // ----------------------------------------------------------
 
     static findTableSelection(id) {
@@ -353,8 +355,11 @@
     // ----------------------------------------------------------
     // Event name dispatched on a tableCell() call's container
     // whenever ITS selection changes, from ANY cause (a map click, a
-    // table row click, or another consumer calling .select()) — event
-    // detail is `{ key }` (the new selectedKey, or null if cleared).
+    // table row click, or another consumer calling .select()/
+    // .selectMany()) — event detail is `{ key, keys }`: `key` is the
+    // single selected key, or null when the selection is empty OR
+    // holds more than one (kept for existing single-select-only
+    // consumers); `keys` is the full array either way.
     // A named constant instead of a bare string literal so a distant
     // caller (a Vega-Lite chart cell) doesn't have to retype/guess it.
     // ----------------------------------------------------------
@@ -1367,12 +1372,17 @@
     // selection is registered under `options.id` (or an
     // auto-generated one if omitted) in a lookup a non-{ojs} caller
     // can reach — `WebGeoDS.Map.findTableSelection(id)` returns
-    // `{ select(key), getSelectedKey(), element }`. `select(key)`
-    // drives the SAME selection a click would (map click, table row
-    // click, or this call are indistinguishable to it, including
-    // toggle-off-if-already-selected); `element.addEventListener(
+    // `{ select(key), selectMany(keys), getSelectedKey(),
+    // getSelectedKeys(), element }`. `select(key)` drives the SAME
+    // selection a click would (map click, table row click, or this
+    // call are indistinguishable to it, including toggle-off-if-
+    // already-selected); `selectMany(keys)` is the multi-feature form
+    // (e.g. a chart selecting every point in a class), sharing the
+    // exact same underlying state and toggle-off behavior — a single
+    // click and a whole-class selection are just different sizes of
+    // the same Set. `element.addEventListener(
     // WebGeoDS.Map.SELECTION_CHANGE_EVENT, (e) => ...)` reacts to a
-    // selection made by ANY of those three. `options.id` is worth
+    // selection made by ANY of those. `options.id` is worth
     // setting explicitly on a page with more than one tableCell()
     // call (e.g. one per language) — a future chart cell needs to
     // name which one it's joining, an auto id it never sees isn't
@@ -1491,12 +1501,12 @@
         };
 
       const selectionPaint =
-        (feature) => {
+        (features) => {
 
           const type =
             this._detectGeometryType({
               type: "FeatureCollection",
-              features: [feature]
+              features
             });
 
           const selection =
@@ -1512,8 +1522,14 @@
 
       return Generators.observe((change) => {
 
-        let selectedKey =
-          null;
+        // A Set, not a single key: a table-row click or a map click
+        // still ever selects exactly one, but a THIRD consumer (the
+        // Vega-Lite class-distribution chart) selects every feature
+        // belonging to a class — see selectByKeys() below. selectByKey
+        // (singular) is a thin wrapper kept for the two single-feature
+        // callers.
+        let selectedKeys =
+          new Set();
 
         // Fires WebGeoDSMap.SELECTION_CHANGE_EVENT on `container` --
         // the public entry point's other half (findTableSelection()'s
@@ -1522,15 +1538,22 @@
         // addEventListener() on the same container object it already
         // got back from tableCell() to react to a selection made by
         // ANY cause: a map click, a table row click, or another
-        // consumer's own .select() call. Called from every place
-        // `selectedKey` actually changes, below.
+        // consumer's own .select()/.selectMany() call. Called from
+        // every place `selectedKeys` actually changes, below.
+        // `detail.key` stays the single-key contract existing
+        // consumers already rely on (null when the selection is empty
+        // OR holds more than one key); `detail.keys` is the full set,
+        // for a multi-select-aware consumer.
         const announceSelection =
           () => {
+
+            const keys =
+              [...selectedKeys];
 
             containerEl?.dispatchEvent(
               new CustomEvent(
                 WebGeoDSMap.SELECTION_CHANGE_EVENT,
-                { detail: { key: selectedKey } }
+                { detail: { key: keys.length === 1 ? keys[0] : null, keys } }
               )
             );
 
@@ -1542,19 +1565,36 @@
             // A selected feature can disappear out from under the
             // selection (e.g. the page's own "Reset map and table"
             // button empties the tracked source it came from) — drop
-            // a selection that no longer resolves to anything instead
-            // of leaving a stale overlay highlighted on the map.
-            if (
-              selectedKey !== null &&
-              !findFeatureByKey(selectedKey)
-            ) {
-
-              selectedKey =
-                null;
-
-              await this.removeGeoJSON(
-                SELECTION_SOURCE_ID
+            // any key that no longer resolves to anything instead of
+            // leaving a stale overlay highlighted on the map.
+            const stillValid =
+              [...selectedKeys].filter(
+                (key) => findFeatureByKey(key)
               );
+
+            if (stillValid.length !== selectedKeys.size) {
+
+              selectedKeys =
+                new Set(stillValid);
+
+              if (selectedKeys.size === 0) {
+
+                await this.removeGeoJSON(
+                  SELECTION_SOURCE_ID
+                );
+
+              } else {
+
+                const features =
+                  stillValid.map(findFeatureByKey);
+
+                await this.setGeoJSON(
+                  SELECTION_SOURCE_ID,
+                  { type: "FeatureCollection", features },
+                  { paint: selectionPaint(features) }
+                );
+
+              }
 
               announceSelection();
 
@@ -1563,7 +1603,7 @@
             await this.table(
               trackedIds(),
               container,
-              { ...options, selectedKey, onRowClick: (row) => selectByKey(row.__key) }
+              { ...options, selectedKeys, onRowClick: (row) => selectByKeys([row.__key]) }
             );
 
             // The SAME container every time (string id or the element
@@ -1573,13 +1613,20 @@
 
           };
 
-        const selectByKey =
-          async (key) => {
+        const selectByKeys =
+          async (keys) => {
 
-            if (key === selectedKey) {
+            const uniqueKeys =
+              [...new Set(keys)];
 
-              selectedKey =
-                null;
+            const isSameSelection =
+              uniqueKeys.length === selectedKeys.size &&
+              uniqueKeys.every((key) => selectedKeys.has(key));
+
+            if (isSameSelection) {
+
+              selectedKeys =
+                new Set();
 
               await this.removeGeoJSON(
                 SELECTION_SOURCE_ID
@@ -1587,26 +1634,31 @@
 
             } else {
 
-              const feature =
-                findFeatureByKey(key);
+              const resolved =
+                uniqueKeys
+                  .map((key) => [key, findFeatureByKey(key)])
+                  .filter(([, feature]) => feature);
 
-              if (!feature) {
+              if (resolved.length === 0) {
 
                 return;
 
               }
 
-              selectedKey =
-                key;
+              selectedKeys =
+                new Set(resolved.map(([key]) => key));
+
+              const features =
+                resolved.map(([, feature]) => feature);
 
               await this.setGeoJSON(
                 SELECTION_SOURCE_ID,
-                { type: "FeatureCollection", features: [feature] },
-                { paint: selectionPaint(feature) }
+                { type: "FeatureCollection", features },
+                { paint: selectionPaint(features) }
               );
 
               await this.fitToData(
-                feature
+                { type: "FeatureCollection", features }
               );
 
             }
@@ -1617,31 +1669,47 @@
 
           };
 
+        const selectByKey =
+          (key) =>
+            selectByKeys([key]);
+
         // Public entry point -- see WebGeoDSMap.findTableSelection()'s
         // doc comment above. Exposed TWO ways, for two different
         // consumers of the same capability:
-        //   - directly on `container` (.select/.getSelectedKey) --
-        //     ergonomic for a chart {ojs} cell in the SAME document,
-        //     which already holds `container` as its own cell value
-        //     (e.g. `pyTopologyTable`) and can call
+        //   - directly on `container` (.select/.selectMany/
+        //     .getSelectedKey) -- ergonomic for a chart {ojs} cell in
+        //     the SAME document, which already holds `container` as
+        //     its own cell value (e.g. `pyTopologyTable`) and can call
         //     `pyTopologyTable.select(key)` with no lookup;
         //   - via _tableSelections, keyed by `selectionId` -- for a
         //     consumer that ISN'T itself an {ojs} cell (a plain
         //     <script>) or doesn't hold that reference, reached
         //     instead via WebGeoDS.Map.findTableSelection(id).
-        // `.select()` is `selectByKey` itself: calling it externally
-        // is indistinguishable from a click, including the
-        // toggle-off-if-already-selected behavior. `container.dataset
-        // .webgeodsSelectionId` surfaces the resolved id either way
-        // (explicit `options.id` or the auto-generated fallback) so
-        // it's discoverable from the element alone.
+        // `.select(key)` is `selectByKeys([key])`: calling it
+        // externally is indistinguishable from a click, including the
+        // toggle-off-if-already-selected behavior. `.selectMany(keys)`
+        // is the same mechanism for a consumer that selects several
+        // features at once (e.g. "every point belonging to this
+        // class") -- both drive the SAME underlying selection, so a
+        // single-select click and a multi-select call from a chart
+        // stay in sync no matter which one touched it last.
+        // `container.dataset.webgeodsSelectionId` surfaces the
+        // resolved id either way (explicit `options.id` or the
+        // auto-generated fallback) so it's discoverable from the
+        // element alone.
         if (containerEl) {
 
           containerEl.select =
             selectByKey;
 
+          containerEl.selectMany =
+            selectByKeys;
+
           containerEl.getSelectedKey =
-            () => selectedKey;
+            () => [...selectedKeys][0] ?? null;
+
+          containerEl.getSelectedKeys =
+            () => selectedKeys;
 
           containerEl.dataset.webgeodsSelectionId =
             selectionId;
@@ -1652,7 +1720,9 @@
           selectionId,
           {
             select: selectByKey,
-            getSelectedKey: () => selectedKey,
+            selectMany: selectByKeys,
+            getSelectedKey: () => [...selectedKeys][0] ?? null,
+            getSelectedKeys: () => selectedKeys,
             element: containerEl
           }
         );
@@ -1689,10 +1759,16 @@
 
             if (clicked.length === 0) {
 
-              if (selectedKey !== null) {
+              if (selectedKeys.size > 0) {
 
-                selectByKey(
-                  selectedKey
+                // Passing the SAME set again is selectByKeys()'s own
+                // toggle-off path (isSameSelection) -- clears whether
+                // the current selection is one feature (a table/map
+                // click) or a whole class (a chart bar selection),
+                // with no separate "clear everything" branch to keep
+                // in sync with it.
+                selectByKeys(
+                  [...selectedKeys]
                 );
 
               }

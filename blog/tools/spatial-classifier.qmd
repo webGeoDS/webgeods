@@ -518,25 +518,24 @@ document.addEventListener("DOMContentLoaded", () => {
           externalParam: "classExternal",
           keyField: "cls",
           // Chart -> map+table half of the cross-link. Reuses the
-          // SAME selectByKey() mechanism a map click or a table-row
-          // click already drives (WebGeoDS.Map.findTableSelection(),
-          // see classifierTable's own doc comment further down this
-          // page) instead of shared/map.js's separate highlight()
-          // helper -- highlight() only touches the map, leaving the
-          // table's own row styling out of sync, AND (found live,
-          // while testing this) its featureIds filter silently
-          // matched nothing: v.trainingFeatures.features[].id comes
-          // through as a STRING (geopandas's own __geo_interface__ ->
-          // JSON -> JS bridge), but MapLibre's actual rendered feature
-          // ids are numbers, so a string/number-mismatched filter
-          // matched zero features. Routing through selectByKey() --
-          // built FOR real MapLibre ids -- sidesteps that whole class
-          // of bug and keeps map+table in sync in one call, at the
-          // cost of only ever highlighting ONE representative point of
-          // the clicked class rather than all of them (the same
-          // single-item semantics every other selection on this site
-          // already uses -- see network-from-lines.qmd's own node/
-          // diagram cross-link).
+          // SAME selection mechanism a map click or a table-row click
+          // already drives (WebGeoDS.Map.findTableSelection(), see
+          // classifierTable's own doc comment further down this page)
+          // instead of shared/map.js's separate highlight() helper --
+          // highlight() only touches the map, leaving the table's own
+          // row styling out of sync, AND (found live, while testing
+          // this) its featureIds filter silently matched nothing:
+          // v.trainingFeatures.features[].id comes through as a STRING
+          // (geopandas's own __geo_interface__ -> JSON -> JS bridge),
+          // but MapLibre's actual rendered feature ids are numbers, so
+          // a string/number-mismatched filter matched zero features.
+          // Routing through selectMany() -- built FOR real MapLibre
+          // ids -- sidesteps that whole class of bug and keeps
+          // map+table in sync in one call, selecting EVERY point of
+          // the clicked class (a real, reported requirement: a class
+          // is many points, not one representative one -- unlike
+          // network-from-lines.qmd's node/diagram cross-link, where a
+          // click really is a single node).
           onSelect: (cls) => {
 
             const tableSelection =
@@ -547,30 +546,29 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             if (!cls) {
-              // Bar deselected -- selectByKey() toggles OFF when
-              // called with the SAME key again, same as a real second
-              // click on the same feature/row.
-              if (window.scLastTableKey) {
-                tableSelection.select(window.scLastTableKey);
+              // Bar deselected -- selectMany() toggles OFF when
+              // called with the SAME set again, same as re-clicking
+              // every one of those features/rows by hand.
+              if (window.scLastTableKeys) {
+                tableSelection.selectMany(window.scLastTableKeys);
               }
-              window.scLastTableKey = null;
+              window.scLastTableKeys = null;
               return;
             }
 
-            const feature =
-              v.trainingFeatures.features.find((f) => f.properties.class === cls);
+            const keys =
+              v.trainingFeatures.features
+                .filter((f) => f.properties.class === cls)
+                .map((f) => `spatial-classifier-training-py:${Number(f.id)}`);
 
-            if (!feature) {
+            if (keys.length === 0) {
               return;
             }
 
-            const key =
-              `spatial-classifier-training-py:${Number(feature.id)}`;
+            window.scLastTableKeys =
+              keys;
 
-            window.scLastTableKey =
-              key;
-
-            tableSelection.select(key);
+            tableSelection.selectMany(keys);
 
           }
         });
@@ -629,18 +627,29 @@ classifierTable = classifierDashboard.map.tableCell(["spatial-classifier-trainin
 // layer's own onClick, chart -> map is the chart's own onSelect --
 // both declared in the Dashboard config above). SELECTION_CHANGE_EVENT
 // fires on a tableCell() call's own container from ANY cause (a row
-// click, or a map click the site's existing map<->table cross-link
-// already propagates here) -- the key is "sourceId:id" (shared/map.js's
-// own tableCell() doc comment), so the id half maps straight back to a
+// click, a map click, or the chart's own onSelect calling
+// selectMany() for a whole class -- shared/map.js's own tableCell()
+// doc comment) -- `e.detail.keys` is "sourceId:id" for every currently
+// selected feature, so an id half maps straight back to a
 // trainingFeatures entry via its own top-level `id`.
 {
   classifierTable.addEventListener(WebGeoDS.Map.SELECTION_CHANGE_EVENT, (e) => {
-    const key = e.detail.key;
-    if (!key) {
+    const keys = e.detail.keys;
+    if (keys.length === 0) {
       window.scClassChart?.setSelected(null);
       return;
     }
-    const id = Number(key.split(":")[1]);
+    if (keys.length > 1) {
+      // A whole-class selection reaches this listener too, but only
+      // ever as an ECHO of the chart's own selectMany() call (a row/
+      // map click always selects exactly one feature) -- the chart
+      // already reflects it, so there's nothing to derive here.
+      // Treating this as "no matching single feature" would be wrong
+      // in the other direction: it would clear the chart's own bar
+      // highlight right after the user's click set it.
+      return;
+    }
+    const id = Number(keys[0].split(":")[1]);
     const value = classifierDashboard.value;
     // Number(f.id): trainingFeatures' own ids come through as STRINGS
     // (geopandas's __geo_interface__ -> JSON -> JS bridge) -- the same
