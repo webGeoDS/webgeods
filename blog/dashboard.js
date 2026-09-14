@@ -62,6 +62,13 @@
  *     map: { center: [12.45, 41.9], zoom: 4 }, // height optional --
  *           defaults to DEFAULT_MAP_HEIGHT below, override only if a
  *           tool genuinely needs something else,
+ *     layout: { sidePanel: { id, flex, minWidth, placeholder } }, //
+ *              optional -- a slot beside the map for compute.diagram
+ *              and/or a tool's own onResult chart; `placeholder` is
+ *              the message shown there before the first successful
+ *              Compute and again after Reset (see
+ *              _showSidePanelPlaceholder() below), defaults to
+ *              "Results appear here after you run Compute.",
  *     upload: { languages: ["python"], kind: "vector", label: "📁 Upload" },
  *     resetLabel: "🔄 Reset", // optional -- the Reset button always
  *                  exists (same control row as upload/example/
@@ -649,6 +656,19 @@
 
         this._mapRow.append(this.mapSlotEl, this.sidePanelEl);
 
+        // An empty bordered box sitting next to the map from page
+        // load, with nothing in it until the first successful
+        // Compute, reads as broken or still loading rather than "no
+        // results yet" -- found live, reviewing both sidePanel tools
+        // shipped so far. Shown here once and restored on reset() (see
+        // _showSidePanelPlaceholder() below); real content (a diagram,
+        // a chart, or both) always replaces it on a successful
+        // compute, whether via _renderDiagram() or a tool's own
+        // onResult calling renderVegaChart() directly on sidePanelEl.
+        this._showSidePanelPlaceholder(
+          sidePanelCfg.placeholder
+        );
+
       }
 
       this.root.append(
@@ -1066,6 +1086,17 @@
         // a tool-specific escape hatch clear itself on reset too.
         this.config.compute?.onResult?.(null);
 
+        // AFTER onResult(null): a tool without compute.diagram (e.g.
+        // Spatial Classifier, whose onResult renders straight into
+        // sidePanelEl) leaves it empty at this point, not restored by
+        // _renderDiagram() above (which returned immediately -- no
+        // diagramCfg configured for that tool at all). One call here
+        // covers every tool uniformly regardless of which path (or
+        // both) actually uses sidePanelEl.
+        this._showSidePanelPlaceholder(
+          this.config.layout?.sidePanel?.placeholder
+        );
+
         this.state.status =
           window.WebGeoDS.Upload.defaultStatus;
 
@@ -1221,6 +1252,44 @@
 
     }
 
+    // Called on construction (_buildDom() above) and from reset() --
+    // NOT from _renderDiagram()'s own null-value path, since
+    // _renderDiagram(cfg, null) only ever happens from reset() itself
+    // (runCompute()'s success path always passes a real value); one
+    // call site after onResult(null) covers every tool uniformly,
+    // whether its sidePanel content is a diagram, a chart (built by
+    // its own onResult calling renderVegaChart() directly on
+    // sidePanelEl), or both. Replaces sidePanelEl's ENTIRE content
+    // (there's nothing else to preserve once cleared) and drops
+    // _diagramSlotEl -- replaceChildren() below detaches it from the
+    // DOM, so the cached reference must go too or _renderDiagram()
+    // would reuse a disconnected element on the next compute.
+    _showSidePanelPlaceholder(message) {
+
+      if (!this.sidePanelEl) {
+
+        return;
+
+      }
+
+      this._diagramSlotEl =
+        null;
+
+      const placeholder =
+        document.createElement("div");
+
+      placeholder.className =
+        "webgeods-sidepanel-placeholder";
+
+      placeholder.textContent =
+        message || "Results appear here after you run Compute.";
+
+      this.sidePanelEl.replaceChildren(
+        placeholder
+      );
+
+    }
+
     // Declarative counterpart to graph-diagram.js's renderForceGraph,
     // for the common case of a diagram in layout.sidePanel -- keeps
     // Dashboard's own dependency on graph-diagram.js OPTIONAL (the
@@ -1260,6 +1329,14 @@
       }
 
       if (!this._diagramSlotEl) {
+
+        // Clears the placeholder _showSidePanelPlaceholder() put here
+        // (construction, or a prior reset) -- safe to always wipe
+        // sidePanelEl entirely at this exact point: this branch only
+        // ever runs on the FIRST successful compute, before a tool's
+        // own onResult has had a chance to add anything else (e.g. a
+        // chart slot) alongside the diagram.
+        this.sidePanelEl.replaceChildren();
 
         this.sidePanelEl.style.display =
           "flex";

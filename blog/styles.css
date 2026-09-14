@@ -260,6 +260,22 @@
   font-style: italic;
 }
 
+/* WebGeoDS.Dashboard's layout.sidePanel, before the first successful
+   Compute (and again after Reset) -- see _showSidePanelPlaceholder()
+   in shared/dashboard.js. sidePanelEl already carries its own border/
+   fixed height (matches the map next to it); this only needs to fill
+   and center within that, not restate either. */
+.webgeods-sidepanel-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 16px;
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+}
+
 /* Row-level coloring for WebGeoDS.Map.table()'s rowClassName option —
    the data-visualization red/green tones (not the UI danger/success
    ones — see the --dataviz-* comment in the tokens block above),
