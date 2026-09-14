@@ -21,138 +21,42 @@ including ours. Nothing to configure, nothing to trust: the code
 never gets the chance to see your data.
 :::
 
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-mutable uploadBusy = false
-mutable uploadedFiles = null
-mutable uploadKind = null
-```
+```{.webgeods-python #spatial-classifier-example-py}
+import json
 
-```{ojs}
-//| echo: false
-//| output: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "📁 Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  // Python-only tool (see the article for the same computation shown
-  // in R too, including a real divergence between the two languages):
-  // skip writing to R's filesystem entirely, so selecting a file
-  // doesn't also load webR in the background for no reason.
-  mutable uploadBusy = true;
-  mutable uploadStatus = "⌛ Uploading...";
-  try {
-    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
-    if (result.ok) {
-      mutable uploadKind = result.kind;
-      mutable uploadStatus = "⌛ Inspecting...";
-      await autoInspect();
-      mutable uploadStatus = result.message;
-    } else {
-      mutable uploadStatus = result.message;
-    }
-  } finally {
-    mutable uploadBusy = false;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-uploadStatusEl = WebGeoDS.uploadStatusEl(uploadStatus, uploadBusy)
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = await WebGeoDS.createSharedMap({ tool: "spatial-classifier" })
-```
-
-The code itself isn't shown here — it's a fixed, non-editable
-computation using scikit-learn's `RandomForestClassifier` underneath.
-Want to see it built up step by step, in Python *and* R — including a
-real gotcha where the two languages disagree on classification vs.
-regression? Read
-[Predicting Spatial Classes with Random Forest](/posts/spatial-classification.html).
-
-```{ojs}
-//| echo: false
-//| output: false
-autoInspect = async () => {
-  await window.WebGeoDS.CodeCell.find("spatial-classifier-inspect-py").run();
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Deterministic synthetic dataset -- two groups, cleanly separated in
-// space, each carrying a fixed "class" label. Reuses the exact same
-// coordinates as the first and third groups of the clustering tool's
-// own EXAMPLE_POINTS (already verified well-separated), minus the
-// scattered noise points -- classification wants clean labeled data,
-// not noise to explain away.
-EXAMPLE_ROWS = [
-  ...[
+# Deterministic synthetic dataset -- two groups, cleanly separated in
+# space, each carrying a fixed "class" label. Same coordinates as the
+# clustering tool's own EXAMPLE_POINTS (first and third groups,
+# already verified well-separated), minus the scattered noise points
+# -- classification wants clean labeled data, not noise to explain
+# away.
+north = [
     [12.450066, 41.900016], [12.450332, 41.900159], [12.450202, 41.900152],
     [12.450017, 41.899721], [12.449639, 41.899781], [12.44983, 41.900398],
     [12.450168, 41.900137], [12.44989, 41.899805], [12.449684, 41.90032],
-    [12.45028, 41.900272], [12.449961, 41.899825], [12.450273, 41.899636]
-  ].map(coord => ({ coord, cls: "north" })),
-  ...[
+    [12.45028, 41.900272], [12.449961, 41.899825], [12.450273, 41.899636],
+]
+south = [
     [12.455277, 41.884832], [12.454614, 41.884991], [12.454621, 41.884723],
     [12.45535, 41.884793], [12.45486, 41.885091], [12.455187, 41.885068],
     [12.455246, 41.885086], [12.455096, 41.884671], [12.454816, 41.884664],
-    [12.45532, 41.885381]
-  ].map(coord => ({ coord, cls: "south" }))
+    [12.45532, 41.885381],
 ]
-```
 
-```{ojs}
-//| echo: false
-//| output: false
-EXAMPLE_GEOJSON = JSON.stringify({
-  type: "FeatureCollection",
-  features: EXAMPLE_ROWS.map((row, i) => ({
-    type: "Feature",
-    properties: { name: `point ${i + 1}`, class: row.cls },
-    geometry: { type: "Point", coordinates: row.coord }
-  }))
-})
-```
+features = [
+    {"type": "Feature", "properties": {"name": f"point {i + 1}", "class": "north"},
+     "geometry": {"type": "Point", "coordinates": coord}}
+    for i, coord in enumerate(north)
+] + [
+    {"type": "Feature", "properties": {"name": f"point {len(north) + i + 1}", "class": "south"},
+     "geometry": {"type": "Point", "coordinates": coord}}
+    for i, coord in enumerate(south)
+]
 
-```{ojs}
-//| echo: false
-//| output: false
-loadExampleButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "📋 Load example";
-  button.onclick = async () => {
-    mutable uploadBusy = true;
-    mutable uploadStatus = "⌛ Loading example...";
-    try {
-      const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
-      await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
-      mutable uploadKind = "geojson";
-      mutable uploadStatus = "⌛ Inspecting...";
-      await autoInspect();
-      mutable uploadStatus = "✓ example data loaded — pick the class column and Compute below.";
-    } finally {
-      mutable uploadBusy = false;
-    }
-  };
-  return button;
-}
+with open("/uploaded.geojson", "w") as f:
+    json.dump({"type": "FeatureCollection", "features": features}, f)
+
+{"written": "/uploaded.geojson", "points": len(features)}
 ```
 
 ```{.webgeods-python #spatial-classifier-inspect-py}
@@ -209,75 +113,12 @@ if gdf is not None:
 }
 ```
 
-```{ojs}
-//| echo: false
-mutable inspectSummary = null
-```
-
-```{ojs}
-//| echo: false
-mutable resultSummary = null
-```
-
-```{ojs}
-//| echo: false
-mutable exportFeatures = null
-```
-
-```{ojs}
-//| echo: false
-mutable crsWarning = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyInspect = WebGeoDS.getCellValue("spatial-classifier-inspect-py", Generators)
-{
-  if (pyInspect) {
-    // No paint override here -- the default circle style (shared/map.js's
-    // _defaultPaint) is exactly right for "uploaded, not yet classified".
-    // Class colors only appear once Compute has actually run.
-    await sharedMap.setGeoJSON("spatial-classifier-training-py", pyInspect.features);
-    await sharedMap.fitToData(pyInspect.features);
-    mutable inspectSummary = pyInspect.summary;
-    mutable crsWarning = pyInspect.crsWarning;
-    // A fresh upload/example invalidates any previously computed
-    // classification -- same reasoning as clicking Reset.
-    mutable resultSummary = null;
-    mutable exportFeatures = null;
-    await sharedMap.removeGeoJSON("spatial-classifier-grid-py").catch(() => {});
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Warm-palette hues from shared/_brand.yml (terracotta, muschio, info,
-// attenzione, errore) -- same 5 non-neutral hues the clustering tool
-// uses, keyed here on a class LABEL string instead of a cluster
-// integer. Cycles if there are more than 5 classes.
-CLASS_PALETTE = ["#ab502b", "#42583c", "#3d5a73", "#c48a2e", "#8b2f24"]
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Same "match" expression built by hand before, now shared/ui.js's
-// matchPaint() (also handles the empty-labels case that could
-// otherwise build an invalid MapLibre expression -- see its own doc
-// comment). `field` differs by layer: the training layer colors by
-// the TRUE class ("class"), the grid layer by the PREDICTED class
-// ("predictedClass") -- same palette, so the two are directly
-// comparable on the map.
-classPaint = (classLabels, field, opts = {}) =>
-  WebGeoDS.matchPaint(classLabels, field, {
-    palette: CLASS_PALETTE,
-    fill: opts.fill,
-    strokeWidth: 1.5
-  })
-```
+The code itself isn't shown here — it's a fixed, non-editable
+computation using scikit-learn's `RandomForestClassifier` underneath.
+Want to see it built up step by step, in Python *and* R — including a
+real gotcha where the two languages disagree on classification vs.
+regression? Read
+[Predicting Spatial Classes with Random Forest](/posts/spatial-classification.html).
 
 ```{.webgeods-python #spatial-classifier-compute-py}
 #| inject: [classColumn, nTrees, gridResolution]
@@ -430,9 +271,21 @@ training_wgs84 = training_wgs84.rename(columns={classColumn: "class"})
     "gridFeatures": grid_wgs84.__geo_interface__,
     "originalCrsFeatures": export_crs(grid_wgs84).__geo_interface__,
     "summary": {
+        # count/crs duplicate what inspect already reported -- kept
+        # here too so the stat card can show the full picture (Points,
+        # Original CRS, Calculation CRS, ...) from this one value,
+        # since WebGeoDS.Dashboard's compute.stats only ever receives
+        # the compute cell's own return, not inspect's.
+        "count": int(len(gdf)),
+        "crs": str(original_crs),
         "calculationCrs": calc_crs_label,
         "classColumn": classColumn,
         "classLabels": class_labels,
+        # Per-class training-point counts -- already computed above
+        # (used there to decide which classes can be held out for
+        # testing), reused here for the class-distribution chart
+        # instead of a second pass over the same data.
+        "classCounts": class_counts,
         "labeledCount": int(len(labeled)),
         "excludedCount": excluded_count,
         "trainCount": int(len(X_train)),
@@ -446,13 +299,14 @@ training_wgs84 = training_wgs84.rename(columns={classColumn: "class"})
 ```
 
 ```{.webgeods-python #spatial-classifier-export-shp-py}
-# Only run on demand (see downloadButton below), not on every Compute:
-# re-exports grid_wgs84 (the just-computed classified grid, already
-# available from spatial-classifier-compute-py above) reprojected
-# back to the CRS the file was UPLOADED in, as an actual shapefile
-# (geopandas.to_file()), zips the resulting .shp/.shx/.dbf/.prj/.cpg
-# in memory, and returns it base64-encoded -- same pattern as
-# geojson-shapefile-validator.qmd's geometry-export-shp-py.
+# Only run on demand (see the Dashboard config's download.shapefile
+# below), not on every Compute: re-exports grid_wgs84 (the
+# just-computed classified grid, already available from
+# spatial-classifier-compute-py above) reprojected back to the CRS the
+# file was UPLOADED in, as an actual shapefile (geopandas.to_file()),
+# zips the resulting .shp/.shx/.dbf/.prj/.cpg in memory, and returns
+# it base64-encoded -- same pattern as geojson-shapefile-validator.qmd's
+# geometry-export-shp-py.
 import base64
 import io
 import os
@@ -470,221 +324,263 @@ with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
 base64.b64encode(buf.getvalue()).decode("ascii")
 ```
 
-```{ojs}
-//| echo: false
-//| output: false
-// The class-column dropdown + trees/resolution sliders + Compute
-// button, rebuilt whenever inspectSummary changes -- same
-// "disabled with an explanatory message until there's data" pattern
-// as the clustering explorer's own controls row.
-classifierControlsRow = {
-  const s = inspectSummary;
-  const row = document.createElement("div");
-  row.className = "webgeods-panel-row";
-
-  if (!s) {
-    const status = document.createElement("span");
-    status.className = "webgeods-panel-status";
-    status.textContent = "Upload a point file or load the example to set parameters.";
-    row.append(status);
-    return row;
-  }
-
-  if (!s.columns || s.columns.length === 0) {
-    const status = document.createElement("span");
-    status.className = "webgeods-panel-status";
-    status.textContent = "This file has no attribute columns to classify on.";
-    row.append(status);
-    return row;
-  }
-
-  const label = (text) => {
-    const span = document.createElement("span");
-    span.className = "webgeods-panel-status";
-    span.textContent = text;
-    return span;
-  };
-
-  const columnSelect = document.createElement("select");
-  columnSelect.id = "class-column-select";
-  columnSelect.className = "webgeods-panel-status";
-  s.columns.forEach((c) => columnSelect.appendChild(new Option(c, c)));
-  if (s.columns.includes("class")) columnSelect.value = "class";
-
-  const treesSlider = WebGeoDS.createSlider([10, 300], {
-    value: 100, step: 10, label: "Trees", id: "trees-control"
-  });
-  const resolutionSlider = WebGeoDS.createSlider([10, 40], {
-    value: 20, step: 5, label: "Grid resolution", id: "grid-resolution-control"
-  });
-
-  const computeButton = document.createElement("button");
-  computeButton.className = "webgeods-panel-btn";
-  computeButton.textContent = "▶ Compute";
-  computeButton.onclick = async () => {
-    computeButton.disabled = true;
-    const originalText = computeButton.textContent;
-    computeButton.textContent = "⌛ Training...";
-    try {
-      const classColumn = columnSelect.value;
-      const nTrees = Number(document.getElementById("trees-control").value);
-      const gridResolution = Number(document.getElementById("grid-resolution-control").value);
-      window.classColumn = classColumn;
-      window.nTrees = nTrees;
-      window.gridResolution = gridResolution;
-      await window.WebGeoDS.CodeCell.find("spatial-classifier-compute-py").run();
-      const result = document.getElementById("spatial-classifier-compute-py").value;
-      const paintOpts = { classLabels: result.summary.classLabels };
-      await sharedMap.setGeoJSON("spatial-classifier-grid-py", result.gridFeatures, {
-        paint: classPaint(result.summary.classLabels, "predictedClass", { fill: true })
-      });
-      await sharedMap.setGeoJSON("spatial-classifier-training-py", result.trainingFeatures, {
-        paint: classPaint(result.summary.classLabels, "class")
-      });
-      mutable exportFeatures = result.originalCrsFeatures;
-      mutable resultSummary = result.summary;
-      window.WebGeoDS.track?.("validation_completed", { tool: "spatial-classifier" });
-    } catch (err) {
-      console.error("spatial-classifier: Compute failed", err);
-      mutable uploadStatus = `⚠️ Compute failed: ${err.message}`;
-    } finally {
-      computeButton.disabled = false;
-      computeButton.textContent = originalText;
-    }
-  };
-
-  row.append(
-    label("Class column:"), columnSelect,
-    treesSlider, resolutionSlider,
-    computeButton
-  );
-  return row;
-}
-```
-
-```{ojs}
-//| echo: false
-resetClassifier = async () => {
-  if (sharedMap.getGeoJSON("spatial-classifier-training-py")) {
-    await sharedMap.setGeoJSON("spatial-classifier-training-py", { type: "FeatureCollection", features: [] });
-  }
-  await sharedMap.removeGeoJSON("spatial-classifier-grid-py").catch(() => {});
-  mutable inspectSummary = null;
-  mutable resultSummary = null;
-  mutable exportFeatures = null;
-  mutable crsWarning = null;
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-resetMapButton = WebGeoDS.resetButton(resetClassifier)
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Gated on resultSummary (a completed Compute), not just an upload --
-// downloading an unclassified file wouldn't be this tool's own output.
-downloadButton = WebGeoDS.downloadButton({
-  getFeatures: () => exportFeatures,
-  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
-  filenameSuffix: "-classified-surface.geojson",
-  defaultFilename: "classified-surface.geojson",
-  enabled: !!resultSummary,
-  tool: "spatial-classifier",
-  shapefile: {
-    cellId: "spatial-classifier-export-shp-py",
-    uploadKind,
-    filenameSuffix: "-classified-surface.zip",
-    defaultFilename: "classified-surface-shapefile.zip"
-  }
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-controlPanelRow = WebGeoDS.controlPanelRow([uploadControl, loadExampleButton, downloadButton, resetMapButton])
-```
-
 *First run loads the Python engine — expect 30-40 seconds. Instant
 after that, and again each time you come back to this page.*
 
-:::: {.webgeods-panel}
+<div id="sc-dashboard"></div>
 
-::: {.webgeods-panel-row}
-${controlPanelRow}
-:::
+<!-- Page-local, not site-wide (see blog/_quarto.yml's own comment on
+     this): vega*.min.js + vega-embed.min.js together are ~828KB,
+     meaningfully more than d3.min.js's ~280KB, and only this one tool
+     needs them so far. -->
+<script src="/vega.min.js"></script>
+<script src="/vega-lite.min.js"></script>
+<script src="/vega-embed.min.js"></script>
+<script src="/vega-chart.js"></script>
 
-::: {.webgeods-panel-row}
-${uploadStatusEl}
-:::
+<script>
+document.addEventListener("DOMContentLoaded", () => {
 
-::: {.webgeods-panel-row}
-${classifierControlsRow}
-:::
+  // Set by compute.onResult below, read by the training layer's
+  // onClick and by the table cross-link cell further down the page.
+  // On `window`, not a local `let`: a later {ojs} cell (the table
+  // cross-link) runs in its own module scope and can't see a plain
+  // script-local variable from this one -- same reason Dashboard
+  // instances themselves are reached via WebGeoDS.Dashboard.find()
+  // rather than a shared variable.
+  window.scClassChart = null;
 
-::::
-
-```{ojs}
-//| echo: false
-statCard = {
-  const s = inspectSummary;
-  const r = resultSummary;
-
-  if (!s) {
-    return WebGeoDS.statCard([
+  new WebGeoDS.Dashboard({
+    tool: "spatial-classifier",
+    mount: "#sc-dashboard",
+    layout: { sidePanel: { id: "sc-chart", flex: "1 1 280px", minWidth: "260px" } },
+    upload: { languages: ["python"], kind: "vector", label: "📁 Upload" },
+    example: {
+      cellId: "spatial-classifier-example-py",
+      kind: "geojson",
+      status: "✓ example data loaded — pick the class column and Compute below."
+    },
+    emptyStats: [
       ["Points", "—"],
       ["—", "Upload a point GeoJSON/Shapefile or load the example above"]
-    ]);
-  }
+    ],
+    inspect: {
+      cellId: "spatial-classifier-inspect-py",
+      layers: [
+        // No paint override -- the default circle style (shared/map.js's
+        // own default) is exactly right for "uploaded, not yet
+        // classified". Class colors only appear once Compute has run.
+        { source: "spatial-classifier-training-py", from: (v) => v.features, type: "circle", fit: true }
+      ],
+      stats: (v) => {
+        const s = v.summary;
+        if (!s) return [["Points", "—"], ["—", "Upload a point GeoJSON/Shapefile or load the example above"]];
+        const rows = [
+          ["Points", s.count.toLocaleString()],
+          ["Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs]
+        ];
+        if (v.crsWarning) rows.push(["CRS warning", v.crsWarning]);
+        return rows;
+      }
+    },
+    compute: {
+      cellId: "spatial-classifier-compute-py",
+      label: "▶ Compute",
+      busyLabel: "⌛ Training...",
+      inputs: [
+        { kind: "select", name: "classColumn", label: "Class column:",
+          options: (v) => v.summary?.columns ?? [],
+          default: (v) => v.summary?.columns?.includes("class") ? "class" : v.summary?.columns?.[0] },
+        { kind: "slider", name: "nTrees", label: "Trees", range: [10, 300], value: 100, step: 10 },
+        { kind: "slider", name: "gridResolution", label: "Grid resolution", range: [10, 40], value: 20, step: 5 }
+      ],
+      layers: [
+        // Grid first, training points second: points draw ON TOP of
+        // the filled grid, same z-order the original hand-wired
+        // version relied on (setGeoJSON call order == layer order).
+        { source: "spatial-classifier-grid-py", from: (v) => v.gridFeatures, type: "fill",
+          paint: (v) => WebGeoDS.matchPaint(v.summary.classLabels, "predictedClass", {
+            palette: WebGeoDS.DEFAULT_PALETTE, fill: true, strokeWidth: 1.5
+          }) },
+        { source: "spatial-classifier-training-py", from: (v) => v.trainingFeatures, type: "circle",
+          paint: (v) => WebGeoDS.matchPaint(v.summary.classLabels, "class", {
+            palette: WebGeoDS.DEFAULT_PALETTE, strokeWidth: 1.5
+          }),
+          // Map -> chart half of the cross-link (chart -> map is the
+          // chart's own onSelect below) -- declared right next to the
+          // layer it belongs to, same convention network-from-lines.qmd
+          // already established for its own map<->diagram link.
+          onClick: (feature) => window.scClassChart?.setSelected(feature.properties.class) }
+      ],
+      stats: (v) => {
+        const r = v.summary;
+        const rows = [
+          ["Points", r.count.toLocaleString()],
+          ["Original CRS", r.crs === "None" || !r.crs ? "Unknown" : r.crs],
+          ["Calculation CRS", r.calculationCrs],
+          ["Class column", r.classColumn],
+          ["Classes found", r.classLabels.join(", ")],
+          ["Labeled points", r.labeledCount.toLocaleString()]
+        ];
+        if (r.excludedCount > 0) {
+          rows.push(["Excluded from training", `${r.excludedCount} (too far from the calculation UTM zone to project)`]);
+        }
+        rows.push(["Train / test split", r.testCount > 0 ? `${r.trainCount} / ${r.testCount}` : `${r.trainCount} / — (too few points to hold out)`]);
+        // Python's None crosses over as JS `undefined`, not `null` (a
+        // known site-wide ambiguity) -- loose equality catches both.
+        rows.push(["Held-out accuracy", r.accuracy == null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`]);
+        rows.push(["Trees", r.nTrees]);
+        rows.push(["Grid cells", r.gridCellCount.toLocaleString()]);
+        return rows;
+      },
+      legend: (v) => v.summary.classLabels.map((label, i) => ({
+        color: WebGeoDS.DEFAULT_PALETTE[i % WebGeoDS.DEFAULT_PALETTE.length],
+        label
+      })),
+      download: {
+        getFeatures: (v) => v.originalCrsFeatures,
+        filenameSuffix: "-classified-surface.geojson",
+        defaultFilename: "classified-surface.geojson",
+        shapefile: {
+          cellId: "spatial-classifier-export-shp-py",
+          filenameSuffix: "-classified-surface.zip",
+          defaultFilename: "classified-surface-shapefile.zip"
+        }
+      },
+      // The class-distribution chart: how many TRAINING points support
+      // each class -- a pure function of the compute value, same as
+      // layers/stats/legend above, but rendered via onResult rather
+      // than a declarative Dashboard field of its own. Dashboard's
+      // compute.diagram exists only because network-from-lines.qmd
+      // needed it first; a second, near-identical `compute.chart`
+      // field would just duplicate that same shape for one more
+      // renderer -- onResult (Dashboard's own general escape hatch)
+      // already covers this without Dashboard needing to know
+      // anything about Vega-Lite. Promote to a real field only if a
+      // THIRD tool wants the same pattern.
+      onResult: async (v) => {
 
-  const rows = [
-    ["Points", s.count.toLocaleString()],
-    ["Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs]
-  ];
+        const dashboard =
+          WebGeoDS.Dashboard.find("spatial-classifier");
 
-  if (r) {
-    rows.push(["Calculation CRS", r.calculationCrs]);
-    rows.push(["Class column", r.classColumn]);
-    rows.push(["Classes found", r.classLabels.join(", ")]);
-    rows.push(["Labeled points", r.labeledCount.toLocaleString()]);
-    if (r.excludedCount > 0) {
-      rows.push(["Excluded from training", `${r.excludedCount} (too far from the calculation UTM zone to project)`]);
+        window.scClassChart?.destroy();
+        window.scClassChart = null;
+
+        if (!v) {
+          // Called with null on reset -- nothing to draw.
+          return;
+        }
+
+        const rows =
+          Object.entries(v.summary.classCounts).map(([cls, count]) => ({ cls, count }));
+
+        window.scClassChart = await WebGeoDS.renderVegaChart(dashboard.sidePanelEl, {
+          "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+          "width": "container",
+          "height": "container",
+          "autosize": { "type": "fit", "contains": "padding" },
+          "data": { "values": rows },
+          "params": [
+            // Vega-Lite's own default clear trigger (dblclick) is kept
+            // as-is here: tried overriding it to "click" for a more
+            // intuitive single-click-to-deselect, found LIVE (via
+            // Playwright, not just reasoning) that it also intercepts
+            // the SAME click that selects a bar in the first place --
+            // one physical click firing both "select" and "clear"
+            // raced and silently cancelled the selection. Reverted
+            // rather than risk the real, reported bug (chart -> map/
+            // table not propagating) for a minor, unreported UX
+            // polish item.
+            { "name": "classSelect", "select": { "type": "point", "fields": ["cls"] } },
+            { "name": "classExternal", "value": null }
+          ],
+          "mark": "bar",
+          "encoding": {
+            "x": { "field": "cls", "type": "nominal", "title": "Class" },
+            "y": { "field": "count", "type": "quantitative", "title": "Training points" },
+            "color": {
+              // Selected -> the same yellow shared/map.js's own
+              // highlight() uses (--dataviz-selection), so a
+              // selection looks the same regardless of which view
+              // (map or chart) it started from. Not selected -> the
+              // class's own color, same palette/order as the map and
+              // legend, so the chart reads as "the same classes",
+              // not a fourth unrelated color scheme.
+              "condition": { "test": "datum.cls === classExternal", "value": "#ffeb3b" },
+              "field": "cls",
+              "type": "nominal",
+              "scale": { "domain": v.summary.classLabels, "range": WebGeoDS.DEFAULT_PALETTE },
+              "legend": null
+            }
+          }
+        }, {
+          selectParam: "classSelect",
+          externalParam: "classExternal",
+          keyField: "cls",
+          // Chart -> map+table half of the cross-link. Reuses the
+          // SAME selectByKey() mechanism a map click or a table-row
+          // click already drives (WebGeoDS.Map.findTableSelection(),
+          // see classifierTable's own doc comment further down this
+          // page) instead of shared/map.js's separate highlight()
+          // helper -- highlight() only touches the map, leaving the
+          // table's own row styling out of sync, AND (found live,
+          // while testing this) its featureIds filter silently
+          // matched nothing: v.trainingFeatures.features[].id comes
+          // through as a STRING (geopandas's own __geo_interface__ ->
+          // JSON -> JS bridge), but MapLibre's actual rendered feature
+          // ids are numbers, so a string/number-mismatched filter
+          // matched zero features. Routing through selectByKey() --
+          // built FOR real MapLibre ids -- sidesteps that whole class
+          // of bug and keeps map+table in sync in one call, at the
+          // cost of only ever highlighting ONE representative point of
+          // the clicked class rather than all of them (the same
+          // single-item semantics every other selection on this site
+          // already uses -- see network-from-lines.qmd's own node/
+          // diagram cross-link).
+          onSelect: (cls) => {
+
+            const tableSelection =
+              WebGeoDS.Map.findTableSelection("sc-training-table");
+
+            if (!tableSelection) {
+              return;
+            }
+
+            if (!cls) {
+              // Bar deselected -- selectByKey() toggles OFF when
+              // called with the SAME key again, same as a real second
+              // click on the same feature/row.
+              if (window.scLastTableKey) {
+                tableSelection.select(window.scLastTableKey);
+              }
+              window.scLastTableKey = null;
+              return;
+            }
+
+            const feature =
+              v.trainingFeatures.features.find((f) => f.properties.class === cls);
+
+            if (!feature) {
+              return;
+            }
+
+            const key =
+              `spatial-classifier-training-py:${Number(feature.id)}`;
+
+            window.scLastTableKey =
+              key;
+
+            tableSelection.select(key);
+
+          }
+        });
+
+      }
     }
-    rows.push(["Train / test split", r.testCount > 0 ? `${r.trainCount} / ${r.testCount}` : `${r.trainCount} / — (too few points to hold out)`]);
-    // Python's None crosses over as JS `undefined`, not `null` (a
-    // known site-wide ambiguity -- see the JS-conversion lesson's own
-    // callout on this) -- loose equality catches both.
-    rows.push(["Held-out accuracy", r.accuracy == null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`]);
-    rows.push(["Trees", r.nTrees]);
-    rows.push(["Grid cells", r.gridCellCount.toLocaleString()]);
-  }
+  });
 
-  return WebGeoDS.statCard(rows);
-}
-```
-
-${statCard}
-
-```{ojs}
-//| echo: false
-legendEl = {
-  const r = resultSummary;
-  if (!r) return WebGeoDS.legend(null);
-
-  const items = r.classLabels.map((label, i) => ({
-    color: CLASS_PALETTE[i % CLASS_PALETTE.length],
-    label
-  }));
-
-  return WebGeoDS.legend(items);
-}
-```
-
-${legendEl}
+});
+</script>
 
 <div class="webgeods-closing-note" style="margin-top: 4px;">
 The filled grid is the model's prediction; the dots on top are your
@@ -695,15 +591,67 @@ one the held-out accuracy above is measuring.
 
 ```{ojs}
 //| echo: false
-sharedMapEl = sharedMap.element
+//| output: false
+// A top-level OJS cell can run BEFORE DOMContentLoaded (Quarto's OJS
+// runtime is a deferred module, but not deferred THAT much) -- the
+// same race WebGeoDS.Dashboard's own doc comment explains for why it
+// mounts on DOMContentLoaded instead of as an {ojs} cell itself.
+// Waiting it out here, once, is simpler than every consumer below
+// re-deriving it.
+classifierDashboard = {
+  await new Promise((resolve) => {
+    if (document.readyState !== "loading") { resolve(); return; }
+    document.addEventListener("DOMContentLoaded", resolve, { once: true });
+  });
+  const dashboard = WebGeoDS.Dashboard.find("spatial-classifier");
+  await dashboard.ready();
+  return dashboard;
+}
 ```
 
 ```{ojs}
 //| echo: false
 //| output: false
-classifierTable = sharedMap.tableCell(["spatial-classifier-training-py"], null, Generators, {
+// Explicit id: reached from the chart's own onSelect (a plain
+// <script>, not an {ojs} cell) via WebGeoDS.Map.findTableSelection(id)
+// -- same idiom shared/map.js's own doc comment names for a consumer
+// that isn't an {ojs} cell holding this container directly.
+classifierTable = classifierDashboard.map.tableCell(["spatial-classifier-training-py"], null, Generators, {
+  id: "sc-training-table",
   emptyMessage: "No results yet"
 })
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+// Table -> chart half of the cross-link (map -> chart is the training
+// layer's own onClick, chart -> map is the chart's own onSelect --
+// both declared in the Dashboard config above). SELECTION_CHANGE_EVENT
+// fires on a tableCell() call's own container from ANY cause (a row
+// click, or a map click the site's existing map<->table cross-link
+// already propagates here) -- the key is "sourceId:id" (shared/map.js's
+// own tableCell() doc comment), so the id half maps straight back to a
+// trainingFeatures entry via its own top-level `id`.
+{
+  classifierTable.addEventListener(WebGeoDS.Map.SELECTION_CHANGE_EVENT, (e) => {
+    const key = e.detail.key;
+    if (!key) {
+      window.scClassChart?.setSelected(null);
+      return;
+    }
+    const id = Number(key.split(":")[1]);
+    const value = classifierDashboard.value;
+    // Number(f.id): trainingFeatures' own ids come through as STRINGS
+    // (geopandas's __geo_interface__ -> JSON -> JS bridge) -- the same
+    // string/number mismatch already found and fixed in the chart's
+    // own onSelect above, reintroduced here independently and caught
+    // by testing this direction specifically, not assumed fixed by
+    // the other one.
+    const feature = value?.trainingFeatures?.features?.find((f) => Number(f.id) === id);
+    if (feature) window.scClassChart?.setSelected(feature.properties.class);
+  });
+}
 ```
 
 ```{ojs}
@@ -713,7 +661,7 @@ classifierTable = sharedMap.tableCell(["spatial-classifier-training-py"], null, 
 // extent (predictedClass per cell) — the same features the download
 // button exports (reprojected to the input's own CRS there; shown
 // here in the working WGS84 the map itself uses).
-classifierGridTable = sharedMap.tableCell(["spatial-classifier-grid-py"], null, Generators, {
+classifierGridTable = classifierDashboard.map.tableCell(["spatial-classifier-grid-py"], null, Generators, {
   emptyMessage: "No results yet"
 })
 ```
@@ -731,7 +679,8 @@ ${classifierGridTable}
 ::::
 
 <style>
-#spatial-classifier-inspect-py, #spatial-classifier-compute-py {
+#spatial-classifier-example-py, #spatial-classifier-inspect-py,
+#spatial-classifier-compute-py, #spatial-classifier-export-shp-py {
   height: 0;
   overflow: hidden;
   margin: 0;

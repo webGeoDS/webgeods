@@ -22,6 +22,10 @@ FILES=(
   dashboard.js
   d3.min.js
   graph-diagram.js
+  vega.min.js
+  vega-lite.min.js
+  vega-embed.min.js
+  vega-chart.js
   styles.css
   _brand.yml
   webgeods-cells.lua

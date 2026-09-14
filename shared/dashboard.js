@@ -70,13 +70,28 @@
  *                stats: value => [["Label", value]] },
  *     compute: { cellId: "my-compute-py", label: "▶ Compute",
  *                busyLabel: "⌛ Working...",
- *                inputs: [{ kind: "slider"|"checkbox", name, label,
- *                           range: [min,max], value, step }],
+ *                inputs: [{ kind: "slider"|"checkbox"|"select", name,
+ *                           label, range: [min,max], value, step, //
+ *                           slider
+ *                           options: inspectValue => [...], // select
+ *                           only -- repopulated every time inspect
+ *                           completes (see _syncSelectInputs() below),
+ *                           since a select's options (unlike a
+ *                           slider's fixed range) usually depend on
+ *                           what was actually uploaded
+ *                           default: inspectValue => "preferred" }], //
+ *                           select only, optional
  *                layers: [{ source, from, type, paint, fit, onClick }],
  *                stats: (value, inputs) => [["Label", value]],
  *                legend: value => [{ color, label }],
  *                download: { getFeatures: value => featureCollection,
- *                            filenameSuffix, defaultFilename },
+ *                            filenameSuffix, defaultFilename,
+ *                            shapefile: { cellId, filenameSuffix,
+ *                            defaultFilename } }, // optional -- same
+ *                            `shapefile` option downloadButton() itself
+ *                            takes (shared/ui.js), minus `uploadKind`
+ *                            (Dashboard supplies that live from its own
+ *                            state, see _buildDom() below),
  *                diagram: { nodes: value => features, links: value =>
  *                           features, ...renderForceGraph()'s own
  *                           options (nodeColor, onNodeClick, ...) },
@@ -370,6 +385,9 @@
         const downloadCfg =
           config.compute.download;
 
+        const dashboard =
+          this;
+
         this._downloadBtn =
           window.WebGeoDS.downloadButton({
             getFeatures: () => downloadCfg.getFeatures(this.state.result),
@@ -378,7 +396,20 @@
             defaultFilename: downloadCfg.defaultFilename,
             enabled: false,
             tool: config.tool,
-            mimeType: downloadCfg.mimeType
+            mimeType: downloadCfg.mimeType,
+            // `uploadKind` as a GETTER, not a frozen value: this button
+            // is built once in the constructor and never rebuilt (see
+            // this file's own doc comment on compute inputs), but the
+            // upload kind changes on every upload/example load after
+            // that -- a plain property would freeze it at its initial
+            // value (null) forever. downloadButton() (shared/ui.js)
+            // reads shapefile.uploadKind fresh on every click, so a
+            // getter transparently stays current with no change needed
+            // there.
+            shapefile: downloadCfg.shapefile ? {
+              ...downloadCfg.shapefile,
+              get uploadKind() { return dashboard.state.kind; }
+            } : undefined
           });
 
         controlChildren.push(this._downloadBtn);
@@ -458,6 +489,40 @@
 
             this._inputEls[input.name] =
               checkbox;
+
+          } else if (input.kind === "select") {
+
+            // Built empty here -- unlike a slider's range, a select's
+            // OPTIONS aren't known until inspect actually runs (e.g.
+            // "which column holds the class label" depends on the
+            // uploaded file's own attribute columns). See
+            // _syncSelectInputs(), called from _runInspectInner()
+            // below, for where the options actually get populated.
+            const label =
+              document.createElement("span");
+
+            label.className =
+              "webgeods-panel-status";
+
+            label.textContent =
+              input.label;
+
+            const select =
+              document.createElement("select");
+
+            select.className =
+              "webgeods-panel-status";
+
+            select.id =
+              `${config.tool}-${input.name}`;
+
+            computeRow.append(
+              label,
+              select
+            );
+
+            this._inputEls[input.name] =
+              select;
 
           } else {
 
@@ -844,6 +909,52 @@
 
       this._renderStats();
       this._renderLegend();
+      this._syncSelectInputs(value);
+
+    }
+
+
+    // A select-kind input's OPTIONS depend on the inspect value (e.g.
+    // "which attribute columns exist"), unlike a slider's fixed range
+    // -- repopulated here every time inspect completes, instead of
+    // once in _buildDom() like every other input kind.
+    _syncSelectInputs(inspectValue) {
+
+      for (const input of (this.config.compute?.inputs || [])) {
+
+        if (input.kind !== "select") {
+
+          continue;
+
+        }
+
+        const el =
+          this._inputEls[input.name];
+
+        if (!el) {
+
+          continue;
+
+        }
+
+        const options =
+          inspectValue && input.options ? input.options(inspectValue) : [];
+
+        el.replaceChildren(
+          ...options.map((opt) => new Option(opt, opt))
+        );
+
+        const preferred =
+          inspectValue && input.default ? input.default(inspectValue) : undefined;
+
+        if (preferred !== undefined && options.includes(preferred)) {
+
+          el.value =
+            preferred;
+
+        }
+
+      }
 
     }
 
@@ -1138,8 +1249,22 @@
 
       for (const [name, el] of Object.entries(this._inputEls)) {
 
-        out[name] =
-          el.type === "checkbox" ? el.checked : Number(el.value);
+        if (el.type === "checkbox") {
+
+          out[name] =
+            el.checked;
+
+        } else if (el.tagName === "SELECT") {
+
+          out[name] =
+            el.value;
+
+        } else {
+
+          out[name] =
+            Number(el.value);
+
+        }
 
       }
 
