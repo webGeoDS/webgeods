@@ -23,10 +23,11 @@ project:
     # vega*/vega-lite*/vega-embed* (~828KB combined, meaningfully more
     # than d3.min.js's ~280KB) are NOT in include-after-body below --
     # unlike every other shared script, which loads on every page site-
-    # wide. Only one tool needs it so far; each consuming page loads
-    # its own <script src="/vega*.min.js"> tags instead, same files
-    # (just referenced page-locally, not force-loaded everywhere).
-    # Revisit if/when a third or fourth tool wants it too.
+    # wide. Only Spatial Classifier and Network from Lines need it so
+    # far; each consuming page loads its own <script src="/vega*.min.js">
+    # tags instead, same files (just referenced page-locally, not
+    # force-loaded everywhere). Revisit if/when a third or fourth tool
+    # wants it too.
     - "vega.min.js"
     - "vega-lite.min.js"
     - "vega-embed.min.js"

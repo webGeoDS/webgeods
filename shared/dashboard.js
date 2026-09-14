@@ -1221,6 +1221,19 @@
     // config shape: `diagram: { nodes: value => features, links:
     // value => features, ...anything else renderForceGraph()'s own
     // options accept (nodeColor, linkColor, onNodeClick, ...) }`.
+    //
+    // Renders into a dedicated CHILD of sidePanelEl (`_diagramSlotEl`,
+    // created on first use — see roadmap-acquisizione.md, "second
+    // Dashboard tool needs its own sidePanel content alongside the
+    // diagram"), not sidePanelEl directly: renderForceGraph() wipes
+    // its own container on every render (`el.replaceChildren()`), and
+    // sidePanelEl is a shared slot a tool's own `compute.onResult` can
+    // ALSO put something in (e.g. a second Vega-Lite chart below the
+    // diagram, see network-from-lines.qmd) — sidePanelEl itself is
+    // only switched to a flex column here, and only for a tool that
+    // actually uses compute.diagram, so a diagram-less tool (e.g. one
+    // whose onResult renders straight into sidePanelEl, like Spatial
+    // Classifier's chart) sees no change at all.
     _renderDiagram(diagramCfg, value) {
 
       this._diagram?.destroy();
@@ -1234,9 +1247,35 @@
 
       }
 
+      if (!this._diagramSlotEl) {
+
+        this.sidePanelEl.style.display =
+          "flex";
+
+        this.sidePanelEl.style.flexDirection =
+          "column";
+
+        this.sidePanelEl.style.gap =
+          "8px";
+
+        this._diagramSlotEl =
+          document.createElement("div");
+
+        this._diagramSlotEl.style.cssText =
+          "flex: 1 1 auto; min-height: 0;";
+
+        // prepend, not append: keeps the diagram first regardless of
+        // whether a sibling (e.g. a chart slot) was already added by
+        // the tool's own onResult on an earlier compute.
+        this.sidePanelEl.prepend(
+          this._diagramSlotEl
+        );
+
+      }
+
       this._diagram =
         window.WebGeoDS.renderForceGraph?.(
-          this.sidePanelEl,
+          this._diagramSlotEl,
           { nodes: diagramCfg.nodes(value), links: diagramCfg.links(value) },
           diagramCfg
         ) ?? null;

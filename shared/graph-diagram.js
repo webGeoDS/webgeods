@@ -23,10 +23,10 @@
  *
  * Deliberately kept separate from WebGeoDS.Dashboard (dashboard.js):
  * Dashboard owns the map/stats/legend/download/reset skeleton every
- * tool needs, but a diagram panel is optional and tool-specific — a
- * tool wires the two together itself via Dashboard's
- * `compute.onResult` hook, not by Dashboard knowing anything about
- * diagrams.
+ * tool needs, but a diagram panel is optional and tool-specific.
+ * Dashboard's own `compute.diagram` field wires the two together
+ * declaratively for the common case; a tool with unusual needs can
+ * still drive this module directly from `compute.onResult` instead.
  *
  * Usage:
  *
@@ -42,8 +42,14 @@
  *                                                  // this id on the map/table
  *   });
  *
- *   diagram.setSelected(id);   // called FROM the map/table side, to
- *                              // highlight the matching node here
+ *   diagram.setSelected(id);        // called FROM the map/table side, to
+ *                                   // highlight the matching node here
+ *   diagram.setSelectedMany(ids);   // same, for several nodes at once
+ *                                   // (e.g. every node in one connected
+ *                                   // component) -- setSelected(id) is a
+ *                                   // thin wrapper around this for the
+ *                                   // single-node case, sharing the exact
+ *                                   // same highlighted-set state.
  *   diagram.destroy();
  *
  * `nodes`/`links` are read as GeoJSON FeatureCollections OR plain
@@ -199,21 +205,35 @@
 
         });
 
-    let selectedId =
-      null;
+    // A Set, not a single id: a map/diagram click still ever selects
+    // exactly one node, but a chart cross-linking on a GROUP (e.g.
+    // "every node in this connected component") selects several at
+    // once -- same reasoning as shared/map.js's own selectByKeys().
+    // setSelected(id) is kept as a thin single-id wrapper for the two
+    // existing single-node callers.
+    let selectedIds =
+      new Set();
 
-    function setSelected(id) {
+    function setSelectedMany(ids) {
 
-      selectedId =
-        id === null || id === undefined ? null : String(id);
+      selectedIds =
+        new Set((ids ?? []).map((id) => String(id)));
 
       nodeSel
         .attr("fill", (d) =>
-          d.__id === selectedId ? selectedColor : nodeColor(d.__feature)
+          selectedIds.has(d.__id) ? selectedColor : nodeColor(d.__feature)
         )
         .attr("r", (d) =>
-          d.__id === selectedId ? nodeRadius * 1.4 : nodeRadius
+          selectedIds.has(d.__id) ? nodeRadius * 1.4 : nodeRadius
         );
+
+    }
+
+    function setSelected(id) {
+
+      setSelectedMany(
+        id === null || id === undefined ? [] : [id]
+      );
 
     }
 
@@ -225,7 +245,7 @@
 
     }
 
-    return { setSelected, destroy, simulation };
+    return { setSelected, setSelectedMany, destroy, simulation };
 
   }
 

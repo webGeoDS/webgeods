@@ -229,6 +229,12 @@ total_m = sum(lengths)
     # readable -- everything past that falls through to matchPaint's
     # own fallback color, which is exactly what that fallback is for.
     "componentIds": list(range(min(5, len(sizes)))),
+    # One entry per component, in the SAME rank order as
+    # component_of_vertex/node_gdf's own "component" column (not
+    # capped at 5 -- the component-size chart shows every component,
+    # unlike the 5-color legend) -- feeds the class-distribution-style
+    # chart below.
+    "componentSizes": [int(sizes[order[r]]) for r in range(len(order))],
     "summary": {
         "lines": int(len(gdf_lines)),
         "nodes": int(g.vcount()),
@@ -251,6 +257,15 @@ after that, and again each time you come back to this page.*
 
 <div id="nfl-dashboard"></div>
 
+<!-- Page-local, not site-wide (see blog/_quarto.yml's own comment on
+     this): vega*.min.js + vega-embed.min.js together are ~828KB,
+     meaningfully more than d3.min.js's ~280KB -- only Spatial
+     Classifier and this tool need them so far. -->
+<script src="/vega.min.js"></script>
+<script src="/vega-lite.min.js"></script>
+<script src="/vega-embed.min.js"></script>
+<script src="/vega-chart.js"></script>
+
 <script>
 document.addEventListener("DOMContentLoaded", () => {
 
@@ -261,7 +276,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // every time, from either direction. Looked up fresh each call
   // (rather than closing over the `dashboard` variable declared
   // below) so it reads the CURRENT map/diagram instances either way.
-  function selectNode(id) {
+  // `component` (the clicked node's own component rank) is optional --
+  // both call sites below have it on the feature already -- and drives
+  // the THIRD leg of the cross-link, the component-size chart further
+  // down: a single node click highlights just that node on map/diagram
+  // (unchanged) but highlights its WHOLE component's bar on the chart,
+  // the same asymmetry Spatial Classifier's own chart cross-link has
+  // (one point selects one point; the chart deals in groups).
+  function selectNode(id, component) {
 
     const dash =
       WebGeoDS.Dashboard.find("network-from-lines");
@@ -270,7 +292,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     dash?.diagram?.setSelected(id);
 
+    window.nflComponentChart?.setSelected(
+      component == null ? null : String(component)
+    );
+
   }
+
+  window.nflComponentChart =
+    null;
 
   // Not assigned to a variable: nothing in this file needs to reach
   // into the instance directly anymore -- selectNode() above looks it
@@ -282,10 +311,10 @@ document.addEventListener("DOMContentLoaded", () => {
     mount: "#nfl-dashboard",
     map: { center: [12.46, 41.906], zoom: 14 }, // height: Dashboard's own responsive default (see DEFAULT_MAP_HEIGHT, shared/dashboard.js)
     // Just the empty slot beside the map -- filled below by
-    // compute.diagram (the force-directed topology view), not by
-    // anything declared here. layout.sidePanel doesn't know or care
-    // what ends up inside it: it could equally be a second map, a
-    // Vega-Lite chart, or nothing at all.
+    // compute.diagram (the force-directed topology view) AND
+    // compute.onResult (the component-size chart, stacked under it),
+    // not by anything declared here. layout.sidePanel itself doesn't
+    // know or care what ends up inside it.
     layout: { sidePanel: { id: "nfl-diagram", flex: "1 1 280px", minWidth: "260px" } },
     upload: { languages: ["python"], kind: "vector", label: "📁 Upload" },
     example: {
@@ -320,11 +349,12 @@ document.addEventListener("DOMContentLoaded", () => {
           fit: true },
         { source: "network-nodes-py", from: (v) => v.nodes, type: "circle",
           paint: (v) => WebGeoDS.matchPaint(v.componentIds, "component", { radius: 5 }),
-          // Map -> diagram half of the cross-link (the diagram -> map
-          // half is the diagram config's own onNodeClick below) --
-          // declared right next to the layer it belongs to, instead
-          // of reaching into the map instance directly after ready().
-          onClick: (feature) => selectNode(feature.properties.node) }
+          // Map -> diagram/chart half of the cross-link (the diagram ->
+          // map/chart half is the diagram config's own onNodeClick
+          // below) -- declared right next to the layer it belongs to,
+          // instead of reaching into the map instance directly after
+          // ready().
+          onClick: (feature) => selectNode(feature.properties.node, feature.properties.component) }
       ],
       stats: (v) => {
         const s = v.summary;
@@ -366,13 +396,152 @@ document.addEventListener("DOMContentLoaded", () => {
       // A pure function of the compute value, same as layers/stats/
       // legend above -- Dashboard renders it into the layout.sidePanel
       // slot (declared near the top of this config) and owns its
-      // create/destroy lifecycle.
+      // create/destroy lifecycle. Renders into its OWN sub-slot inside
+      // sidePanelEl (see shared/dashboard.js's _renderDiagram()), not
+      // the whole panel -- leaves room for the component-size chart
+      // below it, added via onResult.
       diagram: {
         nodes: (v) => v.nodes,
         links: (v) => v.edges,
         nodeColor: (f) => WebGeoDS.DEFAULT_PALETTE[(f.properties.component ?? 0) % WebGeoDS.DEFAULT_PALETTE.length],
         linkColor: (f) => WebGeoDS.DEFAULT_PALETTE[(f.properties.component ?? 0) % WebGeoDS.DEFAULT_PALETTE.length],
-        onNodeClick: (id) => selectNode(id)
+        onNodeClick: (id, feature) => selectNode(id, feature.properties.component)
+      },
+      // The component-size chart: a second view in the SAME sidePanel
+      // as the diagram (below it, not instead of it -- see
+      // _renderDiagram()'s own doc comment for how the two coexist).
+      // Same role as Spatial Classifier's own class-distribution
+      // chart, but a genuinely different "group" shape -- a component
+      // is a variable-size set of nodes discovered by the graph build,
+      // not a fixed attribute column -- deliberately chosen as the
+      // second real Vega-Lite cross-link on this site to see whether
+      // shared/map.js's selectByKeys()-style generalization actually
+      // holds up on a tool with no table at all (this one only ever
+      // had map+diagram) rather than assuming it does from one example.
+      onResult: async (v) => {
+
+        const dashboard =
+          WebGeoDS.Dashboard.find("network-from-lines");
+
+        window.nflComponentChart?.destroy();
+
+        window.nflComponentChart =
+          null;
+
+        if (!v) {
+          // Called with null on reset -- nothing to draw. The chart's
+          // own slot div (created below, a sibling of the diagram's
+          // slot) is simply left empty; _renderDiagram() never touches
+          // it, so nothing else needs to clean it up either.
+          return;
+        }
+
+        // Own child of sidePanelEl, created ONCE and reused across
+        // computes (renderVegaChart()'s own el.replaceChildren()
+        // clears its prior content each time) -- creating a fresh div
+        // per compute instead would leave the old, now-empty one
+        // behind as a stale sibling, since nothing else ever removes
+        // it. _renderDiagram() always runs before onResult (see
+        // shared/dashboard.js's runCompute()), so the diagram's own
+        // slot already exists by the time this looks for/appends its
+        // sibling.
+        let chartSlot =
+          dashboard.sidePanelEl.querySelector("#nfl-chart-slot");
+
+        if (!chartSlot) {
+
+          chartSlot =
+            document.createElement("div");
+
+          chartSlot.id =
+            "nfl-chart-slot";
+
+          chartSlot.style.cssText =
+            "flex: 0 0 160px; min-height: 0;";
+
+          dashboard.sidePanelEl.appendChild(
+            chartSlot
+          );
+
+        }
+
+        const rows =
+          v.componentSizes.map((size, rank) => ({ component: String(rank), size }));
+
+        window.nflComponentChart = await WebGeoDS.renderVegaChart(chartSlot, {
+          "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+          "width": "container",
+          "height": "container",
+          "autosize": { "type": "fit", "contains": "padding" },
+          "data": { "values": rows },
+          "params": [
+            { "name": "componentSelect", "select": { "type": "point", "fields": ["component"] } },
+            { "name": "componentExternal", "value": null }
+          ],
+          "mark": "bar",
+          "encoding": {
+            "x": { "field": "component", "type": "nominal", "title": "Component",
+                   // datum.value is a STRING ("0","1",...) -- the field
+                   // is nominal, so "component" values round-trip as
+                   // strings the same way spatial-classifier's own
+                   // chart keeps "cls" as a string throughout. `+ 1`
+                   // on a string concatenates ("0"+1 -> "01") instead
+                   // of adding -- toNumber() first is required, not
+                   // optional, found live via the rendered #01/#11/#21
+                   // labels rather than assumed correct.
+                   "sort": null, "axis": { "labelExpr": "'#' + (toNumber(datum.value) + 1)" } },
+            "y": { "field": "size", "type": "quantitative", "title": "Nodes" },
+            "color": {
+              // Same yellow shared/map.js's own highlight() and
+              // graph-diagram.js's own selectedColor use, so a
+              // selection reads the same regardless of which view
+              // (map, diagram, or chart) it started from.
+              "condition": { "test": "datum.component === componentExternal", "value": "#ffeb3b" },
+              "field": "component", "type": "nominal", "legend": null,
+              "scale": {
+                "domain": rows.map((r) => r.component),
+                "range": rows.map((_, i) => WebGeoDS.DEFAULT_PALETTE[i % WebGeoDS.DEFAULT_PALETTE.length])
+              }
+            }
+          }
+        }, {
+          selectParam: "componentSelect",
+          externalParam: "componentExternal",
+          keyField: "component",
+          // Chart -> map+diagram half of the cross-link: highlights
+          // EVERY node in the clicked component, via the same
+          // multi-feature primitives already generalized for Spatial
+          // Classifier's own chart (map.js's highlight(), which was
+          // already multi-id-capable, and graph-diagram.js's newly
+          // added setSelectedMany()) -- no per-feature-key lookup or
+          // string/number id bridging needed here at all, since
+          // igraph's own vertex ids are already plain JS numbers by
+          // the time they reach node_gdf, unlike the geopandas ->
+          // GeoJSON id string mismatch the classifier's chart had to
+          // work around.
+          onSelect: (component) => {
+
+            const dash =
+              WebGeoDS.Dashboard.find("network-from-lines");
+
+            if (!component) {
+              dash?.map?.clearHighlights("network-nodes-py");
+              dash?.diagram?.setSelectedMany([]);
+              return;
+            }
+
+            const nodeIds =
+              v.nodes.features
+                .filter((f) => String(f.properties.component) === component)
+                .map((f) => f.properties.node);
+
+            dash?.map?.highlight("network-nodes-py", nodeIds);
+
+            dash?.diagram?.setSelectedMany(nodeIds);
+
+          }
+        });
+
       }
     }
   });

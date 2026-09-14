@@ -584,7 +584,7 @@ clusterTable = sharedMap.tableCell(["spatial-clustering-py"], null, Generators, 
 ```
 
 <style>
-#spatial-clustering-inspect-py, #spatial-clustering-compute-py {
+#spatial-clustering-inspect-py, #spatial-clustering-compute-py, #spatial-clustering-export-shp-py {
   height: 0;
   overflow: hidden;
   margin: 0;
