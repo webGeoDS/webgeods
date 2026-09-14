@@ -63,6 +63,11 @@
  *           defaults to DEFAULT_MAP_HEIGHT below, override only if a
  *           tool genuinely needs something else,
  *     upload: { languages: ["python"], kind: "vector", label: "📁 Upload" },
+ *     resetLabel: "🔄 Reset", // optional -- the Reset button always
+ *                  exists (same control row as upload/example/
+ *                  download), this only overrides its label; no
+ *                  dedicated `reset: {...}` block since there's
+ *                  nothing else to configure about it.
  *     example: { cellId: "my-example-py", kind: "geojson",
  *                status: "✓ example data loaded." },
  *     inspect: { cellId: "my-inspect-py",
@@ -91,7 +96,14 @@
  *                            `shapefile` option downloadButton() itself
  *                            takes (shared/ui.js), minus `uploadKind`
  *                            (Dashboard supplies that live from its own
- *                            state, see _buildDom() below),
+ *                            state, see _buildDom() below). Lives under
+ *                            `compute`, not as a sibling of upload/
+ *                            example, even though its BUTTON renders in
+ *                            the same control row as theirs -- a real
+ *                            data dependency, not just an organizing
+ *                            choice: `getFeatures` operates on the
+ *                            COMPUTE value, so its config travels with
+ *                            the step that produces what it downloads.
  *                diagram: { nodes: value => features, links: value =>
  *                           features, ...renderForceGraph()'s own
  *                           options (nodeColor, onNodeClick, ...) },

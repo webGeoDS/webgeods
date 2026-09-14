@@ -55,6 +55,12 @@
  *                             // highlight the matching bar/point here
  *   chart.destroy();
  *
+ * `spec` is themed automatically (transparent background, no view
+ * border, hairline gridlines, ink-colored text -- see themedDefaults()
+ * below) so a caller's spec only ever needs `mark`/`encoding`/`data`/
+ * `params`, never the site's own colors; set `spec.background` or
+ * `spec.config` explicitly to override any of it.
+ *
  * No ES module syntax so this can be included directly by Quarto.
  */
 
@@ -65,6 +71,64 @@
 
   window.WebGeoDS =
     window.WebGeoDS || {};
+
+
+  // Same helper as shared/map.js's own designToken() (duplicated, not
+  // imported -- this file has no dependency on map.js being loaded,
+  // and the two IIFEs don't share scope): reads a CSS custom property
+  // LIVE off :root rather than hand-copying its hex value, so this
+  // file can't independently drift from shared/styles.css the way
+  // map.js's own doc comment on designToken() found a color already
+  // had, once. Falls back to the current literal only if the property
+  // is somehow unset.
+  function designToken(name, fallback) {
+
+    const value =
+      getComputedStyle(document.documentElement)
+        .getPropertyValue(name)
+        .trim();
+
+    return value || fallback;
+
+  }
+
+  // Vega-Lite's own defaults (a solid white view background, a grey
+  // view border, near-black axis text) are a generic chart-library
+  // look, not this site's warm-paper "Field Atlas" theme -- found
+  // live, rendering the first two real charts (Spatial Classifier's
+  // class-distribution chart, Network from Lines' component-size
+  // chart): a stark white rectangle sitting inside a transparent map/
+  // diagram panel, visibly seamed against the page's own cream
+  // background. Applied here once, as spec-level DEFAULTS every
+  // caller gets for free (not hand-repeated per spec, the same
+  // reasoning DEFAULT_PALETTE in shared/ui.js already documents for
+  // colors specifically) -- a spec's own `background`/`config` (if it
+  // sets one) wins outright, no deep merge, so an unusual tool can
+  // still opt out entirely.
+  function themedDefaults() {
+
+    const hairline =
+      designToken("--hairline", "#ddd1b8");
+
+    const ink =
+      designToken("--inchiostro", "#2a2117");
+
+    return {
+      background: "transparent",
+      config: {
+        view: { stroke: null },
+        axis: {
+          gridColor: hairline,
+          domainColor: hairline,
+          tickColor: hairline,
+          labelColor: ink,
+          titleColor: ink
+        },
+        legend: { labelColor: ink, titleColor: ink }
+      }
+    };
+
+  }
 
 
   async function renderVegaChart(container, spec, opts = {}) {
@@ -101,8 +165,11 @@
 
     el.replaceChildren();
 
+    const themedSpec =
+      { ...themedDefaults(), ...spec };
+
     const result =
-      await vegaEmbed(el, spec, { actions: false, renderer: "svg" });
+      await vegaEmbed(el, themedSpec, { actions: false, renderer: "svg" });
 
     const view =
       result.view;
