@@ -15,11 +15,14 @@ FILES=(
   r.js
   code-cell.js
   map.js
+  map-raster.js
+  map-table.js
   table.js
   upload.js
   download.js
   ui.js
   dashboard.js
+  dashboard-dom.js
   d3.min.js
   graph-diagram.js
   vega.min.js

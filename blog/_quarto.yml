@@ -13,11 +13,14 @@ project:
     - "r.js"
     - "code-cell.js"
     - "map.js"
+    - "map-raster.js"
+    - "map-table.js"
     - "table.js"
     - "upload.js"
     - "download.js"
     - "ui.js"
     - "dashboard.js"
+    - "dashboard-dom.js"
     - "d3.min.js"
     - "graph-diagram.js"
     # vega*/vega-lite*/vega-embed* (~828KB combined, meaningfully more
@@ -200,11 +203,14 @@ format:
           <script src="/r.js"></script>
           <script src="/code-cell.js"></script>
           <script src="/map.js"></script>
+          <script src="/map-raster.js"></script>
+          <script src="/map-table.js"></script>
           <script src="/table.js"></script>
           <script src="/upload.js"></script>
           <script src="/download.js"></script>
           <script src="/ui.js"></script>
           <script src="/dashboard.js"></script>
+          <script src="/dashboard-dom.js"></script>
           <script src="/d3.min.js"></script>
           <script src="/graph-diagram.js"></script>
           <script>
