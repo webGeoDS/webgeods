@@ -521,6 +521,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
         window.scClassChart = await WebGeoDS.renderVegaChart(dashboard.sidePanelEl, {
           "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+          // "fit-x", not the single-view chart's own "fit": each
+          // panel below sets its OWN fixed "height" (130/100), only
+          // "width": "container" needs to actually fit the available
+          // box -- omitting this entirely (as this spec originally
+          // did, carried over from before the vconcat rewrite) left
+          // Vega-Lite's own default autosize in charge, which computed
+          // a width wider than sidePanelEl's real box for a
+          // concatenated view -- confirmed live (a chart visibly
+          // clipped on its right edge by sidePanelEl's own
+          // overflow:hidden, not a rendering glitch).
+          "autosize": { "type": "fit-x", "contains": "padding" },
           // Shared across BOTH panels below -- declared at THIS level
           // (not inside either panel's own spec), the same reasoning
           // shared/vega-chart.js's own doc comment gives for a
