@@ -648,8 +648,17 @@
         const mapHeight =
           config.map?.height ?? DEFAULT_MAP_HEIGHT;
 
+        // background-color: matches every OTHER dashboard panel
+        // (toolbar, stats, legend -- all --surface-muted in
+        // shared/styles.css), not left to default to the page's own
+        // --surface showing through -- found live, comparing this
+        // panel's look against the rest of the dashboard. A diagram's
+        // own SVG has no fill of its own (shows this through), and a
+        // Vega-Lite chart's background is themed to "transparent" by
+        // shared/vega-chart.js for the exact same reason -- both rely
+        // on THIS background, not a background of their own.
         this.sidePanelEl.style.cssText =
-          `flex: ${sidePanelCfg.flex ?? "1 1 280px"}; min-width: ${sidePanelCfg.minWidth ?? "260px"}; height: ${mapHeight}; overflow: hidden; border: 1px solid #d8cdb8; border-radius: 4px;`;
+          `flex: ${sidePanelCfg.flex ?? "1 1 280px"}; min-width: ${sidePanelCfg.minWidth ?? "260px"}; height: ${mapHeight}; overflow: hidden; border: 1px solid #d8cdb8; border-radius: 4px; background-color: var(--surface-muted);`;
 
         this.mapSlotEl.style.flex =
           "2 1 480px";
@@ -1357,6 +1366,30 @@
         // whether a sibling (e.g. a chart slot) was already added by
         // the tool's own onResult on an earlier compute.
         this.sidePanelEl.prepend(
+          this._diagramSlotEl
+        );
+
+        // renderForceGraph() measures its container's clientWidth/
+        // clientHeight exactly ONCE, at render time -- which, right
+        // here, is BEFORE the tool's own onResult (called right after
+        // this method returns, see runCompute()) has had a chance to
+        // add a sibling (a chart) that shrinks this slot's real share
+        // of sidePanelEl. That stale measurement showed up live as
+        // the diagram's SVG visibly overlapping the chart below it,
+        // despite _diagramSlotEl's own box having correctly shrunk --
+        // set up ONCE, this watches the slot's actual box for ANY
+        // future change (a sibling appearing, a window resize, ...)
+        // and re-fits the CURRENT diagram to it via resize(), rather
+        // than Dashboard trying to guess when such a sibling might
+        // show up.
+        new ResizeObserver((entries) => {
+
+          const { width, height } =
+            entries[0].contentRect;
+
+          this._diagram?.resize(width, height);
+
+        }).observe(
           this._diagramSlotEl
         );
 

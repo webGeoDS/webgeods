@@ -470,6 +470,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         window.nflComponentChart = await WebGeoDS.renderVegaChart(chartSlot, {
           "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+          "title": "Nodes per component",
           "width": "container",
           "height": "container",
           "autosize": { "type": "fit", "contains": "padding" },

@@ -50,6 +50,14 @@
  *                                   // thin wrapper around this for the
  *                                   // single-node case, sharing the exact
  *                                   // same highlighted-set state.
+ *   diagram.resize(width, height);  // re-fits the SVG (and re-centers
+ *                                   // the simulation) to a size measured
+ *                                   // AFTER render -- the container's own
+ *                                   // clientWidth/clientHeight at render
+ *                                   // time can be stale (e.g. a sibling
+ *                                   // added moments later shrinks it);
+ *                                   // callers typically drive this from
+ *                                   // a ResizeObserver, not call it once.
  *   diagram.destroy();
  *
  * `nodes`/`links` are read as GeoJSON FeatureCollections OR plain
@@ -205,6 +213,41 @@
 
         });
 
+    // Re-fits the SVG (and re-centers the simulation) to a NEW box
+    // size -- needed because `width`/`height` above are measured only
+    // ONCE, at render time, from the container's clientWidth/
+    // clientHeight. That's stale the moment something else changes
+    // the container's actual size AFTER this render call already
+    // returned -- concretely, Dashboard's own sidePanel: the diagram
+    // slot is measured BEFORE a tool's onResult has had a chance to
+    // add a sibling (e.g. a chart) below it, so the very first
+    // measurement is always "the whole panel", not "my actual share
+    // of it" -- found live: the rendered SVG kept its ORIGINAL
+    // (full-panel) height attribute, visibly overlapping the chart
+    // slot beneath it despite the diagram's own container box having
+    // correctly shrunk. Dashboard calls this from a ResizeObserver on
+    // the container instead of guessing when such a sibling might
+    // show up.
+    function resize(newWidth, newHeight) {
+
+      svg
+        .attr("width", newWidth)
+        .attr("height", newHeight)
+        .attr("viewBox", [0, 0, newWidth, newHeight]);
+
+      simulation
+        .force("center", d3.forceCenter(newWidth / 2, newHeight / 2));
+
+      // A gentle re-settle, not a full restart from random positions:
+      // nodes already have real x/y from the simulation's initial
+      // settle, they only need to drift toward the new center/bounds,
+      // not re-scatter.
+      simulation
+        .alpha(0.3)
+        .restart();
+
+    }
+
     // A Set, not a single id: a map/diagram click still ever selects
     // exactly one node, but a chart cross-linking on a GROUP (e.g.
     // "every node in this connected component") selects several at
@@ -245,7 +288,7 @@
 
     }
 
-    return { setSelected, setSelectedMany, destroy, simulation };
+    return { setSelected, setSelectedMany, resize, destroy, simulation };
 
   }
 

@@ -133,7 +133,19 @@
           labelColor: ink,
           titleColor: ink
         },
-        legend: { labelColor: ink, titleColor: ink }
+        legend: { labelColor: ink, titleColor: ink },
+        // A view/panel's own `"title"` (e.g. "Nodes per component") --
+        // IBM Plex Mono, the same monospace face every OTHER piece of
+        // dashboard chrome uses (shared/styles.css), not Vega-Lite's
+        // own default sans-serif; left-anchored, not centered, so it
+        // reads as a UI label over the chart rather than a headline.
+        title: {
+          color: ink,
+          font: "'IBM Plex Mono', monospace",
+          fontSize: 13,
+          fontWeight: 600,
+          anchor: "start"
+        }
       }
     };
 

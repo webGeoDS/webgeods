@@ -531,6 +531,7 @@ document.addEventListener("DOMContentLoaded", () => {
           ],
           "vconcat": [
             {
+              "title": "Training points per class",
               "width": "container",
               "height": 130,
               "data": { "values": distRows },
@@ -559,6 +560,7 @@ document.addEventListener("DOMContentLoaded", () => {
               }
             },
             {
+              "title": "Held-out accuracy per class",
               "width": "container",
               "height": 100,
               "data": { "values": accRows },
