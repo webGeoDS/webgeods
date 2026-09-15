@@ -26,6 +26,7 @@ foreach ($procName in @('chrome.exe', 'chrome-headless-shell.exe')) {
 Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
   Where-Object {
     $_.CommandLine -match 'map-tests' -or
+    $_.CommandLine -match 'dashboard-tests' -or
     $_.CommandLine -match 'smoke-test' -or
     $_.CommandLine -match 'static-server' -or
     $_.CommandLine -match 'run-map-tests'
