@@ -2,12 +2,12 @@
 title: "Buffer & Proximity: How Far Is Within Reach"
 date: 2026-09-11
 categories: [tool, vector, bilingual]
-description: "An interactive lab with Python, R and MapLibre — upload a point/line/polygon file (or use the built-in example), buffer it at a fixed distance, see why the same distance produces different shapes, and why it has to be a real distance, not degrees."
+description: "An interactive lab with Python, R and MapLibre: upload a point/line/polygon file (or use the built-in example), buffer it at a fixed distance, see why the same distance produces different shapes, and why it has to be a real distance, not degrees."
 ---
 
 "What's within 300 meters of this store?" and "what falls within 50
 meters of this road?" are the same question underneath: draw a zone
-at a fixed distance around a feature, then check what's inside it —
+at a fixed distance around a feature, then check what's inside it,
 a buffer. The distance is fixed, but what comes out depends entirely
 on what went in.
 
@@ -18,11 +18,11 @@ prose.
 
 ## 1. Why the coordinate system matters here
 
-A buffer distance is a real distance — meters, not degrees of
+A buffer distance is a real distance: meters, not degrees of
 longitude/latitude, where the same number of degrees covers very
 different real distances depending on where on Earth you are. Both
 languages below pick a working UTM zone from the data's own
-bounding-box center and reproject into it first — same reasoning,
+bounding-box center and reproject into it first, same reasoning,
 same formula, as this site's [Viewshed](raster-viewshed.qmd) and
 [Spatial Clustering](spatial-clustering.qmd) tools: a reasonable
 default for one local dataset, not a universally correct choice for
@@ -63,7 +63,7 @@ ${uploadStatus}
 
 No file uploaded? Both cells below fall back to the same three fixed
 features: a point (a shop), a line (a road segment), and a polygon (a
-building footprint) — deliberately different geometry types, chosen
+building footprint), deliberately different geometry types, chosen
 to show all three buffer shapes in section 4 with one run. Upload
 your own point, line, or polygon file to see the same computation on
 real data instead.
@@ -427,11 +427,11 @@ ${resetMapButton}
 ## 4. One distance, three different shapes
 
 The numbers below describe the built-in fallback specifically (a
-point, a line, and a polygon, buffered 30m) — if you uploaded your
+point, a line, and a polygon, buffered 30m). If you uploaded your
 own file instead, the areas will differ, but the same three rules
 still explain whatever shape came out. Both cards above ran the exact
 same 30m buffer on the exact same three features. The shapes agree
-exactly; the areas don't — by a small, fully explainable margin, not
+exactly; the areas don't, by a small, fully explainable margin, not
 a disagreement about the answer:
 
 - The **point's** buffer is a circle: every direction from a single
@@ -445,21 +445,21 @@ a disagreement about the answer:
 
 ::: {.callout-note}
 **Why the point buffer's area isn't quite identical.** A circle can't
-be drawn exactly with straight line segments — every buffer
+be drawn exactly with straight line segments: every buffer
 implementation approximates it with a many-sided polygon, and *how*
 closely depends on how many segments it uses per quarter-circle.
 GeoPandas' `.buffer()` defaults to `resolution=16`; `sf::st_buffer()`
-defaults to `nQuadSegs=30` — almost double. A true 30m-radius circle
+defaults to `nQuadSegs=30`, almost double. A true 30m-radius circle
 has an area of 2827.4 m² (`π × 30²`). Python's 16-segment
-approximation lands at 2822.9 m²; R's 30-segment one at 2826.1 m² —
+approximation lands at 2822.9 m²; R's 30-segment one at 2826.1 m²,
 closer to the true value, because it's a finer approximation of the
 *same* circle, not a different formula. Passing `resolution=30` in
 Python reproduces R's default result almost exactly (2826.1416 m²,
-verified) — the defaults just don't happen to agree out of the box.
+verified); the defaults just don't happen to agree out of the box.
 :::
 
 **Every geometry type buffers into a polygon**, regardless of what it
-started as — there's no such thing as a "buffered point" that's still
+started as: there's no such thing as a "buffered point" that's still
 a point. That's also why dissolving several overlapping buffers into
 one shape (the standalone tool's own checkbox) is meaningful: once
 everything is already a polygon, merging overlapping ones is a single,

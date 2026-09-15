@@ -2,20 +2,20 @@
 title: "Finding Spatial Clusters with DBSCAN"
 date: 2026-09-09
 categories: [tool, geoml, bilingual]
-description: "An interactive lab with Python, R and MapLibre — upload a point file (or use the built-in example), run DBSCAN, see how a distance in meters requires picking a real coordinate system first, and why the two languages label the exact same groups with different numbers."
+description: "An interactive lab with Python, R and MapLibre: upload a point file (or use the built-in example), run DBSCAN, see how a distance in meters requires picking a real coordinate system first, and why the two languages label the exact same groups with different numbers."
 ---
 
-Some questions aren't "is this one point inside that polygon" — they're
+Some questions aren't "is this one point inside that polygon": they're
 "which of these points belong together, and which don't belong
 anywhere." DBSCAN (Density-Based Spatial Clustering of Applications
 with Noise) answers that by density: a point belongs to a cluster if
-enough other points sit close enough to it — no need to decide the
+enough other points sit close enough to it, with no need to decide the
 number of clusters in advance, and no need to force every point into
 a group. A point too far from everything else stays *noise*, not a
 cluster of one.
 
 A `.geojson`, or a shapefile (either as a single `.zip`, or as
-`.shp`/`.dbf`/`.shx` selected together) — see the upload section
+`.shp`/`.dbf`/`.shx` selected together): see the upload section
 below.
 
 Just want to cluster a file with adjustable settings and a download
@@ -27,11 +27,11 @@ engine, less prose.
 
 DBSCAN takes one distance, ε (`eps`): how close two points need to be
 to count as neighbors. For that distance to mean anything, it has to
-be in real units — meters — not degrees of longitude/latitude, where
+be in real units (meters), not degrees of longitude/latitude, where
 the same number of degrees covers very different real distances
 depending on where on Earth you are. Both languages below pick a
 working UTM zone from the data's own bounding-box center and
-reproject into it first — same reasoning, same formula, as this
+reproject into it first, same reasoning, same formula, as this
 site's [Viewshed](raster-viewshed.qmd) tool: a reasonable default for
 one local dataset, not a universally correct choice for points
 spanning multiple UTM zones or very large areas.
@@ -71,10 +71,10 @@ ${uploadStatus}
 
 No file uploaded? Both cells below fall back to the same small
 built-in example: two tight groups of six points, and two points far
-from everything — including each other — chosen to keep the
+from everything, including each other, chosen to keep the
 point-by-point label comparison in section 4 readable. ε and the
 minimum group size are fixed at 100m/4 points here to keep the focus
-on *how the two languages report a result*, not on tuning — the
+on *how the two languages report a result*, not on tuning. The
 [standalone tool](/tools/spatial-clustering-explorer.html) exposes
 both as adjustable controls.
 
@@ -427,20 +427,20 @@ ${resetMapButton}
 ## 4. A label is not a name
 
 Both cards above found the same thing: two groups of six, and two
-noise points (with the built-in example — an upload of your own may
-find something different). But the *numbers* don't match — and that's
+noise points (with the built-in example; an upload of your own may
+find something different). But the *numbers* don't match, and that's
 not a bug in either language.
 
 Two separate reasons, easy to conflate:
 
 - **DBSCAN's own cluster numbering is arbitrary.** Nothing about
-  "cluster 0" or "cluster 1" is meaningful on its own — it's just the
+  "cluster 0" or "cluster 1" is meaningful on its own: it's just the
   order the algorithm happened to visit points in. Run the same
   algorithm again with the points in a different order (or on a
   different implementation entirely) and the *groupings* can come out
   identical while the *numbers* attached to them differ.
 - **scikit-learn and `dbscan` also disagree on noise, specifically.**
-  This one isn't arbitrary — it's a real, documented difference
+  This one isn't arbitrary: it's a real, documented difference
   between the two libraries: scikit-learn labels noise `-1` and starts
   real clusters at `0`; R's `dbscan` package labels noise `0` and
   starts real clusters at `1`. Every non-noise label is shifted by
@@ -488,16 +488,16 @@ ${labelTable}
 
 Read down the table: every point Python calls `0`, R calls `1`; every
 point Python calls `1`, R calls `2`; every point Python calls `-1`
-(noise), R calls `0`. The *partition* — which points end up
-together — is identical. The *labels* attached to it aren't, and
+(noise), R calls `0`. The *partition* (which points end up
+together) is identical. The *labels* attached to it aren't, and
 never had to be.
 
 ::: {.callout-note}
-This is why comparing two clustering results — across languages, or
-across two runs of the same algorithm — should compare **who's grouped
+This is why comparing two clustering results, across languages, or
+across two runs of the same algorithm, should compare **who's grouped
 with whom**, never raw label equality. In practice: pick any two
 points, and ask "does language A say they're in the same group, and
-does language B agree?" — repeat for every pair, and you're comparing
+does language B agree?" Repeat for every pair, and you're comparing
 partitions, not numbers that were never meant to match.
 :::
 

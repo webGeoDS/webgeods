@@ -2,13 +2,13 @@
 title: "Coordinate Reference Systems: Why Your Map Looks Wrong"
 date: 2026-09-06
 categories: [tool, geometry, bilingual]
-description: "An interactive lab with Python, R and MapLibre — upload a GeoJSON, find out what CRS it's actually in, spot a CRS that doesn't match its own coordinates, and convert it to a different one."
+description: "An interactive lab with Python, R and MapLibre: upload a GeoJSON, find out what CRS it's actually in, spot a CRS that doesn't match its own coordinates, and convert it to a different one."
 ---
 
 Before a geometry can be invalid, or two features can overlap, a file
 has to actually be *where it says it is*. A coordinate reference
 system (CRS) is what makes a pair of numbers mean a specific place on
-Earth — and it's easy to get wrong in a way that neither
+Earth, and it's easy to get wrong in a way that neither
 [geometry validity](geometry-validity.qmd) nor
 [topology checks](topology-errors.qmd) would ever catch, because both
 of those only look at the shape, never at where it actually sits.
@@ -58,20 +58,20 @@ ${uploadStatus}
 
 A geometry can be perfectly valid, and every feature can be perfectly
 consistent with every other, and the whole file can still land
-thousands of kilometers from where it should. GeoJSON — and MapLibre,
-the map library this whole site draws with — assume every coordinate
+thousands of kilometers from where it should. GeoJSON, and MapLibre,
+the map library this whole site draws with, assume every coordinate
 is WGS84 (plain longitude/latitude). Neither reprojects anything on
 its own: whatever numbers you hand them, that's where they land.
 
-- **CRS** — the coordinate reference system a file *declares* it's
+- **CRS**: the coordinate reference system a file *declares* it's
   in, read from its own metadata (a `.prj` file for a shapefile, a
   `crs` object for GeoPandas/`sf`). Some files declare none at all.
-- **Geographic vs. projected** — a geographic CRS (WGS84 is the
+- **Geographic vs. projected**: a geographic CRS (WGS84 is the
   common one) uses degrees, roughly -180..180 longitude and -90..90
   latitude. A projected CRS (UTM zones, Web Mercator, national grids)
-  uses linear units — usually meters — and the numbers involved are
+  uses linear units, usually meters, and the numbers involved are
   routinely in the hundreds of thousands or millions.
-- **The mismatch** — a file can declare one kind of CRS while its
+- **The mismatch**: a file can declare one kind of CRS while its
   actual coordinate values look like the other. That disagreement is
   the single most common reason a map "looks wrong" before you've
   touched a single geometry.
@@ -87,7 +87,7 @@ its own: whatever numbers you hand them, that's where they land.
   <line x1="159" y1="1" x2="159" y2="179" stroke="#ddd1b8" stroke-width="1"/>
   <circle cx="106" cy="90" r="6" fill="#42583c" stroke="#2a2117" stroke-width="1.5"/>
   <text x="106" y="20" text-anchor="middle" font-family="monospace" font-size="12" fill="#2a2117">12.5, 41.9</text>
-  <text x="106" y="165" text-anchor="middle" font-family="monospace" font-size="11" fill="#5a4f3e">geographic — degrees</text>
+  <text x="106" y="165" text-anchor="middle" font-family="monospace" font-size="11" fill="#5a4f3e">geographic: degrees</text>
   <rect x="250" y="1" width="210" height="178" fill="#f3ede1" stroke="#5a4f3e" stroke-width="1"/>
   <line x1="250" y1="45" x2="460" y2="45" stroke="#ddd1b8" stroke-width="1"/>
   <line x1="250" y1="90" x2="460" y2="90" stroke="#ddd1b8" stroke-width="1"/>
@@ -98,7 +98,7 @@ its own: whatever numbers you hand them, that's where they land.
   <circle cx="355" cy="90" r="6" fill="#42583c" stroke="#2a2117" stroke-width="1.5"/>
   <text x="355" y="15" text-anchor="middle" font-family="monospace" font-size="10" fill="#2a2117">1,391,000</text>
   <text x="355" y="27" text-anchor="middle" font-family="monospace" font-size="10" fill="#2a2117">5,140,000</text>
-  <text x="355" y="165" text-anchor="middle" font-family="monospace" font-size="11" fill="#5a4f3e">projected — meters</text>
+  <text x="355" y="165" text-anchor="middle" font-family="monospace" font-size="11" fill="#5a4f3e">projected: meters</text>
 </svg>
 :::
 
@@ -434,13 +434,13 @@ differ, though: `original_crs.to_string()` in Python routinely returns
 `"EPSG:4326"`, while `st_crs(data)$input` in R returns whatever string
 the file's own CRS definition resolved to, sometimes a full
 human-readable name instead of an EPSG code. Same underlying CRS, not
-always the same displayed text — worth knowing before assuming a
+always the same displayed text: worth knowing before assuming a
 mismatch between the two cards above means an actual data problem,
 rather than a formatting one.
 
 ## 5. Convert to a different CRS
 
-Once you know the CRS, changing it is one call — `to_crs()` in
+Once you know the CRS, changing it is one call: `to_crs()` in
 GeoPandas, `st_transform()` in `sf`. Reuses exactly the data just
 diagnosed above (`gdf` in Python, `data` in R stay in the session
 between one cell and the next), no new reading of the file.
@@ -485,7 +485,7 @@ Converting *to* a CRS is only correct when the CRS you're converting
 *from* is right in the first place. If the mismatch check above found
 a problem, `to_crs()`/`st_transform()` would mathematically transform
 numbers that were never really in the declared CRS to begin with,
-producing a confident-looking but wrong result — fixing the file's own
+producing a confident-looking but wrong result. Fixing the file's own
 CRS label (something only you can determine, from where the data
 actually came from) has to come first.
 :::
@@ -494,12 +494,12 @@ actually came from) has to come first.
 
 - **Geometry looks fine, dataset doesn't?** →
   [Topology errors](topology-errors.qmd) covers overlaps, gaps,
-  slivers, duplicates and dangles — relationships *between* features,
+  slivers, duplicates and dangles: relationships *between* features,
   a different problem from CRS entirely.
 - **Not sure where to start?** → The
   [GeoSpatial File Inspector](geospatial-file-inspection.qmd) gives a
-  five-second summary of a file — feature count, geometry type, CRS,
-  bounds, attributes — before you dig into any one check.
+  five-second summary of a file (feature count, geometry type, CRS,
+  bounds, attributes) before you dig into any one check.
 - **Just needed the check?** → The
   [standalone CRS Inspector & Converter](/tools/crs-inspector.html)
   runs the same detection and lets you convert and download directly.

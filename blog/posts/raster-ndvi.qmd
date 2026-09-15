@@ -2,18 +2,18 @@
 title: "NDVI: Measuring Vegetation from Two Bands"
 date: 2026-09-07
 categories: [tool, raster, bilingual]
-description: "Compute the Normalized Difference Vegetation Index from a Red and a near-infrared band, and see it as a colored map — in Python and R on the same map."
+description: "Compute the Normalized Difference Vegetation Index from a Red and a near-infrared band, and see it as a colored map, in Python and R on the same map."
 ---
 
 Plants reflect near-infrared (NIR) light strongly and absorb most red
-light for photosynthesis — a signature no bare soil, water, or
+light for photosynthesis: a signature no bare soil, water, or
 built surface shares. The Normalized Difference Vegetation Index,
 NDVI, turns that one physical fact into a single number per pixel:
 
 $$\text{NDVI} = \frac{\text{NIR} - \text{Red}}{\text{NIR} + \text{Red}}$$
 
 Same formula as [Raster Band Math](raster-band-math.qmd)'s Normalized
-Difference operator — this article fixes it to a specific pair of
+Difference operator: this article fixes it to a specific pair of
 bands and gives the result a name, a conventional range, and a
 color scheme, because that's what turns "a computed raster" into
 "a vegetation map."
@@ -65,7 +65,7 @@ Three things worth knowing before the first computed map:
 
 - **It's bounded, by construction.** Normalizing by `NIR + Red`
   (rather than a plain difference) squeezes the result into roughly
-  `-1..1` regardless of the sensor's raw value range — a Landsat scene
+  `-1..1` regardless of the sensor's raw value range: a Landsat scene
   in reflectance units and a raw-DN Sentinel-2 tile produce NDVI on
   the *same* scale, which is exactly why a fixed color scale (not a
   per-file min/max) makes sense here, unlike the generic Band Math
@@ -73,14 +73,14 @@ Three things worth knowing before the first computed map:
 - **Roughly**: negative values are usually water, values near zero
   are bare soil or built surfaces, and increasingly positive values
   track increasingly dense, healthy vegetation. "Roughly" is doing
-  real work in that sentence — season, sensor, and atmospheric
+  real work in that sentence: season, sensor, and atmospheric
   correction all shift the exact thresholds; treat it as a ranking,
   not a lab measurement.
 - **The single most common real-world mistake: Red and NIR swapped,
   or the wrong band picked entirely.** A GeoTIFF's band order isn't
-  standardized — it's whatever the sensor or processing pipeline put
+  standardized. It's whatever the sensor or processing pipeline put
   there, and the file itself never declares "band 4 is Red." Swap the
-  two bands and NDVI doesn't error, it just silently inverts —
+  two bands and NDVI doesn't error, it just silently inverts:
   vegetation reads as water-like and vice versa, a wrong answer that
   *looks* like a plausible map. Worth a specific check (`0.2 <= NDVI
   <= 0.9` somewhere near obvious vegetation in the image) before
@@ -317,9 +317,9 @@ resetMapButton = WebGeoDS.resetButton(resetResult, "🔄 Reset map and result")
 ## 4. Compute: run NDVI in Python or R
 
 Run the same computation on the current data (your file uploaded
-above, or the built-in example below) — edit `band_red`/`band_nir`
+above, or the built-in example below). Edit `band_red`/`band_nir`
 to match your file (common conventions: Landsat 8/9 Red=band 4,
-NIR=band 5; Sentinel-2 Red=band 4, NIR=band 8 — but always confirm
+NIR=band 5; Sentinel-2 Red=band 4, NIR=band 8, but always confirm
 against the file at hand, not just the sensor name) and re-run.
 
 ::: {.panel-tabset}
@@ -571,8 +571,8 @@ jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector =
 ## 5. Same spatial question, two languages
 
 Same divergence already documented in
-[Raster Band Math](raster-band-math.qmd#same-spatial-question-two-languages)
-— numpy needs an explicit `np.errstate` context to suppress the
+[Raster Band Math](raster-band-math.qmd#same-spatial-question-two-languages):
+numpy needs an explicit `np.errstate` context to suppress the
 runtime warning a division by zero would otherwise print, while
 terra's `ifel()` is a single vectorized call with no equivalent
 warning. Nothing about NDVI specifically changes that comparison; the
@@ -581,15 +581,15 @@ Red/NIR.
 
 ## 6. A raster with no declared CRS
 
-Same convention as every other Raster tool on this site — a missing
+Same convention as every other Raster tool on this site: a missing
 CRS shows "Unknown" plus a separate "Display assumption" row, never
 silently relabeled as WGS84. NDVI itself doesn't change based on
-CRS — the arithmetic is per-pixel regardless of where the pixel sits
-on the earth — but the footprint on the map still needs *some*
+CRS (the arithmetic is per-pixel regardless of where the pixel sits
+on the earth), but the footprint on the map still needs *some*
 projection to draw.[^ndvi-crs-missing]
 
 [^ndvi-crs-missing]: The reusable cell pair above already builds the
-synthetic Red/NIR pair whenever nothing has been uploaded — click
+synthetic Red/NIR pair whenever nothing has been uploaded. Click
 **▶ Run** on both languages in section 4 to see it with a real CRS.
 This button swaps in the same pair, minus the CRS.
 
@@ -760,13 +760,13 @@ ${loadNoCrsExampleButton}
   and NIR from a dropdown, no editing required.
 - **Different two bands, or a different operation?**
   [Raster Band Math](raster-band-math.qmd) is the general version of
-  this same computation — add/subtract/multiply/divide, any two
+  this same computation: add/subtract/multiply/divide, any two
   bands, no vegetation assumption.
 - **Not sure what's in the file yet?** Start with
-  [Raster Inspector](/tools/raster-inspector.html) — dimensions,
+  [Raster Inspector](/tools/raster-inspector.html): dimensions,
   bands, CRS, NoData, before computing anything.
 - **Working with terrain instead of imagery?** See
-  [Viewshed](raster-viewshed.qmd) — what's visible from a point,
+  [Viewshed](raster-viewshed.qmd): what's visible from a point,
   accounting for the ground in between.
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

@@ -2,21 +2,21 @@
 title: "Predicting Spatial Classes with Random Forest"
 date: 2026-09-11
 categories: [tool, geoml, bilingual]
-description: "An interactive lab with Python, R and MapLibre — upload a labeled point file (or use the built-in example), train a Random Forest on it, turn a handful of labeled points into a full classification surface, and see a real gotcha where R silently swaps classification for regression."
+description: "An interactive lab with Python, R and MapLibre: upload a labeled point file (or use the built-in example), train a Random Forest on it, turn a handful of labeled points into a full classification surface, and see a real gotcha where R silently swaps classification for regression."
 ---
 
 A few labeled points on their own only answer questions about
-themselves — "what class is point #7?" is a question you can already
+themselves: "what class is point #7?" is a question you can already
 answer by looking at the file. The useful question is the one you
 *can't* already answer: "what's the likely class everywhere else,
 including where I have no data at all?" A Random Forest trained on
 labeled points, then applied to a regular grid across the whole area,
-turns a sparse set of samples into a full classification surface — the
+turns a sparse set of samples into a full classification surface, the
 same shift in usefulness a sparse rain-gauge network gets from
 interpolating a rainfall map between the gauges.
 
 A `.geojson`, or a shapefile (either as a single `.zip`, or as
-`.shp`/`.dbf`/`.shx` selected together) — see the upload section
+`.shp`/`.dbf`/`.shx` selected together): see the upload section
 below.
 
 Just want to classify a file with adjustable settings, any class
@@ -29,7 +29,7 @@ less prose.
 A Random Forest trained directly on longitude/latitude would treat 1
 degree of separation as the same "distance" everywhere on Earth, which
 it isn't. Both languages below pick a working UTM zone from the data's
-own bounding-box center and reproject into it first — same reasoning,
+own bounding-box center and reproject into it first, same reasoning,
 same formula, as this site's [Viewshed](raster-viewshed.qmd) and
 [Spatial Clustering](spatial-clustering.qmd) tools: a reasonable
 default for one local dataset, not a universally correct choice for
@@ -68,12 +68,12 @@ ${uploadStatus}
 }
 ```
 
-No file uploaded — or your file has no column literally named
+No file uploaded, or your file has no column literally named
 `class`? Both cells below fall back to the same small built-in
 example: 22 points in two clearly separated groups, `north` and
 `south`. Number of trees and grid resolution are fixed here (100
 trees, a 10-cell grid) to keep the focus on *what the two languages
-disagree on*, not on tuning — the
+disagree on*, not on tuning. The
 [standalone tool](/tools/spatial-classifier.html) exposes both as
 adjustable controls and lets you pick any column as the class.
 
@@ -486,7 +486,7 @@ resetMapButton = WebGeoDS.resetButton(resetClassification, "🔄 Reset map and c
 ${resetMapButton}
 
 The filled grid is Python's predicted surface; the dots on top are the
-labeled training points, colored the same way — both languages agree
+labeled training points, colored the same way. Both languages agree
 on this partition, which is exactly what makes the next section's
 divergence worth noticing: it isn't about the *classification*, it's
 about what happens when a step gets skipped.
@@ -495,27 +495,27 @@ about what happens when a step gets skipped.
 
 scikit-learn's `RandomForestClassifier` and R's general-purpose
 `randomForest()` decide what to do very differently. scikit-learn is
-unambiguous — you asked for a *Classifier*, so it classifies,
+unambiguous: you asked for a *Classifier*, so it classifies,
 whatever the labels look like. R's `randomForest()` instead looks at
 the *type* of the target column, and the two ways of getting this
 wrong fail very differently:
 
 - A plain **character** column (`"north"`/`"south"`, never wrapped in
-  `factor()`) fails loudly — R can't compute a regression mean on
+  `factor()`) fails loudly. R can't compute a regression mean on
   text, so the fit errors out immediately with something like
   `non-numeric argument to binary operator`. Annoying, but safe: you
   find out right away.
 - A column of **numbers standing in for classes** (`0`/`1`, or a
-  status code read straight out of a file) is the dangerous one — it
+  status code read straight out of a file) is the dangerous one: it
   fits without complaint and silently runs a **regression** instead of
   a classification. No error, no warning, just a different kind of
   model whose predictions no longer look like class labels at all.
 
 The R cell above already does this correctly (`factor(as.character(...))`
-before the fit) — `modelType` in its stat card reads `classification`.
+before the fit): `modelType` in its stat card reads `classification`.
 Here's the realistic failure case: the exact same points, with `class`
-read in as `0`/`1` instead of `"north"`/`"south"` — exactly what
-happens if a class column arrives as a numeric status code — and that
+read in as `0`/`1` instead of `"north"`/`"south"` (exactly what
+happens if a class column arrives as a numeric status code), and that
 one `factor()` step skipped, run live:
 
 ```{.webgeods-r #spatial-classification-r-nofactor}
@@ -587,14 +587,14 @@ noFactorCard = {
 ${noFactorCard}
 
 `model$type` reads `regression`, and `predict()` on a point whose true
-class was `0` ("north") returns a number like `0.1` or `-0.05` — not
+class was `0` ("north") returns a number like `0.1` or `-0.05`, not
 the class `0` itself, a *regression estimate* that happens to land
 near it. Nothing in the output says a switch happened; the only way to
 notice is checking `model$type` yourself, which is exactly what
 production code should do.
 
 ::: {.callout-note}
-This is real, verified behavior of `randomForest()` — run live on this
+This is real, verified behavior of `randomForest()`, run live on this
 page, not an edge case invented for the article: the R cell in
 section 3 above does the correct `factor()` coercion, one line
 different from the cell above. scikit-learn's separate `Classifier`/
@@ -613,7 +613,7 @@ class you instantiate *is* the decision, made once, up front.
 - **Wondering why the coordinate system needed picking at all?** →
   [Coordinate Reference Systems](crs-mismatch.qmd) covers the
   geographic/projected distinction this article leaned on in section 1.
-- **Curious about the other side of GeoML — finding groups instead of
+- **Curious about the other side of GeoML: finding groups instead of
   predicting labels?** →
   [Finding Spatial Clusters with DBSCAN](spatial-clustering.qmd) is
   this family's entry point, unsupervised rather than supervised.

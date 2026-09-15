@@ -2,7 +2,7 @@
 title: "First Look at a Raster File: Dimensions, Bands, and NoData"
 date: 2026-09-06
 categories: [tool, raster, bilingual]
-description: "Upload a GeoTIFF and get an instant summary — dimensions, resolution, band count, CRS, NoData, and per-band min/max/mean — in Python and R on the same map."
+description: "Upload a GeoTIFF and get an instant summary of dimensions, resolution, band count, CRS, NoData, and per-band min/max/mean, in Python and R on the same map."
 ---
 
 A vector file's first look answers "how many features, what shape, what
@@ -11,7 +11,7 @@ grid, how many bands does each pixel carry, what does one pixel cover
 on the ground, and which value means "no data here" rather than a real
 measurement.
 
-Get those wrong and everything downstream is wrong too — a slope
+Get those wrong and everything downstream is wrong too: a slope
 calculation that treats -9999 as a very steep cliff, a mean elevation
 dragged down by a border of NoData pixels, a band mistaken for degrees
 Celsius when it's really reflectance times 10,000.
@@ -22,7 +22,7 @@ prose.
 
 ## 1. Upload your file
 
-A single `.tif` or `.tiff` — no sidecars, unlike a shapefile.
+A single `.tif` or `.tiff`, no sidecars, unlike a shapefile.
 
 ```{ojs}
 //| echo: false
@@ -62,33 +62,33 @@ ${uploadStatus}
 Eight numbers, each answering a question that's otherwise easy to get
 wrong by assumption:
 
-- **Dimensions** — width × height in pixels. Determines how much work
+- **Dimensions**: width × height in pixels. Determines how much work
   any pixel-by-pixel operation actually is, and whether a "small" file
   is small in bytes but enormous in pixel count (or the reverse).
-- **Bands** — one grid of numbers, or several stacked together (RGB,
+- **Bands**: one grid of numbers, or several stacked together (RGB,
   a multispectral stack, a time series). Some checks and most
   visualizations only make sense once you know how many there are.
-- **CRS** — same coordinate reference system concept as a vector file.
+- **CRS**: same coordinate reference system concept as a vector file.
   A missing CRS is reported as genuinely unknown, not silently
-  relabeled as WGS84 — the map still needs *some* projection to place
+  relabeled as WGS84. The map still needs *some* projection to place
   the footprint, so that assumption is shown separately, labeled as a
   display choice rather than folded into the CRS field itself.
-- **Resolution** — the ground distance one pixel actually covers, in
+- **Resolution**: the ground distance one pixel actually covers, in
   the file's own CRS units. A 30 (Landsat-scale) versus a 0.001
   (sub-meter) changes what questions the data can even answer.
-- **Data type** — `uint8`, `int16`, `float32`, ... . The single most
+- **Data type**: `uint8`, `int16`, `float32`, ... . The single most
   common source of a "why are all my values 0 or wildly wrong"
   surprise: an integer type storing values that were meant to be
   divided by a scale factor, or a float column silently truncated by
   being written back as an integer type.
-- **NoData** — the sentinel value marking "no measurement here" (often
-  `-9999`, `0`, or a type's max value) — as fundamental to a raster as
+- **NoData**: the sentinel value marking "no measurement here" (often
+  `-9999`, `0`, or a type's max value), as fundamental to a raster as
   a null is to a table column, and just as easy to accidentally treat
   as a real number if it isn't checked first.
-- **Bounds** — the same bounding-box sanity check as a vector file:
+- **Bounds**: the same bounding-box sanity check as a vector file:
   numbers wildly outside -180..180 / -90..90 are the CRS-mismatch tell,
   here too.
-- **Value range** — the per-band min/max/mean, with NoData pixels
+- **Value range**: the per-band min/max/mean, with NoData pixels
   correctly excluded. The fastest way to catch a unit mistake (a
   "temperature in Celsius" band whose values run from 200 to 320 is
   actually Kelvin) before it reaches an analysis.
@@ -563,38 +563,38 @@ global(r, "mean", na.rm = TRUE)  # NoData pixels already excluded
 
 Three genuine divergences, not just naming differences:
 
-- **CRS formatting** — same issue as the vector article's `st_crs()`
-  vs GeoPandas footnote: when GDAL can resolve the file's CRS to a
+- **CRS formatting**: same issue as the vector article's `st_crs()`
+  vs GeoPandas footnote. When GDAL can resolve the file's CRS to a
   known EPSG code, `crs(r, describe = TRUE)` gives exactly that
-  (`"EPSG:4326"`, matching Python here) — but for anything it can't
+  (`"EPSG:4326"`, matching Python here), but for anything it can't
   match to a registry entry, the fallback is a `+proj=...` string,
   a different format entirely from `str(src.crs)`.[^raster-crs-format]
-- **Data type** — closer to Python than `stars` was: `datatype(r)`
+- **Data type**: closer to Python than `stars` was. `datatype(r)`
   does reflect the file's actual storage type, just under terra's own
   naming convention (`"FLT4S"` for a 4-byte signed float, `"INT2U"`
   for an unsigned 16-bit integer, ...) rather than GDAL's own
   descriptive names (`"float32"`, `"uint16"`) the way rasterio's
   `dtypes[0]` reports them. A real format difference, not a loss of
-  information the way it was with `stars` — though `datatype(r)`
+  information the way it was with `stars`, though `datatype(r)`
   itself returns one type *per band* (terra allows different bands to
   carry different types), so both sides here report only the first
   band's type, `dtypes[0]` and `datatype(r)[1]` respectively.
-- **NoData retention** — `rast()` reads the file's declared NoData
+- **NoData retention**: `rast()` reads the file's declared NoData
   value and excludes those pixels automatically wherever a reduction
   is computed (confirmed: a `-9999` sentinel pixel never pollutes
   `global(..., "min")` above), the same way rasterio's `masked=True`
-  does — but the sentinel value itself isn't exposed anywhere
+  does, but the sentinel value itself isn't exposed anywhere
   afterward. rasterio keeps it directly on `src.nodata`; terra
   doesn't have an equally direct equivalent for a file already open.
   That's why the R card's "NoData" row never shows anything but "None
-  declared," even on a file that clearly has one — it isn't wrong,
+  declared," even on a file that clearly has one: it isn't wrong,
   the exclusion already happened, there's just no simple accessor left
   to report the raw number by.
 
 [^raster-crs-format]: A GeoTIFF's own embedded CRS often resolves to a
 human-readable name in GDAL's metadata (e.g. `"WGS 84"`), which
 `crs(r, describe = TRUE)` still maps back to its EPSG code when one
-exists — while an unusual or locally-defined CRS with no registry
+exists, while an unusual or locally-defined CRS with no registry
 match falls back to a PROJ string on the R side, with no equivalent
 fallback needed on Python's, since `str(src.crs)` already prints
 whatever GDAL gave it either way. Worth checking which form you're
@@ -603,13 +603,13 @@ looking at before assuming a mismatch means an actual problem.
 ## 6. A raster with no declared CRS
 
 The reusable cell pair above already builds a small synthetic hill
-with one NoData pixel whenever nothing has been uploaded — click
+with one NoData pixel whenever nothing has been uploaded. Click
 **▶ Run** on both languages in section 4 to see it. This button swaps
 in the same raster, minus the CRS, to see the CRS row switch to
 "Unknown" and a separate "Display assumption" row appear below
 it.[^raster-crs-missing]
 
-[^raster-crs-missing]: An unreferenced raster isn't rare in practice —
+[^raster-crs-missing]: An unreferenced raster isn't rare in practice:
 a sensor's raw output, or a file exported by a tool that never wrote a
 CRS tag at all. Nothing about the pixel *values* is wrong in that
 case; only where they sit on the earth is unknown until someone
@@ -776,7 +776,7 @@ A summary is a starting point:
   [standalone Raster Inspector](/tools/raster-inspector.html) has the
   same summary, no reading required.
 - **Working with vector data instead?** Start with
-  [First Look at a Geospatial File](geospatial-file-inspection.qmd) —
+  [First Look at a Geospatial File](geospatial-file-inspection.qmd),
   the same idea, for GeoJSON and Shapefile.
 - **Need to combine two bands into a result** (a difference map, a
   Normalized Difference like NDVI)? See

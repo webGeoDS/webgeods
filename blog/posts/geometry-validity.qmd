@@ -2,16 +2,16 @@
 title: "Geometry validity: find and understand invalid geometries"
 date: 2026-08-29
 categories: [tool, geometry, bilingual]
-description: "An interactive lab with Python, R and MapLibre — upload a GeoJSON, find out which geometries are invalid and why, compare how the two languages diagnose the same problem. Repair is a separate, optional step."
+description: "An interactive lab with Python, R and MapLibre: upload a GeoJSON, find out which geometries are invalid and why, compare how the two languages diagnose the same problem. Repair is a separate, optional step."
 ---
 
 Upload a GeoJSON, find out which geometries are invalid and why, and
-run the same diagnosis in Python and in R on the same map — repair
+run the same diagnosis in Python and in R on the same map. Repair
 (`make_valid()`/`st_make_valid()`) is a separate, optional step, at
 the bottom of the page.
 
 A `.geojson`, or a shapefile (either as a single `.zip`, or as
-`.shp`/`.dbf`/`.shx` selected together) — see the section below.
+`.shp`/`.dbf`/`.shx` selected together): see the section below.
 
 Just want to quickly validate or fix a file, without the rest of the
 reading? Use the
@@ -60,10 +60,10 @@ ${uploadStatus}
 ```{mermaid}
 flowchart LR
     A["🗺️ Looks fine on the map"] --> B{"Validity check"}
-    B --> C["❌ INVALID — why?"]
+    B --> C["❌ INVALID: why?"]
 ```
 
-Yes — a polygon can have a boundary that crosses itself, a hole that
+Yes: a polygon can have a boundary that crosses itself, a hole that
 extends outside the outer boundary, or two holes that overlap, and it's
 not uncommon for the shape on the map to look perfectly fine. Below you
 can find out exactly what to look for, in your own file or in one of
@@ -73,11 +73,11 @@ the four ready-made examples further down.
 
 A single map and table, shared by every example on the page: run the
 same diagnosis in Python or R and compare the result here. The two
-languages draw to two separate layers — running one doesn't clear or
+languages draw to two separate layers: running one doesn't clear or
 change what the other already drew, so both stay visible together
 (and in their own tab in the table below) for a direct comparison.
 Running R doesn't "correct" or replace Python's result, and vice
-versa — if you want to see a language's result change, re-run that
+versa. If you want to see a language's result change, re-run that
 language's own cell.
 
 ```{ojs}
@@ -423,10 +423,10 @@ list(
 
 ## Diagnose: validate your geometry
 
-Run the same check in Python or R on the current data — your file
+Run the same check in Python or R on the current data: your file
 uploaded above, or, if you haven't uploaded one, the bowtie example
 below (the diagnosis cells load it automatically when there's no
-upload) — no repair yet, just diagnosis: is the geometry valid? If
+upload). No repair yet, just diagnosis: is the geometry valid? If
 not, why?
 
 ::: {.panel-tabset}
@@ -664,7 +664,7 @@ Both go through the same geometry engine, GEOS, for this calculation.[^reason-te
 geometry is invalid, though: `explain_validity()` in Python includes
 the coordinates of the problem (e.g. `"Self-intersection[12.5
 41.9]"`), while `st_is_valid(reason = TRUE)` in R describes the edges
-involved without coordinates (e.g. `"Edge 0 crosses edge 2"`) — same
+involved without coordinates (e.g. `"Edge 0 crosses edge 2"`): same
 calculation, different vocabulary. Not a bug in either one, just a
 detail that distinguishes one spatial ecosystem from the other.
 
@@ -683,7 +683,7 @@ concrete in the repair, below:
 **Why `sf_use_s2(FALSE)` before `st_make_valid()`?** With geographic
 coordinates (lon/lat) and `sf_use_s2(TRUE)` (the default),
 `st_make_valid()` in R dispatches to `s2::s2_rebuild()` instead of
-GEOS — a different algorithm that, on these cases, **fixes nothing**,
+GEOS: a different algorithm that, on these cases, **fixes nothing**,
 returning the geometry unchanged without an error. Verified not just
 on webR but also on real R 4.3.3 with sf 1.0.15: this isn't a bug in
 this project, it's documented `sf` behavior (see issues #1985 and
@@ -705,7 +705,7 @@ alternative S2 engine: it always goes through GEOS.
 | Overlapping holes | Two inner rings intersect | ✓ | ✓ |
 
 Each example below loads its own data into the diagnosis cell pair
-above — no repair here, that's in the Repair section at the bottom of
+above. No repair here, that's in the Repair section at the bottom of
 the page.
 
 ### Self-intersection ("bowtie")
@@ -717,8 +717,8 @@ the page.
 </svg>
 
 The polygon's boundary crosses itself, forming a bowtie shape instead
-of a single closed area — the most common case in practice, often the
-result of imprecise manual digitizing.
+of a single closed area. It's the most common case in practice, often
+the result of imprecise manual digitizing.
 
 ```{ojs}
 //| echo: false
@@ -825,7 +825,7 @@ it's fixed.
 
 The polygon's boundary touches itself at one point, without crossing,
 effectively splitting the shape into two lobes joined by a single
-vertex — not cleanly connected, so invalid.
+vertex: not cleanly connected, so invalid.
 
 ```{ojs}
 //| echo: false
@@ -905,8 +905,8 @@ it's fixed.
 </svg>
 
 If a polygon has more than one hole, they can't overlap each other:
-two intersecting holes create an ambiguous area — inside or outside
-the polygon? — which the model doesn't allow.
+two intersecting holes create an ambiguous area (inside or outside
+the polygon?) that the model doesn't allow.
 
 ```{ojs}
 //| echo: false
@@ -979,12 +979,12 @@ Scroll to the **Repair** section below to see how it's fixed.
 
 ## Repair (optional)
 
-The diagnosis tells you what's wrong. Repair changes the data —
+The diagnosis tells you what's wrong. Repair changes the data:
 `make_valid()`/`st_make_valid()` rebuild the geometry into an
 equivalent, valid form. **Requires having run the diagnosis above at
 least once**: it reuses exactly the same data just diagnosed (`gdf` in
 Python, `data` in R stay in the session between one cell and the next,
-like in a notebook) — no new reading of the file.
+like in a notebook), with no new reading of the file.
 
 ::: {.panel-tabset}
 
@@ -1081,14 +1081,14 @@ rRepair = WebGeoDS.getCellValue("geometry-repair-r", Generators)
 }
 ```
 
-The table and the report above update themselves — the
+The table and the report above update themselves: the
 `valid_before`/`valid_after` columns automatically appear next to the
 diagnosis ones.
 
 ## What about relationships between geometries?
 
 A geometry can be perfectly valid on its own and still be wrong in
-relation to other geometries — two valid polygons overlapping when
+relation to other geometries: two valid polygons overlapping when
 they shouldn't, a gap between areas that should touch. That's a
 different problem: topology. It's covered in
 [Topology Errors in a GeoJSON](topology-errors.qmd).

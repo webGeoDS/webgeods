@@ -2,14 +2,14 @@
 title: "Raster Band Math: Combining Two Bands Into One"
 date: 2026-09-07
 categories: [tool, raster, bilingual]
-description: "Pick two bands, an operation, and get a computed raster back — as a colored map and a downloadable GeoTIFF — in Python and R on the same map."
+description: "Pick two bands, an operation, and get a computed raster back: a colored map and a downloadable GeoTIFF, in Python and R on the same map."
 ---
 
-A single band answers one question per pixel — elevation, reflectance
+A single band answers one question per pixel: elevation, reflectance
 in one wavelength, a single sensor reading. Most useful raster
 questions need two: how much did this change between two dates, how
 different is band A from band B, is this pixel more one thing than
-another. Band math is the term for exactly that — pixel-by-pixel
+another. Band math is the term for exactly that: pixel-by-pixel
 arithmetic between two bands of the same raster, producing a new
 single-band raster the same size as the inputs.
 
@@ -19,7 +19,7 @@ pick your bands and operator directly.
 
 ## 1. Upload your file
 
-A single `.tif`/`.tiff` with two or more bands — band math has
+A single `.tif`/`.tiff` with two or more bands: band math has
 nothing to compute on a single-band file.
 
 ```{ojs}
@@ -60,21 +60,21 @@ ${uploadStatus}
 Four things worth knowing before the first computed raster:
 
 - **It's pixel-by-pixel, not band-by-band.** Every output pixel comes
-  from exactly the two input pixels at the same row/column — a
+  from exactly the two input pixels at the same row/column: a
   computed raster is always the same width, height, and (usually)
   resolution as its inputs, never a summary or a reduction.
 - **NoData has to propagate, not get treated as a real number.** If
-  either input pixel is NoData, the output pixel has to be NoData too
-  — otherwise a border of sentinel values (often `-9999` or `0`) quietly
+  either input pixel is NoData, the output pixel has to be NoData too,
+  otherwise a border of sentinel values (often `-9999` or `0`) quietly
   drags a mean or a color ramp toward a value that was never a real
   measurement.
 - **Division needs a plan for zero.** `A ÷ B` on a pixel where `B` is
-  `0` isn't a crash waiting to happen — it's `Inf` (or `NaN` for `0 ÷ 0`)
+  `0` isn't a crash waiting to happen: it's `Inf` (or `NaN` for `0 ÷ 0`)
   in both Python and R, and both are just as "not a real value" as
   NoData is. Left unhandled, a single such pixel can make an entire
   color ramp or `min`/`max` computation meaningless.
-- **A very common form has a name**: `(A − B) / (A + B)` —
-  *Normalized Difference* — bounds the result to roughly `-1..1`
+- **A very common form has a name**: `(A − B) / (A + B)`, the
+  *Normalized Difference*, bounds the result to roughly `-1..1`
   regardless of the two bands' original units, which is exactly why
   it shows up everywhere from vegetation indices to change detection.
   This article computes a plain difference (`A − B`) as the running
@@ -293,7 +293,7 @@ resetMapButton = WebGeoDS.resetButton(resetResult, "🔄 Reset map and result")
 ## 4. Compute: run the same band math in Python or R
 
 Run the same computation on the current data (your file uploaded
-above, or the built-in example below) — edit `band_a`/`band_b`, or the
+above, or the built-in example below). Edit `band_a`/`band_b`, or the
 formula itself, and re-run to see the map update.
 
 ::: {.panel-tabset}
@@ -580,9 +580,9 @@ a - b                                # terra overloads +-*/ directly on SpatRast
 ifel(is.finite(result), result, NA)  # Inf/NaN from division -> NA
 ```
 
-The shape of the fix is identical in both languages — mask out
+The shape of the fix is identical in both languages: mask out
 non-finite values after the arithmetic, don't try to prevent them
-from occurring — but the *mechanism* differs: numpy needs an explicit
+from occurring. But the *mechanism* differs: numpy needs an explicit
 `np.errstate` context to suppress the runtime warning a division by
 zero would otherwise print (the computation itself still produces
 `Inf`/`NaN` either way), while terra's `ifel()` is a single vectorized
@@ -591,14 +591,14 @@ call with no equivalent warning to suppress.
 ## 6. A raster with no declared CRS
 
 The reusable cell pair above already builds two small synthetic hills
-whenever nothing has been uploaded — click **▶ Run** on both languages
+whenever nothing has been uploaded. Click **▶ Run** on both languages
 in section 4 to see it. This button swaps in the same pair, minus the
 CRS, to see the CRS row switch to "Unknown" and a separate "Display
-assumption" row appear below it — same convention as every other
+assumption" row appear below it, same convention as every other
 Raster tool on this site.[^bandmath-crs-missing]
 
-[^bandmath-crs-missing]: Band math doesn't change anything about this
-— the two input bands either both carry a real CRS or don't, and the
+[^bandmath-crs-missing]: Band math doesn't change anything about this:
+the two input bands either both carry a real CRS or don't, and the
 computed output inherits whichever is true. A missing CRS says
 nothing about whether the arithmetic itself is trustworthy, only about
 where the result sits on the earth.
@@ -767,13 +767,13 @@ ${loadNoCrsExampleButton}
   [standalone Raster Calculator](/tools/raster-calculator.html) picks
   bands and an operator from a dropdown, no editing required.
 - **Not sure what's in the file yet?** Start with
-  [Raster Inspector](/tools/raster-inspector.html) — dimensions,
+  [Raster Inspector](/tools/raster-inspector.html): dimensions,
   bands, CRS, NoData, before computing anything.
 - **Working with vector data instead?** See
   [First Look at a Geospatial File](geospatial-file-inspection.qmd).
 - **Vegetation index specifically?** See
   [NDVI: Measuring Vegetation from Two Bands](raster-ndvi.qmd), or the
-  standalone [NDVI Calculator](/tools/ndvi-calculator.html) — this
+  standalone [NDVI Calculator](/tools/ndvi-calculator.html): this
   same Normalized Difference operation, with red/near-infrared band
   presets and a vegetation color scale.
 

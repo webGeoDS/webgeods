@@ -2,19 +2,19 @@
 title: "Viewshed: What's Visible from Here"
 date: 2026-09-07
 categories: [tool, raster, bilingual]
-description: "Given a DEM and an observer point, compute which cells are visible — accounting for terrain occlusion — and see it as a colored map. Runs on R; Python shown as reference only."
+description: "Given a DEM and an observer point, compute which cells are visible, accounting for terrain occlusion, and see it as a colored map. Runs on R; Python shown as reference only."
 ---
 
 Elevation alone answers "how high." A viewshed answers a different
 question: from one point on the terrain, looking outward, which other
 points can you actually see? A hill in between blocks the view behind
-it the same way a building would — this is exactly the computation
+it the same way a building would: this is exactly the computation
 behind cell-tower placement, wind-turbine visual-impact studies, and
 "does this property really have the panoramic view listed."
 
 Every other article in this Raster family shows the same computation
 running live in Python *and* R, side by side, agreeing on the answer.
-This one doesn't — not because the idea changed, but because the
+This one doesn't, not because the idea changed, but because the
 tooling did. Read on for why, and what it means for how this page is
 built.
 
@@ -24,7 +24,7 @@ click a point directly.
 
 ## 1. Upload your file
 
-A `.tif`/`.tiff` digital elevation model (DEM) — one band of elevation
+A `.tif`/`.tiff` digital elevation model (DEM), one band of elevation
 values.
 
 ```{ojs}
@@ -71,28 +71,28 @@ Four things worth knowing before the first computed map:
   whether the terrain in between rises above that line anywhere along
   the way.
 - **A working projection, not a correction.** `terra::viewshed()`
-  requires projected (linear-unit) coordinates — it refuses geographic
+  requires projected (linear-unit) coordinates. It refuses geographic
   lon/lat data outright, and rightly so: the algorithm reasons in real
   distances and angles, which degrees can't give it directly. A
   geographic DEM (SRTM tiles, for instance, ship this way) is
   reprojected internally for the calculation, to a UTM zone picked
   from the raster's own centre. The **original file is never
-  modified** — this is a working projection for the computation, not
+  modified**: this is a working projection for the computation, not
   a claim that webGeoDS found "the correct CRS." A DEM spanning
   multiple UTM zones, sitting near the poles, or covering a very large
-  area would need a deliberate projection choice instead — the
+  area would need a deliberate projection choice instead; the
   automatic pick here is a reasonable default for a single local DEM,
   not a universal answer.
 - **"Visible" means visible *under this terrain model*, not "a human
   would see it."** The result accounts for terrain height, observer
   and target height above ground, and a curvature/refraction
-  coefficient (`terra::viewshed()`'s `curvcoef`, default ≈0.857) — it
+  coefficient (`terra::viewshed()`'s `curvcoef`, default ≈0.857). It
   does not account for vegetation, buildings, or atmospheric haze. It
   answers "is the ground itself in the way," a real and useful
   question, just not the complete one.
 - **The output is boolean, not a gradient.** Every other computed map
   in this Raster family (Band Math, NDVI) is a continuous value shown
-  on a color ramp. A viewshed is yes/no per cell — visible cells are
+  on a color ramp. A viewshed is yes/no per cell: visible cells are
   highlighted, everything else is left transparent so the base map
   shows through underneath.
 
@@ -397,8 +397,8 @@ jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector =
 ## Python — reference (desktop/server)
 
 ::: {.callout-warning}
-**Not runnable in this browser tool.** This is valid Python/GDAL —
-the equivalent desktop/server workflow — shown for reference. See
+**Not runnable in this browser tool.** This is valid Python/GDAL,
+the equivalent desktop/server workflow, shown for reference. See
 [why](#why-python-is-reference-only-here) below.
 :::
 
@@ -440,15 +440,15 @@ worth being precise about why rather than waving at "GDAL isn't
 supported":
 
 The GDAL Python bindings expose `ViewshedGenerate()`, which provides
-the corresponding GDAL implementation — the same underlying algorithm
+the corresponding GDAL implementation: the same underlying algorithm
 `terra::viewshed()` uses on the R side. However, GDAL is not available
 in the curated Pyodide package index used by this browser runtime.
-Attempting to load it returns `No known package with name 'gdal'` —
+Attempting to load it returns `No known package with name 'gdal'`,
 tested directly against this project, not assumed from general
 knowledge. `rasterio` itself, this site's usual Python raster engine,
 has never had a viewshed function of its own; it's a thin I/O layer
 over GDAL, not an analysis library. No actively-maintained pure-Python
-alternative exists either — the closest candidates
+alternative exists either: the closest candidates
 (`whitebox`/WhiteboxTools, `richdem`) are a standalone compiled
 executable and a C++ extension respectively, neither usable inside
 Pyodide.
@@ -458,7 +458,7 @@ but is not executable in this browser tool.
 
 The rest of this site's implicit promise has been "Python and R, side
 by side." This article refines that to "Python and R, when the
-browser runtime allows it" — a statement of what's actually true,
+browser runtime allows it": a statement of what's actually true,
 not an exception being quietly worked around. Forcing a from-scratch
 numpy reimplementation just to keep two live panels would have traded
 a real, tested algorithm for an untested one, on a page whose whole
@@ -467,7 +467,7 @@ point is trustworthy answers.
 ## 6. A DEM with no declared CRS
 
 Unlike the rest of the Raster family, this isn't a cosmetic
-"Unknown ⚠️" row — the R cell above refuses to compute at all on a
+"Unknown ⚠️" row: the R cell above refuses to compute at all on a
 CRS-less file (`stop()`, not a graceful fallback), because a viewshed
 genuinely cannot be placed on Earth without knowing where the file
 already is. Click below to load a DEM with the CRS deliberately
@@ -517,11 +517,11 @@ ${loadNoCrsExampleButton}
   click a point, no editing required.
 - **Combining two bands instead** (a difference map, NDVI)? See
   [Raster Band Math](raster-band-math.qmd) or
-  [NDVI](raster-ndvi.qmd) — both run live in Python and R.
+  [NDVI](raster-ndvi.qmd): both run live in Python and R.
 - **Not sure what's in the file yet?** Start with
   [Raster Inspector](/tools/raster-inspector.html).
 
-This closes the Raster family at four tools: Inspect, Calculate,
-NDVI, Viewshed — understand, compute, analyze, model.
+This closes the Raster family at four tools (Inspect, Calculate,
+NDVI, Viewshed), covering understand, compute, analyze, model.
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

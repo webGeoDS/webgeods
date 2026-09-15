@@ -2,24 +2,24 @@
 title: "Network from Lines: How Connected Is Connected"
 date: 2026-09-13
 categories: [article, network, bilingual]
-description: "An interactive lab with Python, R and MapLibre — turn a line layer into a graph, and see how a few meters of tolerance change how many pieces the network actually has."
+description: "An interactive lab with Python, R and MapLibre: turn a line layer into a graph, and see how a few meters of tolerance change how many pieces the network actually has."
 ---
 
-A road network, a river system, a set of pipelines — any layer of
+A road network, a river system, a set of pipelines: any layer of
 lines is only a *network* once you decide which endpoints count as
 the same junction. Two segments that were meant to meet but miss by a
 few centimeters (a common noding gap in real data) become two
 separate, disconnected pieces of the graph unless you tell the
-algorithm how close is "close enough." That single decision — a snap
-tolerance, in meters — can change how many disconnected pieces a
+algorithm how close is "close enough." That single decision, a snap
+tolerance in meters, can change how many disconnected pieces a
 network has without changing a single coordinate.
 
 Want to explore this interactively, with an adjustable tolerance and
 the graph drawn directly on the map? Use the [standalone
-tool](/tools/network-from-lines.html) — same idea, adjustable live.
+tool](/tools/network-from-lines.html): same idea, adjustable live.
 This article fixes two tolerance values (0m and 5m) side by side, in
 both languages, to make the underlying algorithm easy to read from top
-to bottom — and draws the resulting graph too, as a diagram below the
+to bottom, and draws the resulting graph too, as a diagram below the
 map.
 
 ## 1. Upload your data
@@ -58,7 +58,7 @@ ${uploadStatus}
 No file uploaded? Both cells below fall back to the same eight-line
 example: a closed block (four segments forming one connected loop), a
 fully separate cluster elsewhere on the map, and a two-segment "spur"
-whose first endpoint sits about 4m from the block's corner — not
+whose first endpoint sits about 4m from the block's corner, not
 exactly on it. That 4m gap is deliberately part of the example, not a
 mistake in it: it's what section 3 below is about.
 
@@ -617,11 +617,11 @@ statCardsRow = {
 ${statCardsRow}
 
 The map above shows *where* the lines are; the two diagrams below show
-*how they're connected* — same graph the counts above describe, laid
+*how they're connected*: same graph the counts above describe, laid
 out by force instead of geography, colored by connected component.
 Drawn from whichever language you ran (if you run both, the second one
-just redraws the same picture — Python and R agree on the graph, so
-there's nothing a second drawing would show differently).
+just redraws the same picture, since Python and R agree on the graph,
+so there's nothing a second drawing would show differently).
 
 ${graphsRow}
 
@@ -651,20 +651,20 @@ ${resetMapButton}
 
 ## 3. Same lines, two different answers
 
-The numbers above describe the built-in fallback specifically — if you
+The numbers above describe the built-in fallback specifically. If you
 uploaded your own file, the counts will differ, but the same effect is
 what to look for. Both languages ran the exact same two tolerances (0m
 and 5m) on the exact same eight lines, and got the same shape of
 answer:
 
 - **At 0m**, the "spur" (two segments starting about 4m from the
-  block's corner) counts as its own piece — three components in total:
+  block's corner) counts as its own piece: three components in total,
   the block, the spur, and the fully separate cluster.
 - **At 5m**, that 4m gap is within tolerance, so the spur's near
-  endpoint merges into the block's corner — two components: the
+  endpoint merges into the block's corner: two components, the
   now-joined block+spur, and the still-separate cluster.
 
-Nothing about the geometry changed between the two runs — same
+Nothing about the geometry changed between the two runs: same
 coordinates, same lines. Only the *definition of "the same point"*
 changed, and that alone was enough to change how many pieces the
 network has. This is why real-world network analysis (road networks,
