@@ -498,6 +498,30 @@ checkButton = {
 ```{ojs}
 //| echo: false
 //| output: false
+// Real bug, found live testing the deployed site (not a hypothetical):
+// both the upload-effect cell and loadExampleButton already call
+// runCheck() themselves while `uploadBusy` is true, and finish it
+// BEFORE clearing uploadBusy -- but checkButton's own disabled state
+// only ever reflects ITS OWN click, with no idea an upload/example's
+// own auto-check might still be running. Clicking "Check" during that
+// window called runCheck() a second time while the first was still in
+// flight, and CodeCell.run() throws "the cell is already running" --
+// reproduced by clicking Load example, then Check as soon as its own
+// busy status text moved past "Loading example" (i.e. into
+// "Checking..." -- itself still mid-run). geojson-shapefile-
+// validator.qmd sidesteps this whole class of bug differently: it has
+// no manual trigger at all (diagnosis only ever auto-runs), so there's
+// nothing to race against. topology-checker.qmd keeps its manual
+// button (letting a reader re-run with different thresholds without
+// re-uploading), so it needs this instead -- a plain reactive
+// side-effect on the SAME button element, re-run whenever `uploadBusy`
+// changes, not a new cell recreating the button.
+checkButton.disabled = uploadBusy
+```
+
+```{ojs}
+//| echo: false
+//| output: false
 // Same canonical two-polygon example as the removed Python fallback
 // above, now loaded explicitly instead of automatically — matches
 // geojson-shapefile-validator.qmd's EXAMPLE_GEOJSON.
