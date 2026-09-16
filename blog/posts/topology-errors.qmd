@@ -523,7 +523,12 @@ def check_sliver(gdf, compactness_threshold=0.15):
                 results[i].append(("sliver", None, compactness))
     return results
 
-def check_gap(gdf, min_area=1e-6, proximity=0.06):
+def check_gap(gdf, min_area=1.0, proximity=0.06):
+    # `min_area` is in SQUARE METERS (via _project_area below), not in
+    # the raw square degrees shapely would return on WGS84 coordinates:
+    # 1e-6 square degrees is about 9,000 m² at this latitude, so a
+    # threshold that looks tiny would silently discard real gaps.
+    #
     # Per pair, not on the whole dataset: a single convex hull over
     # all features would flag as "gap" even the simple fact that two
     # unaligned shapes leave space outside their union. Here we
@@ -550,7 +555,7 @@ def check_gap(gdf, min_area=1e-6, proximity=0.06):
             if not gap_geom.is_empty:
                 parts = gap_geom.geoms if hasattr(gap_geom, "geoms") else [gap_geom]
                 for part in parts:
-                    if part.area > min_area:
+                    if _project_area(part) > min_area:
                         gaps.append(part)
     return gaps
 
@@ -726,11 +731,14 @@ check_sliver <- function(data, compactness_threshold = 0.15) {
   results
 }
 
-check_gap <- function(data, min_area = 1e-6, proximity = 8000) {
+check_gap <- function(data, min_area = 1.0, proximity = 8000) {
   # Per pair, not on the whole dataset — same reason as the Python
   # side: a single convex hull over all features gives false positives
   # for pairs that are simply not aligned with each other (overlap,
   # sliver).
+  #
+  # `min_area` is in SQUARE METERS, the unit st_area() already returns
+  # here, and matches the Python side's own threshold.
   #
   # `proximity` here is in METERS, not degrees: unlike shapely (which
   # operates "planar" on raw lon/lat coordinates, in degrees), sf with

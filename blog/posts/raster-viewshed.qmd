@@ -500,6 +500,10 @@ ext(r) <- c(12.40, 12.40 + n * 0.005, 41.95 - n * 0.005, 41.95)
 
 elevation <- r[[1]]
 
+# Unlike the other raster tools, a missing CRS is fatal here rather
+# than a cosmetic "Unknown" row: without a real-world location there
+# is no way to pick a working projection or place the observer, so
+# there is nothing meaningful left to compute.
 if (crs(elevation) == "") {
   stop("This file has no declared CRS — a real-world location is required to compute a viewshed (to choose a working projection and place the observer correctly). Upload a georeferenced DEM.")
 }

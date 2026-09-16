@@ -628,6 +628,8 @@ with memfile.open(
 band_red, band_nir = 1, 2
 
 with rasterio.open(memfile.name) as src:
+    # NoData filled with NaN so it propagates through the arithmetic
+    # below on its own, with no explicit NoData handling.
     red = src.read(band_red, masked=True).astype("float32").filled(np.nan)
     nir = src.read(band_nir, masked=True).astype("float32").filled(np.nan)
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -637,6 +639,10 @@ with rasterio.open(memfile.name) as src:
     valid = result[np.isfinite(result)]
     has_valid = valid.size > 0
 
+    # The point of this example: no CRS was written above, so "crs"
+    # stays unknown instead of being quietly relabeled as WGS84, and
+    # the WGS84 used to place the footprint is reported separately as
+    # a display assumption.
     crs_warning = None
     display_crs_assumption = None
     if src.crs is not None:
@@ -694,8 +700,13 @@ band_nir <- 2
 red <- r[[band_red]]
 nir <- r[[band_nir]]
 result <- (nir - red) / (nir + red)
+# ifel() replaces the Inf/NaN a division can produce with NA.
 result <- ifel(is.finite(result), result, NA)
 
+# The point of this example: terra reports the missing CRS as an empty
+# string, so "crs" stays unknown instead of being quietly relabeled,
+# and the WGS84 assigned below (only so the footprint can be placed)
+# is reported separately as a display assumption.
 crs_warning <- NULL
 display_crs_assumption <- NULL
 if (crs(r) == "") {

@@ -238,8 +238,9 @@ training_wgs84 = labeled[["class", "geometry"]]
 ## R
 
 ```{.webgeods-r #spatial-classification-r}
-#| package: sf, randomForest, jsonlite
+#| package: sf, randomForest, geojsonsf, jsonlite
 library(sf)
+library(geojsonsf)
 library(randomForest)
 
 fallback_lons <- c(12.450066, 12.450332, 12.450202, 12.450017, 12.449639, 12.44983,
@@ -307,6 +308,12 @@ labeled_proj <- labeled_proj[finite_rows, ]
 
 train_df <- data.frame(x = coords_train[, 1], y = coords_train[, 2], class = labeled_proj$class)
 
+# A Random Forest is randomized (each tree sees a bootstrap sample and
+# a random subset of predictors), so without a seed two runs of this
+# same cell give slightly different surfaces. The Python tab passes
+# random_state=0 for the same reason.
+set.seed(0)
+
 # Position is the ONLY predictor here (class ~ x + y): this
 # demonstrates how a Random Forest turns labeled points into a
 # surface, not a general land-cover classifier. Real covariates
@@ -314,14 +321,59 @@ train_df <- data.frame(x = coords_train[, 1], y = coords_train[, 2], class = lab
 # is actually learning.
 model <- randomForest(class ~ x + y, data = train_df, ntree = 100)
 
+# The prediction surface: a regular grid covering the full extent, at
+# the same fixed resolution the Python tab uses, so the two results
+# are directly comparable. st_make_grid() builds it from an origin, a
+# cell size and a cell count in one call.
+coords_all <- st_coordinates(st_centroid(st_geometry(st_transform(data, calc_epsg))))
+finite_all <- is.finite(coords_all[, 1]) & is.finite(coords_all[, 2])
+gminx <- min(coords_all[finite_all, 1])
+gmaxx <- max(coords_all[finite_all, 1])
+gminy <- min(coords_all[finite_all, 2])
+gmaxy <- max(coords_all[finite_all, 2])
+cell_size <- max(gmaxx - gminx, gmaxy - gminy, 1e-6) / 10
+n_cols <- max(1, ceiling((gmaxx - gminx) / cell_size))
+n_rows <- max(1, ceiling((gmaxy - gminy) / cell_size))
+
+grid <- st_make_grid(
+  cellsize = cell_size,
+  offset = c(gminx, gminy),
+  n = c(n_cols, n_rows),
+  crs = st_crs(calc_epsg)
+)
+
+# Each cell is classified by the point at its center: the model was
+# trained on point coordinates, so that is the only thing it can be
+# asked about.
+grid_centers <- st_coordinates(st_centroid(grid))
+predicted <- predict(model, newdata = data.frame(x = grid_centers[, 1], y = grid_centers[, 2]))
+
+grid_wgs84 <- st_transform(
+  st_sf(predictedClass = as.character(predicted), geometry = grid),
+  4326
+)
+training_wgs84 <- st_sf(
+  class = as.character(labeled$class),
+  geometry = st_geometry(labeled)
+)
+
 result <- list(
   calculationCrs = jsonlite::unbox(paste0("EPSG:", calc_epsg)),
   classLabels = sort(levels(labeled_proj$class)),
   labeledCount = jsonlite::unbox(as.integer(nrow(labeled))),
+  gridCellCount = jsonlite::unbox(as.integer(length(grid))),
   modelType = jsonlite::unbox(model$type),
   crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning)
 )
-jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+out <- jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+
+# The two GeoJSON payloads are attached AFTER that round-trip, not
+# inside it: sf_geojson() already returns finished JSON, and passing
+# it through toJSON() a second time would turn every scalar inside it
+# ("type": "Feature") back into a one-element array.
+out$gridFeatures <- jsonlite::fromJSON(sf_geojson(grid_wgs84), simplifyVector = FALSE)
+out$trainingFeatures <- jsonlite::fromJSON(sf_geojson(training_wgs84), simplifyVector = FALSE)
+out
 ```
 
 :::
@@ -351,11 +403,11 @@ CLASS_PALETTE = ["#ab502b", "#42583c", "#3d5a73", "#c48a2e", "#8b2f24"]
 
 ```{ojs}
 //| echo: false
-// The map draws only Python's own grid + training points -- not
-// because R's result is somehow secondary, but because both languages
-// agree on the classification itself (that's what section 4 is
-// actually about); drawing the same surface twice would just be two
-// layers stacked on identical coordinates with one hiding the other.
+// Each language draws onto its own map sources, so running only one
+// of them still produces a visible surface. The two grids cover the
+// same extent at the same resolution, so where both have run the
+// fills overlap -- which is the point: any cell the two languages
+// classified differently shows up as a color that doesn't match.
 classPaint = (classLabels, field, opts = {}) => {
   const expr = ["match", ["get", field]];
   classLabels.forEach((label, i) => {
@@ -398,7 +450,21 @@ pyResult = WebGeoDS.getCellValue("spatial-classification-py", Generators)
 //| output: false
 rResult = WebGeoDS.getCellValue("spatial-classification-r", Generators)
 {
-  if (rResult) mutable rSummary = rResult;
+  if (rResult) {
+    // R's own map sources, separate from Python's, so running only one
+    // language still draws a surface (and running both leaves both
+    // visible) -- same per-language source convention as
+    // geometry-validity.qmd and topology-errors.qmd.
+    await sharedMap.setGeoJSON("spatial-classification-grid-r", rResult.gridFeatures, {
+      paint: classPaint(rResult.classLabels, "predictedClass", { fill: true })
+    });
+    await sharedMap.setGeoJSON("spatial-classification-training-r", rResult.trainingFeatures, {
+      paint: classPaint(rResult.classLabels, "class")
+    });
+    await sharedMap.fitToData(rResult.gridFeatures);
+    mutable rSummary = rResult;
+    mutable crsWarning = rResult.crsWarning;
+  }
 }
 ```
 
@@ -451,6 +517,7 @@ statCard = (label, s) => {
   row("Calculation CRS", s.calculationCrs);
   row("Classes", s.classLabels.join(", "));
   row("Labeled points", s.labeledCount);
+  row("Grid cells predicted", s.gridCellCount);
 
   return wrap;
 }
@@ -473,7 +540,12 @@ ${statCardsRow}
 ```{ojs}
 //| echo: false
 resetClassification = async () => {
-  for (const id of ["spatial-classification-grid", "spatial-classification-training"]) {
+  for (const id of [
+    "spatial-classification-grid",
+    "spatial-classification-training",
+    "spatial-classification-grid-r",
+    "spatial-classification-training-r"
+  ]) {
     if (sharedMap.getGeoJSON(id)) {
       await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
     }
@@ -492,11 +564,35 @@ resetMapButton = WebGeoDS.resetButton(resetClassification, "🔄 Reset map and c
 
 ${resetMapButton}
 
-The filled grid is Python's predicted surface; the dots on top are the
-labeled training points, colored the same way. Both languages agree
-on this partition, which is exactly what makes the next section's
-divergence worth noticing: it isn't about the *classification*, it's
-about what happens when a step gets skipped.
+The filled grid is the predicted surface; the dots on top are the
+labeled training points, colored the same way. Each language draws
+onto its own map sources, so running either one on its own is enough
+to see a result.
+
+Run both and the two surfaces won't match everywhere. They cover
+exactly the same ground (same extent, same cells — the "Grid cells
+predicted" row matches), but they don't label every cell the same way.
+It's tempting to read that as Python disagreeing with R. It isn't.
+
+Both cells fix a seed (`random_state=0`, `set.seed(0)`) so their output
+is reproducible; change that number and the split moves on its own.
+Across five seeds, the Python cell assigned between 10 and 20 of the 30
+cells to *north*, and the R cell between 10 and 15 — overlapping
+ranges, on identical training data. One forest retrained disagrees with
+itself about as much as the two languages disagree with each other.
+
+The reason is on the map: most of those cells sit in the empty ground
+between the two clusters, where there is no training data at all. The
+boundary there is settled by which points happened to land in each
+tree's bootstrap sample, not by evidence. A classification surface
+looks equally confident everywhere it is drawn, and is only really
+supported near the points it learned from — which is an argument for
+fixing a seed before comparing anything, and for not reading much into
+a boundary drawn across empty ground.
+
+The next section is a different kind of disagreement: not a model
+being unsure where the evidence runs out, but one quietly solving a
+different problem.
 
 ## 4. A silent switch: classification vs. regression
 

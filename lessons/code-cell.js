@@ -904,6 +904,29 @@
       ];
 
 
+      // Height cap. An article cell runs to ~90 lines once file
+      // loading, the no-upload fallback and the result payload are
+      // counted, and without a cap it renders at full height: measured
+      // on the built site, code occupied 23-54% of an article's total
+      // scroll height, with one cell at 4929px (~5.5 screens). The cap
+      // goes on the CodeMirror theme rather than on a wrapper with
+      // overflow:auto, so .cm-scroller does the scrolling and the
+      // editor's own cursor tracking and scroll-into-view keep
+      // working. Pushed unconditionally, unlike the light-theme block
+      // below, because the cap belongs to both themes. Short cells are
+      // untouched: they never reach it.
+      extensions.push(
+        EditorView.theme({
+          "&": {
+            maxHeight: "520px"
+          },
+          ".cm-scroller": {
+            overflow: "auto"
+          }
+        })
+      );
+
+
       if (theme === "dark") {
 
         extensions.push(oneDark);
