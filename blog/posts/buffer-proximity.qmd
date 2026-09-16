@@ -134,8 +134,7 @@ calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
 
 gdf_proj = gdf.to_crs(epsg=calc_epsg)
 
-# A single UTM zone can map far-away features to infinity (the same
-# root cause found and fixed in this project's GeoML tools). Shapely
+# A single UTM zone can map far-away features to infinity. Shapely
 # tolerates it without crashing (an inf-coordinate buffer() just comes
 # back empty), but an empty buffer is still a feature that silently
 # produced nothing -- excluded here instead, with a clear count.
@@ -215,8 +214,7 @@ calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
 data_proj <- st_transform(data, calc_epsg)
 buffered <- st_buffer(data_proj, 30)
 
-# A single UTM zone can map far-away features to infinity (the same
-# root cause found and fixed in this project's GeoML tools). sf
+# A single UTM zone can map far-away features to infinity. sf
 # tolerates it without erroring -- an inf-coordinate st_buffer() just
 # comes back empty -- but an empty buffer is still a feature that
 # silently produced nothing, so it's excluded here instead, with a

@@ -355,9 +355,9 @@ def detect_and_check(gdf, sliver_threshold=0.15, gap_proximity=0.06):
     gdf["metric"] = metrics
     gdf["severity"] = severities
 
-    # Same reasoning as geojson-shapefile-validator.qmd: a None in an
-    # ORIGINAL column (not under our control) would otherwise vanish
-    # silently crossing the Pyodide->JS bridge as a live cell value.
+    # A None in an ORIGINAL column (not under our control) would
+    # otherwise vanish silently once this result is serialized to
+    # JSON, instead of showing up as an empty value.
     for col in gdf.columns:
         if col != "geometry":
             gdf[col] = gdf[col].fillna("")

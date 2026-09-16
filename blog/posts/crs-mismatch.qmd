@@ -173,19 +173,16 @@ elif not is_geographic and looks_geographic:
 # gets its own throwaway reprojected copy.
 #
 # When there's no mismatch this is just the declared CRS, correctly
-# reprojected -- straightforward. When there IS a mismatch, drawing
-# the raw numbers as if they were already WGS84 degrees produces
-# nonsense the map can't meaningfully show (e.g. "longitude" 1390000)
-# -- verified empirically: the map stayed at its default view, nothing
-# visible, fitToData() silently no-op'd on the degenerate bounds. A
-# blank map communicates nothing about the mismatch this whole example
+# reprojected: straightforward. When there IS a mismatch, drawing the
+# raw numbers as if they were already WGS84 degrees produces nonsense
+# the map can't meaningfully show (e.g. "longitude" 1390000): a blank
+# map communicates nothing about the mismatch this whole example
 # exists to show. Best-effort fix, not a certainty: EPSG:3857 (Web
 # Mercator) is the single most common "large meter-scale numbers" CRS
-# for web-published data, AND this site's own basemap tiles are
-# already in it -- a reasonable default guess, not a claim about what
-# the file's real CRS actually is (which nothing in the file itself
-# can settle). map_crs_note says so explicitly wherever this guess is
-# used.
+# for web-published data, a reasonable default guess, not a claim
+# about what the file's real CRS actually is (which nothing in the
+# file itself can settle) -- map_crs_note records that explicitly
+# wherever this guess is used.
 map_crs_note = None
 if mismatch_warning and is_geographic and not looks_geographic:
     map_gdf = gdf.set_crs("EPSG:3857", allow_override=True).to_crs("EPSG:4326")
@@ -252,11 +249,11 @@ if (isTRUE(is_geographic) && !looks_geographic) {
   mismatch_warning <- paste0("Declared as projected (", original_crs$input, "), but the coordinates already look like lon/lat -- likely actually geographic.")
 }
 
-# See the Python cell's own comment for the full reasoning: drawing
-# the raw numbers as WGS84 when there's a mismatch produces nonsense
-# the map can't show, so a mismatch instead gets a best-effort guess
-# (EPSG:3857, this site's own basemap projection) -- not a claim about
-# the file's real CRS, which nothing in the file itself can settle.
+# Drawing the raw numbers as WGS84 when there's a mismatch produces
+# nonsense the map can't show, so a mismatch instead gets a
+# best-effort guess (EPSG:3857, the most common projection for web
+# basemaps) -- not a claim about the file's real CRS, which nothing
+# in the file itself can settle.
 map_crs_note <- NULL
 if (!is.null(mismatch_warning) && isTRUE(is_geographic) && !looks_geographic) {
   relabeled <- data
@@ -273,8 +270,9 @@ if (!is.null(mismatch_warning) && isTRUE(is_geographic) && !looks_geographic) {
 }
 
 # jsonlite::unbox() marks a value as a genuine scalar, explicitly,
-# field by field — see geospatial-file-inspection.qmd for why this is
-# preferred over a blanket auto_unbox flag.
+# field by field. Safer than toJSON(auto_unbox = TRUE), which guesses
+# from length alone and can silently flatten a real one-item array
+# into a bare scalar.
 result <- list(
   features = jsonlite::fromJSON(sf_geojson(map_data), simplifyVector = FALSE),
   summary = list(

@@ -303,11 +303,10 @@ if gdf is not None:
 
     # Every other original column from the uploaded file is kept as-is
     # (only "name" was ever guaranteed above) instead of being
-    # discarded. A None in one of THOSE columns — not under our
-    # control — would otherwise vanish silently crossing the
-    # Pyodide->JS bridge as a live cell value (None becomes undefined,
-    # and JSON.stringify drops undefined-valued keys — see
-    # roadmap-acquisizione.md).
+    # discarded. A None in one of THOSE columns (not under our
+    # control) would otherwise vanish silently once this result is
+    # serialized to JSON for the browser: None becomes undefined, and
+    # JSON.stringify() drops undefined-valued keys entirely.
     for col in gdf.columns:
         if col != "geometry":
             gdf[col] = gdf[col].fillna("")
@@ -457,9 +456,8 @@ gdf["valid"] = [
     for wv, nv in zip(was_valid, now_valid)
 ]
 
-# Same reasoning as geometry-diagnose-py: keep every original column,
-# fillna("") so a None in one doesn't silently drop that property
-# crossing the Pyodide->JS bridge.
+# Keep every original column, fillna("") so a None in one doesn't
+# silently drop that property once this result is serialized to JSON.
 for col in gdf.columns:
     if col != "geometry":
         gdf[col] = gdf[col].fillna("")

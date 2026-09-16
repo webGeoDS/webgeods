@@ -463,12 +463,10 @@ result <- a - b
 # is.finite() works elementwise here exactly like it does on a plain
 # numeric vector; ifel() is terra's own vectorized if/else, replacing
 # every non-finite cell (from a divide, if you try Normalized
-# Difference above) with NA — same reasoning as the Python cell's
-# np.errstate + isfinite mask.
+# Difference above) with NA.
 result <- ifel(is.finite(result), result, NA)
 
-# Same missing-CRS convention as the Python side. terra reports a
-# missing CRS as an empty string, not NA.
+# terra reports a missing CRS as an empty string, not NA.
 was_missing_crs <- crs(r) == ""
 crs_warning <- NULL
 display_crs_assumption <- NULL
@@ -529,11 +527,12 @@ close(con)
 data_b64 <- jsonlite::base64_enc(raw_bytes)
 
 # jsonlite::toJSON() treats every length-1 vector as a single-element
-# array by default — a genuine scalar (a width, a CRS string) needs an
-# explicit jsonlite::unbox() to serialize as one. ub()/ub_if() below
-# are just that, plus a NULL passthrough for optional fields (see
-# geospatial-file-inspection.qmd for the full reasoning on why this,
-# not toJSON(auto_unbox = TRUE), is the safer default).
+# array by default -- a genuine scalar (a width, a CRS string) needs
+# an explicit jsonlite::unbox() to serialize as one. ub()/ub_if()
+# below are just that, plus a NULL passthrough for optional fields.
+# Safer than toJSON(auto_unbox = TRUE), which guesses from length
+# alone and can silently flatten a real one-item array into a bare
+# scalar.
 ub <- function(x) if (is.null(x)) NULL else jsonlite::unbox(x)
 ub_if <- function(cond, x) if (cond) jsonlite::unbox(x) else NULL
 

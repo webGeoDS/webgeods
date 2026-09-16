@@ -206,9 +206,9 @@ if gdf is not None:
     # does, cross-linked instead of duplicated here.
     gdf["duplicate"] = gdf.geometry.to_wkb().duplicated()
 
-    # Same reasoning as every other tool: keep every original column,
-    # fillna("") so a None doesn't silently vanish crossing the
-    # Pyodide->JS bridge as a live cell value.
+    # Keep every original column, fillna("") so a None doesn't
+    # silently vanish once this result is serialized to JSON, instead
+    # of showing up as an empty value.
     for col in gdf.columns:
         if col != "geometry":
             gdf[col] = gdf[col].fillna("")

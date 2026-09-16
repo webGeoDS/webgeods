@@ -90,8 +90,9 @@ import geopandas as gpd
 import igraph as ig
 from shapely.geometry import LineString, Point
 
-# Same eight-line layout as the standalone tool's own example -- see
-# the intro above for why the "spur" endpoint is offset on purpose.
+# Eight lines: a closed block, a separate cluster, and a two-segment
+# "spur" whose endpoint is deliberately offset (see the intro above
+# for why).
 FALLBACK_GEOMETRIES = [
     LineString([(12.4500, 41.9000), (12.4520, 41.9000)]),
     LineString([(12.4520, 41.9000), (12.4520, 41.9020)]),
@@ -124,8 +125,7 @@ else:
 
 gdf = gdf.explode(index_parts=False).reset_index(drop=True)
 
-# UTM auto-pick from the bounding-box center -- same reasoning as this
-# site's Buffer & Proximity and Viewshed articles: a snap tolerance in
+# UTM auto-pick from the bounding-box center: a snap tolerance in
 # meters needs a projected CRS to mean an actual distance.
 minx, miny, maxx, maxy = gdf.total_bounds
 center_lon = float((minx + maxx) / 2)
@@ -240,8 +240,9 @@ library(sf)
 library(igraph)
 library(geojsonsf)
 
-# Same eight-line layout as the Python tab -- see the intro above for
-# why the "spur" endpoint is offset on purpose.
+# Same eight lines as the Python tab: a closed block, a separate
+# cluster, and a two-segment "spur" whose endpoint is deliberately
+# offset (see the intro above for why).
 fallback_geom <- st_sfc(
   st_linestring(rbind(c(12.4500, 41.9000), c(12.4520, 41.9000))),
   st_linestring(rbind(c(12.4520, 41.9000), c(12.4520, 41.9020))),
@@ -272,8 +273,7 @@ if (is.null(data)) {
 data <- data[st_geometry_type(data) %in% c("LINESTRING", "MULTILINESTRING"), ]
 data <- st_cast(st_cast(data, "MULTILINESTRING"), "LINESTRING", warn = FALSE)
 
-# UTM auto-pick from the bounding-box center -- same reasoning as this
-# site's Buffer & Proximity and Viewshed articles: a snap tolerance in
+# UTM auto-pick from the bounding-box center: a snap tolerance in
 # meters needs a projected CRS to mean an actual distance.
 bnd <- st_bbox(data)
 center_lon <- (bnd[["xmin"]] + bnd[["xmax"]]) / 2

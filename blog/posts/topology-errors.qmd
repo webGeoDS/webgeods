@@ -459,17 +459,16 @@ import math
 import geopandas as gpd
 from shapely.geometry import mapping
 
-# Real square meters, not raw square degrees -- shapely's own .area on
+# Real square meters, not raw square degrees: shapely's own .area on
 # WGS84-degree coordinates is a "square degrees" number with no
 # physical meaning (its magnitude depends on latitude and carries no
 # real-world unit), while R's st_area() computes a proper geographic
-# area by default. Verified empirically: the exact same overlap
-# reported 0.001 in Python and 9203648.85 (m²) in R -- not a bug in
-# either engine, but wildly inconsistent units that make the two
-# languages' numbers look unrelated instead of directly comparable,
-# for the same reasoning already established elsewhere on this site
-# (Buffer/Proximity, Spatial Clustering, Spatial Classifier all
-# reproject to a local UTM zone before measuring distance/area).
+# area by default. The exact same overlap reported 0.001 in Python
+# and 9203648.85 (m²) in R -- not a bug in either engine, but wildly
+# inconsistent units that make the two languages' numbers look
+# unrelated instead of directly comparable. The fix is the same
+# principle as projecting before buffering or clustering: measure
+# distance and area in a local, linear-unit CRS, never in raw degrees.
 def _project_area(geom):
     lon, lat = geom.centroid.x, geom.centroid.y
     zone = int((lon + 180) // 6) + 1
@@ -522,8 +521,7 @@ def check_sliver(gdf, compactness_threshold=0.15):
 def check_gap(gdf, min_area=1e-6, proximity=0.06):
     # Per pair, not on the whole dataset: a single convex hull over
     # all features would flag as "gap" even the simple fact that two
-    # unaligned shapes leave space outside their union (false positive
-    # verified empirically on the overlap/sliver examples). Here we
+    # unaligned shapes leave space outside their union. Here we
     # only look at pairs that are CLOSE (within `proximity`) and not
     # already overlapping, and use the convex hull of the pair alone.
     n = len(gdf)
@@ -537,8 +535,8 @@ def check_gap(gdf, min_area=1e-6, proximity=0.06):
                 # Identical geometries (e.g. a duplicate): difference
                 # always empty, and some GEOS convex_hull/difference
                 # combinations on a degenerate pair can raise an error
-                # instead of returning a clean empty result — verified
-                # empirically on the R side, avoided here upstream.
+                # instead of returning a clean empty result, so this
+                # case is skipped before it gets there.
                 continue
             if gi.distance(gj) > proximity:
                 continue
@@ -602,10 +600,8 @@ def detect_and_check(gdf):
 
     # Report columns assigned onto gdf itself (then gdf.__geo_interface__
     # below), instead of building each feature's properties dict from
-    # scratch the way an earlier version did — that discarded every
-    # other column the uploaded file had, keeping only "name". Same
-    # fix as topology-checker.qmd (the standalone tool built on this
-    # same engine).
+    # scratch: that would discard every other column the uploaded file
+    # had, keeping only "name".
     if "name" not in gdf.columns:
         gdf["name"] = [f"geometry {i+1}" for i in range(n)]
     names = gdf["name"]
@@ -632,10 +628,9 @@ def detect_and_check(gdf):
             gdf[col] = gdf[col].fillna("")
 
     # Kept as two separate collections instead of one concatenated
-    # list (an earlier version merged them, the same bug fixed in
-    # topology-checker.qmd): a gap is synthetic — no corresponding row
-    # in the uploaded file — and merging it in inflates the feature
-    # count (a real 10-feature file was reported as 54, from 44
+    # list: a gap is a synthetic feature (no corresponding row in the
+    # uploaded file), and merging it in would inflate the feature
+    # count (a real 10-feature file would be reported as 54, from 44
     # pairwise "gap" candidates). JS puts each collection on its own
     # map source (topology-errors-py / topology-errors-gaps-py, same
     # per language for R).
@@ -700,12 +695,11 @@ check_duplicate <- function(data) {
 
 check_sliver <- function(data, compactness_threshold = 0.15) {
   # Per feature, with tryCatch: st_area()/st_length() on a
-  # geometrically INVALID geometry (self-intersecting — this check
+  # geometrically INVALID geometry (self-intersecting: this check
   # doesn't assume valid input, only correct relationships between
   # valid features) can raise a real GEOS/s2 error ("Loop 0 is not
-  # valid") instead of returning a number — verified empirically by
-  # uploading a shapefile with a bowtie geometry. A feature like that
-  # is skipped for this check, it doesn't crash the whole cell.
+  # valid") instead of returning a number. A feature like that is
+  # skipped for this check instead of crashing the whole cell.
   n <- nrow(data)
   results <- vector("list", n)
   for (i in seq_len(n)) {
@@ -745,17 +739,16 @@ check_gap <- function(data, min_area = 1e-6, proximity = 8000) {
         # Identical geometries (e.g. a duplicate): difference always
         # empty, and the st_convex_hull/st_difference combination on a
         # degenerate pair can raise a GEOS error ("Edge is
-        # degenerate") instead of returning a clean empty result —
-        # verified empirically, avoided here upstream.
+        # degenerate") instead of returning a clean empty result, so
+        # this case is skipped before it gets there.
         d <- as.numeric(st_distance(data[i, ], data[j, ]))
         if (d > proximity) next
         # BARE geometries (sf::st_geometry(...)[i], not data[i, ]) for
         # union/convex_hull/difference: calling these functions on sf
         # objects (data.frame) instead of plain sfc triggers the *.sf
         # methods, which try to rebuild the attribute columns and fail
-        # here with a row-realignment error — verified empirically by
-        # isolating each step. Same pattern already used correctly in
-        # check_overlap() above.
+        # here with a row-realignment error. Same pattern already
+        # used correctly in check_overlap() above.
         gi <- st_geometry(data)[i]
         gj <- st_geometry(data)[j]
         pair_union <- st_union(gi, gj)
@@ -840,9 +833,9 @@ detect_and_check <- function(data) {
 
   # Report columns assigned onto `data` itself (then a single
   # geojsonsf::sf_geojson(data) below), instead of building each
-  # feature's properties list from scratch per row the way an earlier
-  # version did — that discarded every other column the uploaded file
-  # had, keeping only "name". Same fix as the Python side above.
+  # feature's properties list from scratch per row: that would
+  # discard every other column the uploaded file had, keeping only
+  # "name".
   if (!("name" %in% names(data))) {
     data$name <- paste("geometry", seq_len(n))
   }
@@ -870,8 +863,9 @@ detect_and_check <- function(data) {
   data$metric <- metric_col
   data$severity <- severity_col
 
-  # Kept as two separate collections instead of one concatenated list
-  # — same reasoning as the Python side above.
+  # Kept as two separate collections instead of one concatenated
+  # list: a gap is a synthetic feature (no corresponding row in the
+  # uploaded file), and merging it in would inflate the feature count.
   list(
     features = jsonlite::fromJSON(sf_geojson(data), simplifyVector = FALSE),
     gaps = list(type = "FeatureCollection", features = extra_features)

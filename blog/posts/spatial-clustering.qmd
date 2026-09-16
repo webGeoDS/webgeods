@@ -141,21 +141,18 @@ utm_zone = int((center_lon + 180) // 6) + 1
 calc_epsg = 32600 + utm_zone if center_lat >= 0 else 32700 + utm_zone
 
 # Centroid computed AFTER reprojecting into a projected CRS on
-# purpose -- the same call on the geographic gdf above would trigger a
+# purpose: the same call on the geographic gdf above would trigger a
 # real GeoPandas warning ("Results from 'centroid' are likely
-# incorrect"), same reasoning as this site's Spatial Clustering
-# Explorer tool.
+# incorrect").
 gdf_proj = gdf.to_crs(epsg=calc_epsg)
 coords = np.column_stack([gdf_proj.geometry.centroid.x, gdf_proj.geometry.centroid.y])
 
-# A single UTM zone distorts badly -- to the point of returning inf --
-# for points far enough from it (a real crash a global file can
-# trigger, found and fixed in the standalone Spatial Clustering
-# Explorer tool). The tool degrades by dropping those points; this
-# article fails loudly instead, on purpose -- section 4 below compares
-# Python's and R's labels BY POSITION, point for point, so silently
-# dropping a different subset in each language would desync that
-# comparison rather than just shrink it.
+# A single UTM zone distorts badly, to the point of returning inf,
+# for points far enough from it. This article fails loudly instead of
+# dropping those points, on purpose: section 4 below compares Python's
+# and R's labels BY POSITION, point for point, so silently dropping a
+# different subset in each language would desync that comparison
+# rather than just shrink it.
 if not np.isfinite(coords).all():
     raise ValueError(
         f"This file spans too wide an area to project into a single UTM "
@@ -218,10 +215,9 @@ calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
 data_proj <- st_transform(data, calc_epsg)
 coords_calc <- st_coordinates(st_centroid(st_geometry(data_proj)))
 
-# Same reasoning as the Python cell's own check above: a single UTM
-# zone can map far-away points to infinity, and this article fails
-# loudly rather than dropping points, to keep the by-position label
-# comparison in section 4 meaningful.
+# A single UTM zone can map far-away points to infinity. This article
+# fails loudly rather than dropping points, to keep the by-position
+# label comparison in section 4 meaningful.
 if (!all(is.finite(coords_calc))) {
   stop(paste0(
     "This file spans too wide an area to project into a single UTM zone (",

@@ -342,11 +342,8 @@ obs_xy <- as.numeric(crds(obs_pt_calc)[1, ])
 
 vs <- viewshed(elevation_calc, loc = obs_xy, observer = as.numeric(obsHeight), target = 0)
 
-# Recoded for the shared canvas renderer (shared/map.js): NaN already
-# renders transparent there, so "not visible" becomes NaN instead of
-# FALSE/0 -- only the visible area paints, nothing new needed in
-# shared code, same trick as this tool's own Calculator/NDVI siblings
-# reusing setRasterImage() without modifying it.
+# NaN renders transparent on the map, so "not visible" becomes NaN
+# instead of FALSE/0 -- only the visible area actually paints.
 vs_num <- as.numeric(values(vs, mat = FALSE))
 visible_mask <- vs_num == 1
 vs_num[!visible_mask] <- NaN
@@ -377,8 +374,8 @@ footprint <- list(
   ))
 )
 
-# Same base64-float32 pixel transfer already proven for Band Math/NDVI
-# on the R side: rawConnection()+writeBin()+jsonlite::base64_enc().
+# Encodes the pixel array as base64 float32 bytes via
+# rawConnection()+writeBin()+jsonlite::base64_enc().
 con <- rawConnection(raw(0), "wb")
 writeBin(vs_num, con, size = 4, endian = "little")
 raw_bytes <- rawConnectionValue(con)

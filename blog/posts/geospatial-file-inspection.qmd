@@ -314,10 +314,8 @@ for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
         pass
 
 if gdf is None:
-    # Same four features as the standalone tool's own example (kept in
-    # sync deliberately -- this article and that tool describe the
-    # same engine, so their examples should show the same thing):
-    # a square, an exact duplicate of it, a genuinely distinct valid
+    # Four fixed features, chosen to exercise every check at once: a
+    # square, an exact duplicate of it, a genuinely distinct valid
     # triangle, and a self-intersecting "bowtie" for the invalid case.
     a = {"type": "Polygon", "coordinates": [[[12.40, 41.80], [12.50, 41.80], [12.50, 41.90], [12.40, 41.90], [12.40, 41.80]]]}
     b = {"type": "Polygon", "coordinates": [[[12.60, 41.80], [12.70, 41.80], [12.65, 41.90], [12.60, 41.80]]]}
@@ -400,8 +398,9 @@ for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
 }
 
 if (is.null(data)) {
-  # Same four features as the standalone tool's own example -- see the
-  # Python cell's own comment for why they're kept in sync.
+  # Same four features as the Python cell: a square, an exact
+  # duplicate of it, a valid triangle, and a self-intersecting
+  # "bowtie" for the invalid case.
   wkt_a <- "POLYGON((12.40 41.80, 12.50 41.80, 12.50 41.90, 12.40 41.90, 12.40 41.80))"
   wkt_b <- "POLYGON((12.60 41.80, 12.70 41.80, 12.65 41.90, 12.60 41.80))"
   wkt_c <- "POLYGON((12.75 41.80, 12.85 41.90, 12.75 41.90, 12.85 41.80, 12.75 41.80))"
@@ -427,8 +426,8 @@ if (!("name" %in% names(data))) {
 data$valid <- st_is_valid(data)
 data$empty <- st_is_empty(data)
 # Exact-match only, via WKT text comparison (st_as_binary() also
-# exists but WKT is the more commonly relied-on round-trip in sf) —
-# same reasoning as the Python side: not a topological check.
+# exists but WKT is the more commonly relied-on round-trip in sf):
+# identical coordinates, not a topological equality check.
 data$duplicate <- duplicated(st_as_text(st_geometry(data)))
 
 attribute_names <- setdiff(names(data), c("geometry", "valid", "empty", "duplicate"))
@@ -441,8 +440,8 @@ crs_input <- st_crs(data)$input
 # gets its own throwaway reprojected copy instead of reusing `data`
 # directly. st_crs(data) is never NA here (a missing CRS was already
 # assumed WGS84 above). Only mapFeatures is returned — this cell has
-# no download button, so a copy in the native CRS would just be unused
-# output (see the Python cell's own note on this).
+# no download button, so a copy in the native CRS would just be
+# unused output.
 map_data <- if (isTRUE(st_crs(data) == st_crs(4326))) data else st_transform(data, 4326)
 
 # jsonlite::toJSON() treats every length-1 vector as a single-element
@@ -454,11 +453,10 @@ map_data <- if (isTRUE(st_crs(data) == st_crs(4326))) data else st_transform(dat
 # which is worse here: geometryTypes is length 1 for the overwhelming
 # majority of files (a single geometry type), so auto_unbox would
 # silently serialize it as bare "POLYGON" instead of ["POLYGON"] in
-# the common case, not a rare one — confirmed by a real .join()
-# TypeError on the JS side before this was caught. Marking scalars
-# explicitly, the way this cell does, fails loudly instead (an
-# unmarked scalar becomes a 1-item array, easy to notice in testing)
-# rather than silently, for whichever field is forgotten next.
+# the common case, not a rare one. Marking scalars explicitly, the
+# way this cell does, fails loudly instead (an unmarked scalar becomes
+# a 1-item array, easy to notice) rather than silently, for whichever
+# field is forgotten next.
 ub <- function(x) if (is.null(x)) NULL else jsonlite::unbox(x)
 
 result <- list(
@@ -477,9 +475,9 @@ result <- list(
 )
 
 # Round-tripped through JSON once more, whole-object: R's atomic
-# vectors (geometry_types, bounds, attribute_names) don't cross the
-# webR->JS bridge as plain JS arrays on their own the way a
-# jsonlite-parsed list does.
+# vectors (geometry_types, bounds, attribute_names) don't serialize
+# to plain JSON arrays on their own the way a jsonlite-parsed list
+# does.
 jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
 ```
 
@@ -569,13 +567,11 @@ geometry_types = sorted(set(gdf.geometry.geom_type))
 bounds = [round(float(b), 6) for b in gdf.total_bounds]
 crs = gdf.crs.to_string() if gdf.crs is not None else None
 
-# "features"/bounds/crs stay in the file's own EPSG:3857 -- that's the
+# "features"/bounds/crs stay in the file's own EPSG:3857: that's the
 # whole point of this example (see the callout above). The map still
-# needs WGS84 to draw anything at all: without this, the reactive cell
-# above draws the raw Web-Mercator-scale numbers as if they were
-# degrees, which produced nothing visible (verified empirically,
-# fitToData() silently failing on the degenerate bounds) -- exactly
-# the bug found and fixed the same way in crs-mismatch.qmd.
+# needs WGS84 to draw anything at all -- treating Web-Mercator-scale
+# numbers (hundreds of thousands) as if they were degrees would put
+# the geometry far outside any sensible view, invisible on the map.
 map_gdf = gdf.to_crs("EPSG:4326")
 
 {
@@ -601,9 +597,8 @@ attribute_names <- setdiff(names(data), c("geometry", "valid", "empty", "duplica
 geometry_types <- sort(unique(as.character(st_geometry_type(data))))
 bnd <- st_bbox(data)
 
-# Same reasoning as the Python cell's own comment: "features"/bounds/
-# crs stay in EPSG:3857 (the whole point of this example), but the map
-# needs a WGS84 copy to draw anything at all.
+# "features"/bounds/crs stay in EPSG:3857 (the whole point of this
+# example), but the map needs a WGS84 copy to draw anything at all.
 map_data <- st_transform(data, 4326)
 
 result <- list(

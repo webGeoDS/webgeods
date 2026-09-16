@@ -410,8 +410,8 @@ if (is.null(path)) {
 }
 
 # A missing CRS is reported as genuinely unknown, not silently
-# relabeled as WGS84 (same reasoning as the Python cell above). terra
-# reports a missing CRS as an empty string, not NA — checked directly
+# relabeled as WGS84. terra reports a missing CRS as an empty string,
+# not NA — checked directly
 # rather than through an sf-style is.na() test (this cell no longer
 # depends on sf at all, see the footprint construction below).
 # was_missing_crs is captured BEFORE crs(r) is mutated below, since
@@ -450,11 +450,12 @@ e <- ext(r)
 bounds <- c(e$xmin, e$ymin, e$xmax, e$ymax)
 
 # jsonlite::toJSON() treats every length-1 vector as a single-element
-# array by default — a genuine scalar (a width, a CRS string) needs an
-# explicit jsonlite::unbox() to serialize as one. ub()/ub_if() below
-# are just that, plus a NULL passthrough for optional fields (see
-# geospatial-file-inspection.qmd for the full reasoning on why this,
-# not toJSON(auto_unbox = TRUE), is the safer default).
+# array by default -- a genuine scalar (a width, a CRS string) needs
+# an explicit jsonlite::unbox() to serialize as one. ub()/ub_if()
+# below are just that, plus a NULL passthrough for optional fields.
+# Safer than toJSON(auto_unbox = TRUE), which guesses from length
+# alone and can silently flatten a real one-item array into a bare
+# scalar.
 ub <- function(x) if (is.null(x)) NULL else jsonlite::unbox(x)
 ub_if <- function(cond, x) if (cond) jsonlite::unbox(x) else NULL
 
@@ -476,10 +477,9 @@ band_stats <- lapply(seq_len(band_count), function(i) {
 })
 
 # MapLibre/GeoJSON require WGS84 — the bounding box is reprojected via
-# terra's own vect()/project() (no sf needed) the same way the
-# summary's own "bounds" field stays in the file's native CRS (same
-# reasoning as the vector article). geom() reads the reprojected
-# polygon's coordinates back out as a plain matrix.
+# terra's own vect()/project() (no sf needed), while the summary's own
+# "bounds" field stays in the file's native CRS. geom() reads the
+# reprojected polygon's coordinates back out as a plain matrix.
 bbox_wkt <- paste0(
   "POLYGON((",
   e$xmin, " ", e$ymin, ", ", e$xmax, " ", e$ymin, ", ",
@@ -522,10 +522,9 @@ summary_out <- list(
   bandStats = band_stats
 )
 
-# Round-tripped through JSON once more, whole-object — same reasoning
-# as the vector article: R's atomic vectors don't cross the webR->JS
-# bridge as plain JS arrays on their own the way a jsonlite-parsed
-# list does.
+# Round-tripped through JSON once more, whole-object: R's atomic
+# vectors don't serialize to plain JSON arrays on their own the way a
+# jsonlite-parsed list does.
 result <- list(summary = summary_out, footprint = footprint)
 jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
 ```

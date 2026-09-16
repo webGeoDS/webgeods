@@ -342,12 +342,9 @@ with rasterio.open(path) as src:
     except Exception:
         wgs84_bounds = src.bounds
 
-    # Pixels cross the bridge as base64 float32 bytes, not a numpy
-    # array handed straight to toJs() — sidesteps any ambiguity about
-    # how a 2D ndarray converts, and reuses the exact binary-transfer
-    # pattern already proven in crs-inspector.qmd/
-    # geojson-shapefile-validator.qmd (there for a zipped shapefile,
-    # here for raw pixels — same mechanism, different payload).
+    # Pixels are base64-encoded as float32 bytes, not handed to JS as
+    # a numpy array directly: that sidesteps any ambiguity about how
+    # Pyodide would convert a 2D ndarray on its own.
     data_b64 = base64.b64encode(result.astype("float32").tobytes()).decode("ascii")
 
     output = {

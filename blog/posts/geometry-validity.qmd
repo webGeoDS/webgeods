@@ -491,10 +491,10 @@ gdf["valid"] = diagnosis.apply(lambda t: t[0])
 gdf["reason"] = diagnosis.apply(lambda t: t[1])
 gdf["position"] = diagnosis.apply(lambda t: t[2])
 
-# Keep every original column from the uploaded file, not just "name"
-# — a None in one of them would otherwise silently vanish crossing
-# the Pyodide->JS bridge as a live cell value (verified empirically
-# earlier for "reason" itself — see roadmap-acquisizione.md).
+# Keep every original column from the uploaded file, not just "name":
+# a missing value (None) in one of them would otherwise vanish
+# silently once this result is serialized to JSON for the browser,
+# instead of showing up as an empty value.
 for col in gdf.columns:
     if col != "geometry":
         gdf[col] = gdf[col].fillna("")

@@ -355,12 +355,11 @@ import zipfile
 target = f"EPSG:{str(targetCrs).strip().replace('EPSG:', '').replace('epsg:', '')}"
 converted = gdf.to_crs(target)
 
-# Assigned to a variable, then returned as its own bare final line —
+# Assigned to a variable, then returned as its own bare final line:
 # a dict literal as the last line of an if/else branch does NOT become
 # the cell's return value (Pyodide only auto-captures a bare top-level
 # expression statement, and an if/else is a single compound statement,
-# not one — verified empirically: the cell ran fine but its own
-# .value came back undefined).
+# not one).
 if uploadKindPy == "shapefile":
     converted.to_file("/tmp/webgeods_crs_export.shp", driver="ESRI Shapefile")
     buf = io.BytesIO()
