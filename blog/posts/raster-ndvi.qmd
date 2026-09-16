@@ -372,6 +372,10 @@ band_red = 1
 band_nir = 2
 
 with rasterio.open(path) as src:
+    # NoData pixels come back masked; filling them with NaN (instead of
+    # leaving a masked array) means NoData propagates through ordinary
+    # arithmetic below on its own -- any pixel where either band is
+    # NaN stays NaN, with no explicit NoData-handling logic needed.
     red = src.read(band_red, masked=True).astype("float32").filled(np.nan)
     nir = src.read(band_nir, masked=True).astype("float32").filled(np.nan)
 

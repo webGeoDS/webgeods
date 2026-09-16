@@ -1022,6 +1022,12 @@ library(sf)
 library(geojsonsf)
 data$valid_before <- data$valid
 
+# With geographic coordinates, sf routes st_make_valid() through S2
+# by default -- a different algorithm from GEOS that, on some of
+# these exact cases, fixes nothing and returns the geometry unchanged
+# without an error. Forcing GEOS here (sf_use_s2(FALSE)) is what
+# actually repairs them; turned back on right after, since other
+# operations (distances, areas) benefit from S2 on geographic data.
 sf_use_s2(FALSE)
 data <- st_make_valid(data)
 sf_use_s2(TRUE)

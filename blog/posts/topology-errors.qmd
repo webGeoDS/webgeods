@@ -513,6 +513,11 @@ def check_sliver(gdf, compactness_threshold=0.15):
         perim = geom.length
         area = geom.area
         if perim > 0:
+            # Polsby-Popper compactness index: bounded at 1 for a
+            # circle (the most compact shape for a given perimeter),
+            # so a value near 0 means a long, thin shape -- the same
+            # metric used outside GIS to flag oddly-shaped districts
+            # in redistricting analysis.
             compactness = 4 * math.pi * area / (perim ** 2)
             if compactness < compactness_threshold:
                 results[i].append(("sliver", None, compactness))
@@ -710,6 +715,9 @@ check_sliver <- function(data, compactness_threshold = 0.15) {
       list(area = area, perim = perim)
     }, error = function(e) NULL)
     if (is.null(metrics) || metrics$perim <= 0) next
+    # Polsby-Popper compactness index: bounded at 1 for a circle
+    # (the most compact shape for a given perimeter), so a value near
+    # 0 means a long, thin shape.
     compactness <- 4 * pi * metrics$area / (metrics$perim^2)
     if (compactness < compactness_threshold) {
       results[[i]] <- append(results[[i]], list(list(type = "sliver", partner = NA, metric = compactness)))

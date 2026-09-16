@@ -180,6 +180,11 @@ if len(y) == 0:
 
 class_labels = sorted(set(y.tolist()))
 
+# X is (x, y) coordinates only: position is the ONLY predictor here.
+# This demonstrates how a Random Forest turns labeled points into a
+# surface, not a general land-cover classifier. Real covariates
+# (spectral bands, elevation, soil type) would change what the model
+# is actually learning.
 model = RandomForestClassifier(n_estimators=100, random_state=0)
 model.fit(X, y)
 
@@ -302,6 +307,11 @@ labeled_proj <- labeled_proj[finite_rows, ]
 
 train_df <- data.frame(x = coords_train[, 1], y = coords_train[, 2], class = labeled_proj$class)
 
+# Position is the ONLY predictor here (class ~ x + y): this
+# demonstrates how a Random Forest turns labeled points into a
+# surface, not a general land-cover classifier. Real covariates
+# (spectral bands, elevation, soil type) would change what the model
+# is actually learning.
 model <- randomForest(class ~ x + y, data = train_df, ntree = 100)
 
 result <- list(
