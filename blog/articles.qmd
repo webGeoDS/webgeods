@@ -41,3 +41,12 @@ numbered, and whether a model even classifies at all.
 
 **[Spatial Clustering](posts/spatial-clustering.qmd)** →
 **[Spatial Classification](posts/spatial-classification.qmd)**
+
+## Network
+
+Turning a line layer into a graph, and seeing exactly how much a snap
+tolerance changes how many pieces the network actually has — runnable
+Python and R code side by side, plus a force-directed diagram of the
+graph itself.
+
+**[Network from Lines](posts/network-from-lines.qmd)**

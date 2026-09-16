@@ -51,3 +51,11 @@ groups with DBSCAN, or train a Random Forest on a labeled column and
 predict a full classification surface across the whole area — both
 colored on the map, both downloadable. Two tools live in this family;
 more are planned.
+
+## Network Toolkit
+
+Turning a line layer into a graph. **[Network from Lines](network-from-lines.qmd)**:
+nodes at the line endpoints, edges along the lines, connected
+components colored both on the map and in a force-directed diagram —
+see exactly how much a snap tolerance changes how many pieces the
+network has. One tool live in this family; more are planned.
