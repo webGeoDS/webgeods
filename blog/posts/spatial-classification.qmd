@@ -2,7 +2,7 @@
 title: "Predicting Spatial Classes with Random Forest"
 date: 2026-09-11
 categories: [tool, geoml, bilingual]
-description: "An interactive lab with Python, R and MapLibre: upload a labeled point file (or use the built-in example), train a Random Forest on it, turn a handful of labeled points into a full classification surface, and see a real gotcha where R silently swaps classification for regression."
+description: "An interactive lab with Python, R and MapLibre: upload a labeled point file (or use the built-in example), train a Random Forest on it, turn labeled points into a full classification surface, measure on held-out points how much that surface is worth, and see a real gotcha where R silently swaps classification for regression."
 ---
 
 A few labeled points on their own only answer questions about
@@ -14,6 +14,10 @@ labeled points, then applied to a regular grid across the whole area,
 turns a sparse set of samples into a full classification surface, the
 same shift in usefulness a sparse rain-gauge network gets from
 interpolating a rainfall map between the gauges.
+
+Whether that surface is worth trusting is a separate question, and one
+this article measures rather than assumes: a quarter of the points is
+held out of training and used only for scoring.
 
 A `.geojson`, or a shapefile (either as a single `.zip`, or as
 `.shp`/`.dbf`/`.shx` selected together): see the upload section
@@ -69,12 +73,19 @@ ${uploadStatus}
 ```
 
 No file uploaded, or your file has no column literally named
-`class`? Both cells below fall back to the same small built-in
-example: 22 points in two clearly separated groups, `north` and
-`south`. Number of trees and grid resolution are fixed here (100
-trees, a 10-cell grid) to keep the focus on *what the two languages
-disagree on*, not on tuning. The
-[standalone tool](/tools/spatial-classifier.html) exposes both as
+`class`? Both cells below fall back to the same built-in survey: 150
+points across three zones (`south`, `centre`, `north`) whose
+boundaries undulate rather than running straight, plus deliberate
+label noise — one point in nine carries the wrong class, standing in
+for the labelling error a real survey has. Both tabs build it from the
+same arithmetic rule instead of a list of coordinates, so the points
+are identical and the two languages are comparable.
+
+That noise is there on purpose. Two tidy, well-separated clusters
+would let any classifier score a perfect 100%, which teaches nothing
+except misplaced confidence. Number of trees and grid resolution are
+fixed here (100 trees, a 10-cell grid) to keep the focus off tuning;
+the [standalone tool](/tools/spatial-classifier.html) exposes both as
 adjustable controls and lets you pick any column as the class.
 
 ## 3. Same spatial question, two languages
@@ -103,23 +114,36 @@ sharedMapEl = sharedMap.element
 import geopandas as gpd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
 from shapely.geometry import Polygon
 
-# 22 points in two clearly separated groups, used only when nothing
-# was uploaded (or the upload has no `class` column).
-FALLBACK_ROWS = (
-    [([12.450066, 41.900016], "north"), ([12.450332, 41.900159], "north"),
-     ([12.450202, 41.900152], "north"), ([12.450017, 41.899721], "north"),
-     ([12.449639, 41.899781], "north"), ([12.44983, 41.900398], "north"),
-     ([12.450168, 41.900137], "north"), ([12.44989, 41.899805], "north"),
-     ([12.449684, 41.90032], "north"), ([12.45028, 41.900272], "north"),
-     ([12.449961, 41.899825], "north"), ([12.450273, 41.899636], "north")] +
-    [([12.455277, 41.884832], "south"), ([12.454614, 41.884991], "south"),
-     ([12.454621, 41.884723], "south"), ([12.45535, 41.884793], "south"),
-     ([12.45486, 41.885091], "south"), ([12.455187, 41.885068], "south"),
-     ([12.455246, 41.885086], "south"), ([12.455096, 41.884671], "south"),
-     ([12.454816, 41.884664], "south"), ([12.45532, 41.885381], "south")]
-)
+# The example survey, used only when nothing was uploaded (or the
+# upload has no `class` column). Written as a rule rather than a list
+# of coordinates, so the structure is visible instead of buried in 150
+# pairs of numbers: points on an irregular lattice, three bands whose
+# boundaries undulate across the area, and deliberate label noise.
+# Integer arithmetic only (no random numbers, no trigonometry), so the
+# R tab further down builds exactly the same points.
+FALLBACK_NEXT_CLASS = {"south": "centre", "centre": "north", "north": "south"}
+
+def fallback_points():
+    points = []
+    for i in range(150):
+        col, row = i % 15, i // 15
+        lon = 12.4450 + col * 0.0010 + ((i * 37) % 11 - 5) / 10000
+        lat = 41.8850 + row * 0.0012 + ((i * 53) % 13 - 6) / 12000
+        # Triangular wave on the column index: the two band boundaries
+        # rise and fall across the area instead of running straight, so
+        # no single horizontal cut separates the classes.
+        tri = abs((col * 2) % 8 - 4) - 2
+        cls = "south" if row < 3 + tri else ("centre" if row < 6 + tri else "north")
+        # One point in nine is relabelled to the next class: a stand-in
+        # for the labelling error a real survey carries. It is what
+        # keeps the held-out accuracy below a meaningless 1.00.
+        if i % 9 == 0:
+            cls = FALLBACK_NEXT_CLASS[cls]
+        points.append(((lon, lat), cls))
+    return points
 
 gdf = None
 for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
@@ -137,11 +161,12 @@ elif gdf is not None and str(gdf.crs) != "EPSG:4326":
     gdf = gdf.to_crs("EPSG:4326")
 
 if gdf is None or "class" not in gdf.columns:
+    fallback = fallback_points()
     gdf = gpd.GeoDataFrame(
-        {"class": [cls for _, cls in FALLBACK_ROWS]},
+        {"class": [cls for _, cls in fallback]},
         geometry=gpd.points_from_xy(
-            [pt[0] for pt, _ in FALLBACK_ROWS],
-            [pt[1] for pt, _ in FALLBACK_ROWS]
+            [pt[0] for pt, _ in fallback],
+            [pt[1] for pt, _ in fallback]
         ),
         crs="EPSG:4326"
     )
@@ -180,13 +205,43 @@ if len(y) == 0:
 
 class_labels = sorted(set(y.tolist()))
 
+# A quarter of the points is held out and never shown to the model, so
+# the accuracy below is measured on points it has not already seen.
+# stratify=y keeps each class's share the same on both sides of the
+# split: without it a rare class can end up entirely in one half.
+# Skipped when there is too little to split -- an uploaded file can
+# have a class with a single member, and holding that one out would
+# leave the class untrained. "No accuracy" is then reported as exactly
+# that, rather than as a score of 0.
+class_counts = {c: int((y == c).sum()) for c in class_labels}
+can_split = len(class_labels) >= 2 and min(class_counts.values()) >= 2 and len(y) >= 10
+
+if can_split:
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.25, stratify=y, random_state=0
+    )
+else:
+    X_train, y_train, X_test, y_test = X, y, None, None
+
 # X is (x, y) coordinates only: position is the ONLY predictor here.
 # This demonstrates how a Random Forest turns labeled points into a
 # surface, not a general land-cover classifier. Real covariates
 # (spectral bands, elevation, soil type) would change what the model
 # is actually learning.
 model = RandomForestClassifier(n_estimators=100, random_state=0)
-model.fit(X, y)
+model.fit(X_train, y_train)
+
+accuracy = None
+class_accuracy = {}
+if X_test is not None:
+    predicted_test = model.predict(X_test)
+    accuracy = round(float((predicted_test == y_test).mean()), 3)
+    # Per class as well: one overall number can hide a model that is
+    # perfect on the largest class and useless on another.
+    for c in class_labels:
+        in_class = y_test == c
+        if in_class.sum() > 0:
+            class_accuracy[c] = round(float((predicted_test[in_class] == y_test[in_class]).mean()), 3)
 
 # Regular 10x10-ish square-cell grid over the full extent, at a fixed
 # resolution: keeps the focus on how the two languages disagree,
@@ -230,6 +285,10 @@ training_wgs84 = labeled[["class", "geometry"]]
     "calculationCrs": f"EPSG:{calc_epsg}",
     "classLabels": class_labels,
     "labeledCount": int(len(labeled)),
+    "trainCount": int(len(y_train)),
+    "testCount": int(len(y_test)) if y_test is not None else 0,
+    "accuracy": accuracy,
+    "classAccuracy": class_accuracy,
     "gridCellCount": int(len(cells)),
     "crsWarning": crs_warning
 }
@@ -243,15 +302,24 @@ library(sf)
 library(geojsonsf)
 library(randomForest)
 
-fallback_lons <- c(12.450066, 12.450332, 12.450202, 12.450017, 12.449639, 12.44983,
-                    12.450168, 12.44989, 12.449684, 12.45028, 12.449961, 12.450273,
-                    12.455277, 12.454614, 12.454621, 12.45535, 12.45486, 12.455187,
-                    12.455246, 12.455096, 12.454816, 12.45532)
-fallback_lats <- c(41.900016, 41.900159, 41.900152, 41.899721, 41.899781, 41.900398,
-                    41.900137, 41.899805, 41.90032, 41.900272, 41.899825, 41.899636,
-                    41.884832, 41.884991, 41.884723, 41.884793, 41.885091, 41.885068,
-                    41.885086, 41.884671, 41.884664, 41.885381)
-fallback_class <- c(rep("north", 12), rep("south", 10))
+# The same example survey the Python tab builds, from the same rule:
+# 150 points on an irregular lattice, three bands with undulating
+# boundaries, one point in nine relabelled to stand in for survey
+# error. Integer arithmetic only, so both languages produce identical
+# points -- which is what makes the two tabs comparable at all.
+fallback_points <- function() {
+  i <- 0:149
+  col <- i %% 15
+  row <- i %/% 15
+  lon <- 12.4450 + col * 0.0010 + ((i * 37) %% 11 - 5) / 10000
+  lat <- 41.8850 + row * 0.0012 + ((i * 53) %% 13 - 6) / 12000
+  tri <- abs((col * 2) %% 8 - 4) - 2
+  cls <- ifelse(row < 3 + tri, "south", ifelse(row < 6 + tri, "centre", "north"))
+  next_class <- c(south = "centre", centre = "north", north = "south")
+  flip <- i %% 9 == 0
+  cls[flip] <- unname(next_class[cls[flip]])
+  data.frame(lon = lon, lat = lat, class = cls, stringsAsFactors = FALSE)
+}
 
 data <- NULL
 for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
@@ -268,16 +336,13 @@ if (!is.null(data) && is.na(st_crs(data))) {
 }
 
 if (is.null(data) || !("class" %in% names(data))) {
-  data <- st_as_sf(
-    data.frame(lon = fallback_lons, lat = fallback_lats, class = fallback_class),
-    coords = c("lon", "lat"), crs = 4326
-  )
+  data <- st_as_sf(fallback_points(), coords = c("lon", "lat"), crs = 4326)
   crs_warning <- NULL
 }
 
 labeled <- data[!is.na(data$class), ]
 # The one step that decides classification vs. regression -- see
-# section 4 below. Without this, randomForest() below would silently
+# section 5 below. Without this, randomForest() below would silently
 # fit a REGRESSION on `class` instead.
 labeled$class <- factor(as.character(labeled$class))
 
@@ -306,13 +371,33 @@ if (!any(finite_rows)) {
 coords_train <- coords_train[finite_rows, , drop = FALSE]
 labeled_proj <- labeled_proj[finite_rows, ]
 
-train_df <- data.frame(x = coords_train[, 1], y = coords_train[, 2], class = labeled_proj$class)
+all_df <- data.frame(x = coords_train[, 1], y = coords_train[, 2], class = labeled_proj$class)
 
-# A Random Forest is randomized (each tree sees a bootstrap sample and
-# a random subset of predictors), so without a seed two runs of this
-# same cell give slightly different surfaces. The Python tab passes
-# random_state=0 for the same reason.
+# Both the holdout below and the forest itself draw random numbers, so
+# without a seed two runs of this cell give different answers. The
+# Python tab passes random_state=0 for the same reason.
 set.seed(0)
+
+# A quarter of the points held out, sampled separately within each
+# class so every class keeps its share on both sides -- base R has no
+# stratified-split function, but split() + sample() is the whole idea.
+# Skipped when there is too little to split (an uploaded file can have
+# a class with a single member, and holding that one out would leave
+# the class untrained).
+class_counts <- table(all_df$class)
+can_split <- length(class_counts) >= 2 && min(class_counts) >= 2 && nrow(all_df) >= 10
+
+if (can_split) {
+  test_idx <- unlist(lapply(
+    split(seq_len(nrow(all_df)), all_df$class),
+    function(idx) sample(idx, max(1, round(0.25 * length(idx))))
+  ))
+  train_df <- all_df[-test_idx, ]
+  test_df <- all_df[test_idx, ]
+} else {
+  train_df <- all_df
+  test_df <- NULL
+}
 
 # Position is the ONLY predictor here (class ~ x + y): this
 # demonstrates how a Random Forest turns labeled points into a
@@ -320,6 +405,26 @@ set.seed(0)
 # (spectral bands, elevation, soil type) would change what the model
 # is actually learning.
 model <- randomForest(class ~ x + y, data = train_df, ntree = 100)
+
+# Accuracy on the held-out quarter, overall and per class: one overall
+# number can hide a model that is perfect on the largest class and
+# useless on another.
+accuracy <- NULL
+class_accuracy <- NULL
+if (!is.null(test_df)) {
+  predicted_test <- predict(model, newdata = test_df)
+  accuracy <- round(mean(predicted_test == test_df$class), 3)
+  per_class <- lapply(levels(all_df$class), function(cl) {
+    in_class <- test_df$class == cl
+    if (any(in_class)) {
+      jsonlite::unbox(round(mean(predicted_test[in_class] == test_df$class[in_class]), 3))
+    } else {
+      NULL
+    }
+  })
+  names(per_class) <- levels(all_df$class)
+  class_accuracy <- per_class[!vapply(per_class, is.null, logical(1))]
+}
 
 # The prediction surface: a regular grid covering the full extent, at
 # the same fixed resolution the Python tab uses, so the two results
@@ -361,6 +466,10 @@ result <- list(
   calculationCrs = jsonlite::unbox(paste0("EPSG:", calc_epsg)),
   classLabels = sort(levels(labeled_proj$class)),
   labeledCount = jsonlite::unbox(as.integer(nrow(labeled))),
+  trainCount = jsonlite::unbox(as.integer(nrow(train_df))),
+  testCount = jsonlite::unbox(if (is.null(test_df)) 0L else as.integer(nrow(test_df))),
+  accuracy = if (is.null(accuracy)) NULL else jsonlite::unbox(accuracy),
+  classAccuracy = class_accuracy,
   gridCellCount = jsonlite::unbox(as.integer(length(grid))),
   modelType = jsonlite::unbox(model$type),
   crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning)
@@ -517,6 +626,13 @@ statCard = (label, s) => {
   row("Calculation CRS", s.calculationCrs);
   row("Classes", s.classLabels.join(", "));
   row("Labeled points", s.labeledCount);
+  if (s.accuracy === null || s.accuracy === undefined) {
+    // Not a score of 0: there were too few points to hold any out.
+    row("Held-out accuracy", "too few points to hold any out");
+  } else {
+    row("Held-out accuracy", `${s.accuracy} (${s.testCount} of ${s.labeledCount} points held out)`);
+    row("By class", Object.entries(s.classAccuracy ?? {}).map(([k, v]) => `${k} ${v}`).join(" · "));
+  }
   row("Grid cells predicted", s.gridCellCount);
 
   return wrap;
@@ -570,31 +686,60 @@ onto its own map sources, so running either one on its own is enough
 to see a result.
 
 Run both and the two surfaces won't match everywhere. They cover
-exactly the same ground (same extent, same cells — the "Grid cells
-predicted" row matches), but they don't label every cell the same way.
-It's tempting to read that as Python disagreeing with R. It isn't.
+exactly the same ground and start from identical points (the two cells
+build the survey from the same arithmetic rule), but they don't label
+every cell the same way. It's tempting to read that as Python
+disagreeing with R. It isn't: both cells fix a seed so their output is
+reproducible, and changing that number moves the surface just as much
+as switching language does. A forest retrained disagrees with itself
+about as much as the two languages disagree with each other.
 
-Both cells fix a seed (`random_state=0`, `set.seed(0)`) so their output
-is reproducible; change that number and the split moves on its own.
-Across five seeds, the Python cell assigned between 10 and 20 of the 30
-cells to *north*, and the R cell between 10 and 15 — overlapping
-ranges, on identical training data. One forest retrained disagrees with
-itself about as much as the two languages disagree with each other.
+## 4. How good is that surface?
 
-The reason is on the map: most of those cells sit in the empty ground
-between the two clusters, where there is no training data at all. The
-boundary there is settled by which points happened to land in each
-tree's bootstrap sample, not by evidence. A classification surface
-looks equally confident everywhere it is drawn, and is only really
-supported near the points it learned from — which is an argument for
-fixing a seed before comparing anything, and for not reading much into
-a boundary drawn across empty ground.
+The stat cards answer that, and the answer is sobering. A quarter of
+the points is held out of training and used only for scoring, so the
+accuracy is measured on points the model has never seen — and on the
+built-in survey it lands around **0.63**, against 0.33 for guessing at
+random among three classes.
 
-The next section is a different kind of disagreement: not a model
-being unsure where the evidence runs out, but one quietly solving a
-different problem.
+The per-class row matters more than the overall one. The outer `north`
+band scores about 0.87, while `centre` — the middle band, squeezed
+between the other two and undulating across the area — gets between a
+third and a half of its held-out points right, depending on which
+quarter was held out. One overall number would have hidden that
+completely: the model has essentially learned two of the three classes.
+That's the case for reporting accuracy per class whenever the classes
+aren't interchangeable, which spatially they rarely are.
 
-## 4. A silent switch: classification vs. regression
+Two cautions before reading much into any of these numbers.
+
+**The number itself moves.** Across five seeds the accuracy spanned
+roughly 0.53–0.68 in Python and 0.63–0.74 in R: overlapping ranges, so
+five runs are nowhere near enough to claim one implementation beats the
+other. The two tabs also hold out *different* points, because their
+random number generators differ — another reason a gap between the two
+accuracies says nothing about scikit-learn versus randomForest.
+
+**And it flatters the model.** This is the specifically spatial catch.
+Nearby points are correlated, so a randomly chosen test point almost
+always has a training point a few metres away, and the model can lean
+on that neighbour instead of generalising. A random holdout on spatial
+data is therefore optimistic: 0.63 is closer to an upper bound than to
+an honest estimate. The standard answer is spatial cross-validation,
+which holds out whole *blocks* of area rather than scattered points, so
+the test data sits somewhere the model genuinely hasn't seen. That is a
+subject of its own; what matters here is knowing the number is
+generous, not conservative.
+
+The two cautions are the same fact seen twice. The surface is supported
+where the points are and guessing where they thin out, and a score
+computed from points sitting right next to the training data measures
+the supported part while telling you nothing about the rest.
+
+## 5. A silent switch: classification vs. regression
+
+The disagreements above are a model being unsure. This one is
+different: a model quietly solving a different problem.
 
 scikit-learn's `RandomForestClassifier` and R's general-purpose
 `randomForest()` decide what to do very differently. scikit-learn is
@@ -625,25 +770,30 @@ one `factor()` step skipped, run live:
 #| package: sf, randomForest, jsonlite
 library(randomForest)
 
-fallback_lons <- c(12.450066, 12.450332, 12.450202, 12.450017, 12.449639, 12.44983,
-                    12.450168, 12.44989, 12.449684, 12.45028, 12.449961, 12.450273,
-                    12.455277, 12.454614, 12.454621, 12.45535, 12.45486, 12.455187,
-                    12.455246, 12.455096, 12.454816, 12.45532)
-fallback_lats <- c(41.900016, 41.900159, 41.900152, 41.899721, 41.899781, 41.900398,
-                    41.900137, 41.899805, 41.90032, 41.900272, 41.899825, 41.899636,
-                    41.884832, 41.884991, 41.884723, 41.884793, 41.885091, 41.885068,
-                    41.885086, 41.884671, 41.884664, 41.885381)
-# `class` as a NUMERIC status code (0 = north, 1 = south) -- NOT
-# wrapped in factor(), unlike the cell above. A character column here
-# instead would error immediately (see the prose above); a numeric one
-# fits silently.
-fallback_class <- c(rep(0, 12), rep(1, 10))
+# The same survey as the cell above, built from the same rule.
+i <- 0:149
+col <- i %% 15
+row <- i %/% 15
+lon <- 12.4450 + col * 0.0010 + ((i * 37) %% 11 - 5) / 10000
+lat <- 41.8850 + row * 0.0012 + ((i * 53) %% 13 - 6) / 12000
+tri <- abs((col * 2) %% 8 - 4) - 2
+cls <- ifelse(row < 3 + tri, "south", ifelse(row < 6 + tri, "centre", "north"))
+next_class <- c(south = "centre", centre = "north", north = "south")
+flip <- i %% 9 == 0
+cls[flip] <- unname(next_class[cls[flip]])
 
-train_df <- data.frame(x = fallback_lons, y = fallback_lats, class = fallback_class)
+# The one difference: `class` arrives as a NUMERIC status code
+# (0 = south, 1 = centre, 2 = north) and is NOT wrapped in factor(),
+# unlike the cell above. A character column here would error
+# immediately (see the prose above); a numeric one fits silently.
+class_code <- c(south = 0, centre = 1, north = 2)[cls]
+
+train_df <- data.frame(x = lon, y = lat, class = unname(class_code))
 model <- randomForest(class ~ x + y, data = train_df, ntree = 100)
 
 result <- list(
   modelType = jsonlite::unbox(model$type),
+  sampleTrueClass = jsonlite::unbox(train_df$class[1]),
   samplePrediction = jsonlite::unbox(as.numeric(predict(model, train_df[1, ])))
 )
 jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
@@ -682,7 +832,7 @@ noFactorCard = {
     return box;
   }
   row("model$type", noFactorResult.modelType);
-  row("predict() on a point labeled 0 (\"north\")", noFactorResult.samplePrediction.toFixed(3));
+  row(`predict() on a point labeled ${noFactorResult.sampleTrueClass}`, noFactorResult.samplePrediction.toFixed(3));
   return box;
 }
 ```
@@ -705,7 +855,7 @@ different from the cell above. scikit-learn's separate `Classifier`/
 class you instantiate *is* the decision, made once, up front.
 :::
 
-## 5. Where to next
+## 6. Where to next
 
 - **Just needed to classify a file, with adjustable settings and a
   download button?** → The
