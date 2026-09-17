@@ -132,28 +132,18 @@ legendEl = {
   const p = predictResult;
   const m = modelResult;
   const range = p ? p.raster : (m ? { min: m.summary.valueMin, max: m.summary.valueMax } : null);
-  const wrap = document.createElement("div");
-  wrap.className = "webgeods-legend";
   if (!range) {
+    const wrap = document.createElement("div");
+    wrap.className = "webgeods-legend";
     wrap.hidden = true;
     return wrap;
   }
-  const swatches = [
-    ["rgb(166,97,26)", `low (≈ ${range.min}%)`],
-    ["rgb(245,245,245)", "mid"],
-    ["rgb(1,133,113)", `high (≈ ${range.max}%)`]
-  ];
-  for (const [color, label] of swatches) {
-    const swatch = document.createElement("div");
-    swatch.className = "webgeods-legend-bar";
-    swatch.style.flex = "0 0 24px";
-    swatch.style.background = color;
-    const span = document.createElement("span");
-    span.className = "webgeods-legend-label";
-    span.textContent = label;
-    wrap.append(swatch, span);
-  }
-  return wrap;
+  // A continuous gradient bar (WebGeoDS.legend()'s {gradient, minLabel,
+  // maxLabel} shape, same convention raster-ndvi.qmd's own article
+  // uses), not discrete swatches: both the points and the surface are
+  // colored by an interpolated ramp, so a handful of fixed categories
+  // would misrepresent it.
+  return WebGeoDS.legend({ gradient: KRIGE_RAMP, minLabel: `${range.min}%`, maxLabel: `${range.max}%` });
 }
 ```
 

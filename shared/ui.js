@@ -87,13 +87,24 @@
 
 
   // ============================================================
-  // legend(items, opts) -- items: [{color, label}, ...]. A falsy/empty
-  // items hides the wrapper (hidden = true) rather than rendering an
-  // empty legend -- same "nothing computed yet" behavior every tool
-  // built with this pattern already had. opts.swatchWidth defaults to
-  // 24 (px) -- Buffer & Proximity's own legend used 32px swatches
-  // (wider, to read well as an opacity gradient across rings) before
-  // this helper existed, so that's an override, not a new behavior.
+  // legend(items, opts) -- two shapes:
+  //   - items: [{color, label}, ...] -- discrete swatches, for a ramp
+  //     that maps a fixed set of categories to colors.
+  //   - items: {gradient: [[t, r, g, b], ...], minLabel, maxLabel} --
+  //     a single continuous bar (a CSS linear-gradient built from the
+  //     same [t, r, g, b] stop format setRasterImage()'s own
+  //     colorRamp takes), for a ramp that maps a NUMBER to a color --
+  //     raster-ndvi.qmd's own hand-rolled legend used exactly this
+  //     shape before this helper existed; generalized here so any
+  //     other continuous-ramp tool can share it instead of
+  //     re-implementing it per tool.
+  // A falsy/empty items hides the wrapper (hidden = true) rather than
+  // rendering an empty legend -- same "nothing computed yet" behavior
+  // every tool built with this pattern already had. opts.swatchWidth
+  // defaults to 24 (px) -- Buffer & Proximity's own legend used 32px
+  // swatches (wider, to read well as an opacity gradient across
+  // rings) before this helper existed, so that's an override, not a
+  // new behavior; it has no effect on the gradient shape above.
   // ============================================================
 
   function legend(items, opts = {}) {
@@ -107,7 +118,10 @@
     wrap.className =
       "webgeods-legend";
 
-    if (!items || items.length === 0) {
+    const isGradient =
+      items && !Array.isArray(items) && items.gradient;
+
+    if (!items || (!isGradient && items.length === 0)) {
       wrap.hidden = true;
       return wrap;
     }
@@ -117,6 +131,46 @@
 
     wrap.style.rowGap =
       "8px";
+
+    if (isGradient) {
+
+      const minLabel =
+        document.createElement("span");
+
+      minLabel.className =
+        "webgeods-legend-label";
+
+      minLabel.textContent =
+        items.minLabel ?? "";
+
+      const bar =
+        document.createElement("div");
+
+      bar.className =
+        "webgeods-legend-bar";
+
+      const stops =
+        items.gradient
+          .map(([t, r, g, b]) => `rgb(${r},${g},${b}) ${t * 100}%`)
+          .join(", ");
+
+      bar.style.background =
+        `linear-gradient(to right, ${stops})`;
+
+      const maxLabel =
+        document.createElement("span");
+
+      maxLabel.className =
+        "webgeods-legend-label";
+
+      maxLabel.textContent =
+        items.maxLabel ?? "";
+
+      wrap.append(minLabel, bar, maxLabel);
+
+      return wrap;
+
+    }
 
     for (const { color, label, outline } of items) {
 

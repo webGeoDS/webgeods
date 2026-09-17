@@ -436,11 +436,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!s || s.previewMin == null || s.previewMax == null) {
           return null;
         }
-        return [
-          { color: KRIGE_POINT_COLORS[0], label: `low (≈ ${s.previewMin}%)` },
-          { color: KRIGE_POINT_COLORS[2], label: "mid" },
-          { color: KRIGE_POINT_COLORS[4], label: `high (≈ ${s.previewMax}%)` }
-        ];
+        return { gradient: KRIGE_RAMP, minLabel: `${s.previewMin}%`, maxLabel: `${s.previewMax}%` };
       }
     },
     compute: {
@@ -477,16 +473,16 @@ document.addEventListener("DOMContentLoaded", () => {
         ];
       },
       // The map's own legend -- what the colors on both the surface
-      // and the sample points actually mean. The chart alongside
-      // needs none of its own: it's a plain distance-vs-semivariance
-      // plot with only ever the same three series (points, fitted
-      // line, reference lines), already named in its own title/axis
-      // labels, not a map of a color to a category.
-      legend: (v) => [
-        { color: KRIGE_POINT_COLORS[0], label: `low (≈ ${v.raster.min}%)` },
-        { color: KRIGE_POINT_COLORS[2], label: "mid" },
-        { color: KRIGE_POINT_COLORS[4], label: `high (≈ ${v.raster.max}%)` }
-      ],
+      // and the sample points actually mean, as a continuous gradient
+      // bar (WebGeoDS.legend()'s own {gradient, minLabel, maxLabel}
+      // shape, same convention raster-ndvi.qmd's article already
+      // uses): both are colored by an interpolated ramp, not a fixed
+      // set of categories, so a handful of discrete swatches would
+      // misrepresent it. The chart alongside needs no legend of its
+      // own: it's a plain distance-vs-semivariance plot with only
+      // ever the same three series (points, fitted line, reference
+      // lines), already named in its own title/axis labels.
+      legend: (v) => ({ gradient: KRIGE_RAMP, minLabel: `${v.raster.min}%`, maxLabel: `${v.raster.max}%` }),
       onResult: async (v) => {
 
         const dashboard =
@@ -533,6 +529,18 @@ document.addEventListener("DOMContentLoaded", () => {
         const range = v.summary.range;
         const maxDist = Math.max(range, ...empRows.map((d) => d.dist), ...fitRows.map((d) => d.dist));
         const maxGamma = Math.max(sill, ...empRows.map((d) => d.gamma), ...fitRows.map((d) => d.gamma));
+
+        // range is very often the largest x value in the whole chart
+        // (a sparse dataset's fitted range routinely exceeds its own
+        // farthest observed distance) -- with a fixed "align: left"
+        // label, that put "range ...m" starting AT the domain's right
+        // edge and running off it, clipped by the side panel's own
+        // width rather than visible. Anchored to whichever side keeps
+        // it inside the plot, same logic the article's own d3 chart
+        // already uses for this same label.
+        const rangeNearRightEdge = range > maxDist * 0.75;
+        const rangeAlign = rangeNearRightEdge ? "right" : "left";
+        const rangeDx = rangeNearRightEdge ? -3 : 3;
 
         // A live-measured NUMBER, not "container" + "fit-x" autosize:
         // found live that Vega-Lite/vega-embed's own container
@@ -648,7 +656,7 @@ document.addEventListener("DOMContentLoaded", () => {
             },
             {
               "data": { "values": [{}] },
-              "mark": { "type": "text", "align": "left", "baseline": "top", "dx": 3, "dy": 3, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
+              "mark": { "type": "text", "align": rangeAlign, "baseline": "top", "dx": rangeDx, "dy": 3, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
               "encoding": {
                 "x": { "datum": range, "type": "quantitative" },
                 "y": { "datum": 0, "type": "quantitative" },
