@@ -716,7 +716,12 @@ document.addEventListener("DOMContentLoaded", () => {
           ],
           "vconcat": [
             {
-              "title": "Training points per class",
+              // Not "Training points": classCounts is taken over ALL
+              // labeled points, before the train/test split (see the
+              // compute cell above), and a click here selects every
+              // point of a class regardless of heldOut -- training
+              // AND test together.
+              "title": "Labeled points per class",
               "width": "container",
               "height": 130,
               "data": { "values": distRows },
@@ -736,7 +741,7 @@ document.addEventListener("DOMContentLoaded", () => {
               "mark": "bar",
               "encoding": {
                 "x": { "field": "cls", "type": "nominal", "title": "Class" },
-                "y": { "field": "count", "type": "quantitative", "title": "Training points" },
+                "y": { "field": "count", "type": "quantitative", "title": "Labeled points" },
                 // Selected -> the same yellow shared/map.js's own
                 // highlight() uses (--dataviz-selection), so a
                 // selection looks the same regardless of which view
