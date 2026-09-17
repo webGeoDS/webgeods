@@ -157,7 +157,22 @@
       labelEl.textContent =
         label;
 
-      wrap.append(swatch, labelEl);
+      // Grouped in their own flex item (not appended straight onto
+      // `wrap`): with `wrap`'s own flexWrap in charge, a swatch and
+      // its label were otherwise free to land on different lines --
+      // found live on a longer, 3-entry legend in a narrow side panel
+      // (the kriging tool's variogram chart), where the wrap point
+      // landed mid-entry, leaving a label with no visible swatch next
+      // to it at all.
+      const entry =
+        document.createElement("div");
+
+      entry.style.cssText =
+        "display: inline-flex; align-items: center; gap: 12px; flex: 0 0 auto;";
+
+      entry.append(swatch, labelEl);
+
+      wrap.append(entry);
 
     }
 

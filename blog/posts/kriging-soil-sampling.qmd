@@ -1,0 +1,780 @@
+---
+title: "Interpolating Soil Moisture with Kriging"
+date: 2026-09-17
+categories: [tool, geostatistics]
+description: "Given sparse soil moisture samples, fit a variogram model to how similar nearby points really are, then predict a full continuous surface across the whole field, with its own uncertainty. Runs on R; Python shown as reference only."
+---
+
+A soil probe gives you a number at one point. A field has thousands of
+points you didn't probe. Kriging is the answer to "what's the value
+everywhere else, and how sure am I." It's named after Danie Krige, a
+South African mining engineer who developed it in the 1950s to
+estimate ore grade between drill holes. Today it's used just as often
+for soil moisture, pH, and pollutant concentration: anything measured
+at scattered locations, where a full map matters more than the
+individual readings.
+
+This is also the first article on this site where Python doesn't run
+live. Read on for why, and what it means for how this page is built.
+
+Prefer to skip straight to a result? The
+[standalone tool](/tools/kriging-interpolator.html) runs the same
+computation: upload your own file, pick the column, and it predicts
+the surface for you.
+
+## 1. Upload your file
+
+A point file (`.geojson`, or a shapefile as a single `.zip` or as
+`.shp`/`.dbf`/`.shx` selected together) with a numeric column: soil
+moisture, pH, anything measured at scattered locations.
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; },
+  kind: "vector"
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["r"] });
+  mutable uploadStatus = result.message;
+}
+```
+
+## 2. Why fit a variogram, instead of just averaging nearby points?
+
+The simplest way to fill in the gaps is Inverse Distance Weighting
+(IDW): average the nearby points, weighting closer ones more, with the
+weight falling off by some fixed power of distance (usually 2). It's
+fast and easy to reason about, and this site's [Buffer/Proximity
+tool](/tools/buffer-proximity.html) family uses distance the same
+simple way. It has a real limitation, though: **the decay rate is
+assumed, not measured.** Whether moisture actually changes fast or
+slowly with distance in *this* field, at *this* time, is never asked.
+
+Kriging asks it, in three steps this article builds up one at a time:
+
+1. **The empirical variogram**: for every pair of sample points,
+   compute the squared difference in their values and the distance
+   between them, then average those squared differences within
+   distance bins. This directly measures how different two points
+   tend to be as a function of how far apart they are. Pairs close
+   together should differ less than pairs far apart, if there's any
+   spatial structure to find at all.
+2. **Fitting a model**: a smooth curve (spherical, exponential, or
+   Gaussian; this article uses spherical) is fit to those binned
+   points by nonlinear least squares. The fitted curve has three
+   numbers worth knowing:
+   - **Nugget**: the curve's value at distance zero. Two points right
+     on top of each other should be identical, so a nugget above zero
+     means measurement noise or small-scale variability the model
+     can't (and shouldn't try to) explain away.
+   - **Partial sill**: how much *more* the curve rises as distance
+     grows. Nugget plus partial sill gives the *total* sill: the
+     variance you'd expect between two points so far apart they're
+     basically unrelated.
+   - **Range**: the distance at which the curve flattens out and
+     reaches that total sill. Beyond the range, two points tell you
+     nothing about each other; within it, they do, more so the closer
+     they are.
+3. **Kriging itself**: using that fitted model as the actual weighting
+   rule instead of an assumed power law, it predicts a value at every
+   point on a grid, as a weighted combination of the sample points
+   where the weights come from the model. Solving for those weights
+   also produces a **prediction variance** at every grid point: a
+   real "how sure am I," which IDW has no equivalent for at all.
+
+## 3. Shared map
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.45, 41.885], zoom: 13, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+legendEl = {
+  // predictResult's own raster min/max once it exists (the actual
+  // post-kriging range); until then, modelResult's valueMin/valueMax
+  // (the raw sample range the R cell already computed to color points
+  // with) -- shown from the moment points are colored, not held back
+  // until the second cell (predicting the surface) has also run.
+  const p = predictResult;
+  const m = modelResult;
+  const range = p ? p.raster : (m ? { min: m.summary.valueMin, max: m.summary.valueMax } : null);
+  const wrap = document.createElement("div");
+  wrap.className = "webgeods-legend";
+  if (!range) {
+    wrap.hidden = true;
+    return wrap;
+  }
+  const swatches = [
+    ["rgb(166,97,26)", `low (≈ ${range.min}%)`],
+    ["rgb(245,245,245)", "mid"],
+    ["rgb(1,133,113)", `high (≈ ${range.max}%)`]
+  ];
+  for (const [color, label] of swatches) {
+    const swatch = document.createElement("div");
+    swatch.className = "webgeods-legend-bar";
+    swatch.style.flex = "0 0 24px";
+    swatch.style.background = color;
+    const span = document.createElement("span");
+    span.className = "webgeods-legend-label";
+    span.textContent = label;
+    wrap.append(swatch, span);
+  }
+  return wrap;
+}
+```
+
+${legendEl}
+
+```{ojs}
+//| echo: false
+//| output: false
+KRIGE_RAMP = [
+  [0.00, 166, 97, 26],
+  [0.25, 223, 194, 125],
+  [0.50, 245, 245, 245],
+  [0.75, 128, 205, 193],
+  [1.00, 1, 133, 113]
+]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+base64ToBytes = (base64Str) => {
+  const binary = atob(base64Str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+```
+
+```{ojs}
+//| echo: false
+mutable modelResult = null
+```
+
+```{ojs}
+//| echo: false
+mutable predictResult = null
+```
+
+## 4. Compute: fit the model in R — runnable here; Python — reference only
+
+::: {.panel-tabset}
+
+## R — runnable in this browser
+
+```{.webgeods-r #kriging-model-r}
+#| package: sf, gstat, geojsonsf, jsonlite
+library(sf)
+library(gstat)
+library(geojsonsf)
+
+pts <- NULL
+for (candidate in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  pts <- tryCatch(st_read(candidate, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(pts)) break
+}
+
+if (is.null(pts)) {
+  # Deterministic synthetic soil-moisture survey: 45 points scattered
+  # across a roughly 800m x 600m field, with a real spatial trend (a
+  # band of higher moisture, as if following a shallow drainage line,
+  # plus a smaller ripple) and measurement noise on top -- gives the
+  # variogram real spatial structure to find, not just white noise a
+  # model could never fit meaningfully.
+  set.seed(42)
+  n <- 45
+  lon0 <- 12.4450
+  lat0 <- 41.8850
+  dlon <- 800 / (111320 * cos(lat0 * pi / 180))
+  dlat <- 600 / 110540
+  x <- runif(n, 0, dlon)
+  y <- runif(n, 0, dlat)
+  trend <- 22 + 10 * exp(-((x / dlon - y / dlat)^2) / 0.08) + 3 * sin(4 * pi * x / dlon)
+  moisture <- round(trend + rnorm(n, sd = 1.5), 1)
+  pts <- st_as_sf(
+    data.frame(soil_moisture_pct = moisture, lon = lon0 + x, lat = lat0 + y),
+    coords = c("lon", "lat"), crs = 4326
+  )
+  value_col <- "soil_moisture_pct"
+} else {
+  if (is.na(st_crs(pts))) {
+    pts <- st_set_crs(pts, 4326)
+  } else if (is.na(st_crs(pts)$epsg) || st_crs(pts)$epsg != 4326) {
+    pts <- st_transform(pts, 4326)
+  }
+  # No column picker in this article (that lives in the standalone
+  # tool) -- uses the first numeric, non-geometry column found.
+  geom_col <- attr(pts, "sf_column")
+  candidate_cols <- setdiff(names(pts), geom_col)
+  is_num <- sapply(candidate_cols, function(c) is.numeric(pts[[c]]))
+  if (!any(is_num)) {
+    stop("No numeric column found in the uploaded file to interpolate.")
+  }
+  value_col <- candidate_cols[which(is_num)[1]]
+}
+
+values_raw <- as.numeric(sf::st_drop_geometry(pts)[[value_col]])
+value_mask <- !is.na(values_raw) & is.finite(values_raw)
+pts <- pts[value_mask, ]
+values_raw <- values_raw[value_mask]
+
+if (nrow(pts) < 5) {
+  stop(paste0("Need at least 5 points with a valid value in \"", value_col, "\" -- found ", nrow(pts), "."))
+}
+
+# Working/calculation CRS: a variogram fit on raw degrees would treat 1
+# degree of longitude and 1 degree of latitude as the same real
+# distance everywhere on Earth, which they aren't -- same UTM auto-pick
+# (bounding-box center) as this project's other vector tools.
+bbox <- st_bbox(pts)
+center_lon <- as.numeric((bbox["xmin"] + bbox["xmax"]) / 2)
+center_lat <- as.numeric((bbox["ymin"] + bbox["ymax"]) / 2)
+utm_zone <- floor((center_lon + 180) / 6) + 1
+calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
+calc_crs_label <- paste0("EPSG:", calc_epsg)
+
+# pts_calc, value_col and v_model (below) stay in this R session's
+# global environment after this cell finishes -- the next cell reuses
+# them directly instead of re-reading the file and re-fitting, the
+# same cross-cell reuse this project's other multi-cell tools already
+# rely on (e.g. spatial-classification.qmd's compute cell reusing the
+# inspect cell's own `gdf`).
+pts_calc <- st_transform(pts, calc_epsg)
+pts_calc$.krige_value <- values_raw
+
+# Step 1: the empirical variogram -- average squared difference
+# between every pair of points, binned by distance.
+v_emp <- variogram(.krige_value ~ 1, pts_calc)
+
+# Step 2: fit a spherical model by nonlinear least squares. The
+# starting guesses (range = a third of the max observed distance,
+# nugget = a quarter of the data's own variance) are just a reasonable
+# place to start the optimizer, not the answer -- fit.variogram()
+# refines them against v_emp above.
+init_range <- max(v_emp$dist) / 3
+init_psill <- var(pts_calc$.krige_value)
+v_model <- fit.variogram(
+  v_emp,
+  vgm(psill = init_psill, model = "Sph", range = init_range, nugget = init_psill / 4)
+)
+
+if (isTRUE(attr(v_model, "singular"))) {
+  stop("Could not fit a variogram model to this data -- often too few points, or no real spatial structure to find.")
+}
+
+# The fitted curve itself, sampled at 100 distances, for the chart
+# below.
+v_line <- variogramLine(v_model, maxdist = max(v_emp$dist), n = 100)
+
+pts_wgs84 <- st_transform(pts_calc, 4326)
+pts_wgs84$value <- pts_wgs84$.krige_value
+pts_out <- pts_wgs84[, "value"]
+
+result_out <- list(
+  summary = list(
+    count = jsonlite::unbox(nrow(pts_calc)),
+    calculationCrs = jsonlite::unbox(calc_crs_label),
+    valueColumn = jsonlite::unbox(value_col),
+    valueMin = jsonlite::unbox(round(min(values_raw), 2)),
+    valueMax = jsonlite::unbox(round(max(values_raw), 2)),
+    nugget = jsonlite::unbox(round(v_model$psill[1], 4)),
+    partialSill = jsonlite::unbox(round(v_model$psill[2], 4)),
+    range = jsonlite::unbox(round(v_model$range[2], 1))
+  ),
+  variogram = list(
+    empirical = list(dist = round(v_emp$dist, 2), gamma = round(v_emp$gamma, 5), npairs = v_emp$np),
+    fitted = list(dist = round(v_line$dist, 2), gamma = round(v_line$gamma, 5))
+  )
+)
+
+out <- jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)
+# Attached AFTER the round-trip, not inside it: sf_geojson() already
+# returns finished JSON, and a second toJSON() pass would turn every
+# scalar inside it back into a one-element array.
+out$samplePoints <- jsonlite::fromJSON(sf_geojson(pts_out), simplifyVector = FALSE)
+out
+```
+
+## Python — reference (desktop/server)
+
+::: {.callout-warning}
+**This code doesn't run on this page.** It's real, working `pykrige`,
+the desktop/server equivalent of the R cell to the left. See
+[why Python can't run here](#why-python-is-reference-only-here).
+:::
+
+```python
+import numpy as np
+from pykrige.ok import OrdinaryKriging
+
+# Reference implementation only -- not executable in this browser
+# tool. Constructing OrdinaryKriging() already does BOTH R steps
+# above in one call: it computes the empirical variogram internally,
+# then fits the model to it.
+ok = OrdinaryKriging(
+    lon, lat, values,
+    variogram_model="spherical",
+    verbose=False,
+    enable_plotting=False,
+)
+print(ok.variogram_model_parameters)  # [sill, range, nugget]
+```
+
+:::
+
+```{ojs}
+//| echo: false
+//| output: false
+aCompute = WebGeoDS.getCellValue("kriging-model-r", Generators)
+{
+  if (aCompute && aCompute.summary) {
+    const s = aCompute.summary;
+    // Same 5-stop ramp as KRIGE_RAMP above (not a crude 3-stop linear
+    // version) so a point's fill is the exact color the surface would
+    // show at that spot -- a 3-stop version made most points (anything
+    // near the middle of the range) render almost pure white, which
+    // read as "not colored at all" against the light basemap. The
+    // heavier stroke keeps every point visible as a distinct marker
+    // even at that near-white midpoint.
+    const valueStep = (s.valueMax - s.valueMin) / 4;
+    await sharedMap.setGeoJSON("kriging-r-points", aCompute.samplePoints, {
+      type: "circle",
+      paint: {
+        "circle-radius": 6,
+        "circle-color": [
+          "interpolate", ["linear"], ["get", "value"],
+          s.valueMin, "rgb(166,97,26)",
+          s.valueMin + valueStep, "rgb(223,194,125)",
+          s.valueMin + valueStep * 2, "rgb(245,245,245)",
+          s.valueMin + valueStep * 3, "rgb(128,205,193)",
+          s.valueMax, "rgb(1,133,113)"
+        ],
+        "circle-stroke-color": "#2a2117",
+        "circle-stroke-width": 1.5
+      }
+    });
+    await sharedMap.fitToData(aCompute.samplePoints);
+    mutable modelResult = aCompute;
+    // A freshly fit model invalidates any surface predicted from a
+    // PREVIOUS model (re-running this cell with different data, say)
+    // -- same reasoning every hand-wired tool's own upload handler
+    // uses when new data arrives.
+    await sharedMap.removeRasterImage("kriging-r-surface");
+    mutable predictResult = null;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+statCardPart1 = {
+  const m = modelResult;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+
+  if (!m) {
+    row("Result", "—");
+    return box;
+  }
+
+  const s = m.summary;
+  row("Points used", s.count.toLocaleString());
+  row("Calculation CRS", s.calculationCrs);
+  row("Value column", s.valueColumn);
+  row("Nugget", s.nugget);
+  row("Partial sill", s.partialSill);
+  row("Range (m)", s.range);
+
+  return box;
+}
+```
+
+${statCardPart1}
+
+## 5. The variogram, and predicting the surface
+
+The empirical bins below are the direct measurement from step 1 above:
+half the average squared difference within each distance bin (that
+halving is why the axis says *semivariance*, not just *variance*). The
+line is the spherical model fit to them, with its own nugget, sill,
+and range marked directly on the chart.
+
+```{ojs}
+//| echo: false
+variogramChart = {
+  const m = modelResult;
+  const width = 640, height = 220, margin = { top: 20, right: 20, bottom: 36, left: 46 };
+
+  const svg = d3.create("svg")
+    .attr("viewBox", [0, 0, width, height])
+    .attr("width", "100%")
+    .attr("height", height);
+
+  if (!m) {
+    svg.append("text")
+      .attr("x", width / 2).attr("y", height / 2)
+      .attr("text-anchor", "middle")
+      .attr("fill", "#8a8378")
+      .text("Run the R cell above to see the variogram.");
+    return svg.node();
+  }
+
+  const s = m.summary;
+  const nugget = s.nugget;
+  const sill = s.nugget + s.partialSill;
+  const range = s.range;
+
+  const emp = m.variogram.empirical.dist.map((d, i) => ({ dist: d, gamma: m.variogram.empirical.gamma[i], npairs: m.variogram.empirical.npairs[i] }));
+  const fit = m.variogram.fitted.dist.map((d, i) => ({ dist: d, gamma: m.variogram.fitted.gamma[i] }));
+
+  const x = d3.scaleLinear()
+    .domain([0, d3.max([...emp, ...fit, { dist: range }], (d) => d.dist)])
+    .range([margin.left, width - margin.right]);
+  const y = d3.scaleLinear()
+    .domain([0, d3.max([...emp, ...fit, { gamma: sill }], (d) => d.gamma) * 1.1])
+    .range([height - margin.bottom, margin.top]);
+
+  svg.append("g")
+    .attr("transform", `translate(0,${height - margin.bottom})`)
+    .call(d3.axisBottom(x).ticks(6))
+    .append("text")
+    .attr("x", width - margin.right).attr("y", 32)
+    .attr("fill", "#2a2117").attr("text-anchor", "end")
+    .text("Distance (m)");
+
+  svg.append("g")
+    .attr("transform", `translate(${margin.left},0)`)
+    .call(d3.axisLeft(y).ticks(5))
+    .append("text")
+    .attr("x", -margin.left).attr("y", margin.top - 6)
+    .attr("fill", "#2a2117").attr("text-anchor", "start")
+    .text("Semivariance");
+
+  // Reference lines for the three numbers the stat card above also
+  // reports -- nugget/sill as flat dashed horizontals, range as a
+  // dashed vertical. Drawn BEFORE the curve/points below, so they sit
+  // behind the data like a normal gridline; their text labels are
+  // drawn LAST instead (after the curve/points), each on a small pale
+  // pill (measured via getBBox() once the text exists, then a <rect>
+  // inserted just before it) so the number stays legible even where
+  // the fitted curve or a point would otherwise cross right through
+  // it.
+  const refLine = (x1, y1, x2, y2) => {
+    svg.append("line")
+      .attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2)
+      .attr("stroke", "#8a8378").attr("stroke-dasharray", "4,3");
+  };
+  refLine(margin.left, y(nugget), width - margin.right, y(nugget));
+  refLine(margin.left, y(sill), width - margin.right, y(sill));
+  refLine(x(range), margin.top, x(range), height - margin.bottom);
+
+  svg.append("path")
+    .datum(fit)
+    .attr("fill", "none")
+    .attr("stroke", "#ab502b")
+    .attr("stroke-width", 2)
+    .attr("d", d3.line().x((d) => x(d.dist)).y((d) => y(d.gamma)));
+
+  svg.append("g")
+    .selectAll("circle")
+    .data(emp)
+    .join("circle")
+    .attr("cx", (d) => x(d.dist))
+    .attr("cy", (d) => y(d.gamma))
+    .attr("r", 5)
+    .attr("fill", "#42583c")
+    .append("title")
+    .text((d) => `distance ${d.dist}m, semivariance ${d.gamma}, ${d.npairs} pairs`);
+
+  const pillLabel = (px, py, anchor, text) => {
+    const t = svg.append("text")
+      .attr("x", px).attr("y", py)
+      .attr("text-anchor", anchor)
+      .attr("dominant-baseline", "middle")
+      .attr("fill", "#5b5347").attr("font-size", 11).attr("font-weight", 600)
+      .text(text);
+    const box = t.node().getBBox();
+    // White, not the page's own #eee5d2 cream -- that matched the
+    // surrounding background almost exactly, so the "pill" was really
+    // there but provided zero contrast, leaving the text sitting
+    // directly on the gridline/curve with nothing to separate it,
+    // exactly the "not well formatted" problem this was meant to fix.
+    svg.insert("rect", () => t.node())
+      .attr("x", box.x - 4).attr("y", box.y - 2)
+      .attr("width", box.width + 8).attr("height", box.height + 4)
+      .attr("rx", 3)
+      .attr("fill", "#fffdf8").attr("stroke", "#d8cdb8").attr("stroke-width", 1);
+  };
+
+  // d3.create() built a DETACHED svg -- getBBox() inside pillLabel()
+  // above returns all zeros in that state (found live: every pill
+  // rendered 8x4px near the origin instead of wrapping its own text,
+  // which is what actually made the labels unreadable), because
+  // nothing detached from the document has a real layout yet.
+  // Attached off-screen for these three calls only, then detached
+  // again immediately after -- OJS's own mount of the node this
+  // function returns (${variogramChart} below) is a separate, later
+  // append() that will show it in the right place regardless.
+  document.body.appendChild(svg.node());
+  svg.style("position", "absolute").style("visibility", "hidden").style("left", "-9999px");
+
+  // Nugget at the LEFT edge (it's defined AT distance zero) and sill
+  // at the RIGHT edge -- opposite corners, so the two never collide
+  // even when close together in value.
+  pillLabel(margin.left + 6, y(nugget), "start", `nugget ${nugget}`);
+  pillLabel(width - margin.right - 6, y(sill), "end", `sill ${sill}`);
+
+  // Range's label sits just above the x-axis rather than near the
+  // top, so it never competes with the sill label above -- anchored
+  // away from whichever edge the line itself is closest to, so it
+  // never runs off the chart.
+  const rangeAnchor = x(range) > width - margin.right - 60 ? "end" : "start";
+  const rangeDx = rangeAnchor === "end" ? -6 : 6;
+  pillLabel(x(range) + rangeDx, height - margin.bottom - 12, rangeAnchor, `range ${range}m`);
+
+  svg.node().remove();
+  svg.style("position", null).style("visibility", null).style("left", null);
+
+  return svg.node();
+}
+```
+
+${variogramChart}
+
+Once the model above looks right, predict the surface itself:
+
+::: {.panel-tabset}
+
+## R — runnable in this browser
+
+```{.webgeods-r #kriging-predict-r}
+#| package: sf, gstat, jsonlite
+library(sf)
+library(gstat)
+
+if (!exists("v_model") || !exists("pts_calc")) {
+  stop("Run the cell in section 4 first -- this step needs its fitted variogram model.")
+}
+
+# Step 3: krige onto a regular prediction grid over the points' own
+# extent, padded 5% on each side. Cell count is capped by construction
+# (25 cells along the longer side) regardless of how large the
+# uploaded extent is -- same discipline this project's other
+# grid-building tools already use.
+bbc <- st_bbox(pts_calc)
+pad_x <- as.numeric(bbc["xmax"] - bbc["xmin"]) * 0.05
+pad_y <- as.numeric(bbc["ymax"] - bbc["ymin"]) * 0.05
+gxmin <- as.numeric(bbc["xmin"]) - pad_x
+gxmax <- as.numeric(bbc["xmax"]) + pad_x
+gymin <- as.numeric(bbc["ymin"]) - pad_y
+gymax <- as.numeric(bbc["ymax"]) + pad_y
+
+grid_resolution <- 25
+longer_side <- max(gxmax - gxmin, gymax - gymin, 1e-6)
+cell_size <- longer_side / grid_resolution
+nx <- max(2, ceiling((gxmax - gxmin) / cell_size))
+ny <- max(2, ceiling((gymax - gymin) / cell_size))
+
+xs <- seq(gxmin, gxmax, length.out = nx)
+# Decreasing -- north (max) first: setRasterImage's own row-major
+# convention puts row 0 at the TOP of the image, i.e. the northernmost
+# row, so the grid has to be built in that same order.
+ys <- seq(gymax, gymin, length.out = ny)
+# expand.grid varies its FIRST argument fastest, matching row-major
+# order with x as the column index and y as the row index.
+grid_df <- expand.grid(x = xs, y = ys)
+grid_sf <- st_as_sf(grid_df, coords = c("x", "y"), crs = st_crs(pts_calc))
+
+k <- krige(.krige_value ~ 1, pts_calc, grid_sf, model = v_model, debug.level = 0)
+pred <- as.numeric(k$var1.pred)
+var_pred <- as.numeric(k$var1.var)
+
+grid_bbox_calc <- st_sfc(
+  st_polygon(list(matrix(
+    c(gxmin, gymin, gxmax, gymin, gxmax, gymax, gxmin, gymax, gxmin, gymin),
+    ncol = 2, byrow = TRUE
+  ))),
+  crs = st_crs(pts_calc)
+)
+bb_wgs84 <- st_bbox(st_transform(grid_bbox_calc, 4326))
+
+con <- rawConnection(raw(0), "wb")
+writeBin(pred, con, size = 4, endian = "little")
+raw_bytes <- rawConnectionValue(con)
+close(con)
+pred_b64 <- jsonlite::base64_enc(raw_bytes)
+
+result_out <- list(
+  summary = list(
+    gridCellCount = jsonlite::unbox(length(pred)),
+    meanVariance = jsonlite::unbox(round(mean(var_pred, na.rm = TRUE), 4))
+  ),
+  raster = list(
+    width = jsonlite::unbox(nx),
+    height = jsonlite::unbox(ny),
+    data = jsonlite::unbox(pred_b64),
+    wgs84Bounds = round(c(bb_wgs84["xmin"], bb_wgs84["ymin"], bb_wgs84["xmax"], bb_wgs84["ymax"]), 6),
+    min = jsonlite::unbox(round(min(pred, na.rm = TRUE), 3)),
+    max = jsonlite::unbox(round(max(pred, na.rm = TRUE), 3))
+  )
+)
+
+jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)
+```
+
+## Python — reference (desktop/server)
+
+::: {.callout-warning}
+**Also reference only.** Continues the same `pykrige` object fitted
+in the step above: `.execute()` is what actually predicts the grid.
+:::
+
+```python
+import numpy as np
+
+# Reference implementation only -- not executable in this browser
+# tool. `ok` is the OrdinaryKriging object fitted in the step above;
+# .execute() is the equivalent of this step's krige() call.
+grid_lon = np.linspace(lon.min(), lon.max(), 25)
+grid_lat = np.linspace(lat.min(), lat.max(), 25)
+z, variance = ok.execute("grid", grid_lon, grid_lat)
+```
+
+:::
+
+```{ojs}
+//| echo: false
+//| output: false
+bCompute = WebGeoDS.getCellValue("kriging-predict-r", Generators)
+{
+  if (bCompute && bCompute.raster) {
+    const r = bCompute.raster;
+    await sharedMap.setRasterImage("kriging-r-surface", {
+      bounds: r.wgs84Bounds,
+      width: r.width,
+      height: r.height,
+      values: new Float32Array(base64ToBytes(r.data).buffer),
+      min: r.min,
+      max: r.max,
+      colorRamp: KRIGE_RAMP
+    });
+    // Points on top of the surface -- see the tool's own moveLayer()
+    // comment: setRasterImage() always adds its layer above whatever
+    // already exists, which would otherwise hide the actual
+    // measurements under the interpolated colors.
+    sharedMap.map.moveLayer("kriging-r-points");
+    mutable predictResult = bCompute;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+statCardPart2 = {
+  const p = predictResult;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  if (!p) {
+    box.hidden = true;
+    return box;
+  }
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+  const s = p.summary;
+  row("Grid cells", s.gridCellCount.toLocaleString());
+  row("Mean prediction variance", s.meanVariance);
+  return box;
+}
+```
+
+${statCardPart2}
+
+## 6. Why Python is reference-only here {#why-python-is-reference-only-here}
+
+R's geostatistics ecosystem (`gstat`, built on `sp`/`sf`) has been the
+standard tool for kriging since long before either language ran in a
+browser. Python's closest equivalent, `pykrige`, has no WebAssembly
+build anywhere. That's confirmed directly against this project, not
+assumed from general knowledge: there is no `pykrige` wheel published
+for Pyodide, and none of the usual pure-Python fallbacks
+(`scikit-gstat`, hand-rolled `numpy`) reach feature parity with
+`gstat`'s fitting routines without becoming a second, untested
+implementation of the exact algorithm this article is trying to teach
+correctly.
+
+This is a different situation from [Viewshed](/posts/raster-viewshed.html),
+this site's other R-only article. There, the Python *library* (GDAL)
+exists in principle but isn't in this specific browser runtime's
+package index. Here, there is no WebAssembly build of `pykrige` to
+load in the first place. That's a harder, more permanent gap than a
+narrower one.
+
+The snippet above is real, working `pykrige` code for a desktop or
+server Python environment; it just has nowhere to run inside this
+page.
+
+## 7. Where to next
+
+- **Just needed the map?** The
+  [standalone Kriging Interpolator](/tools/kriging-interpolator.html):
+  upload your own file, pick the column, choose a model, done.
+- **Want the simpler distance-only version first?** See
+  [Buffer/Proximity](/tools/buffer-proximity.html), which uses no
+  fitted model, just a fixed distance.
+
+First tool in the GeoStatistics family; more are planned.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

@@ -50,3 +50,12 @@ Python and R code side by side, plus a force-directed diagram of the
 graph itself.
 
 **[Network from Lines](posts/network-from-lines.qmd)**
+
+## GeoStatistics
+
+Predicting a continuous surface from sparse point samples — fitting a
+variogram model to how similar nearby points really are, instead of
+just averaging distance-weighted neighbors. Runs on R only; Python is
+shown as reference, with the reason explained plainly.
+
+**[Kriging Interpolator](posts/kriging-soil-sampling.qmd)**

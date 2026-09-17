@@ -65,3 +65,13 @@ pieces the network actually has.
 **Tools** — [Network from Lines](/tools/network-from-lines.html)
 
 **Articles** — [Network from Lines](/posts/network-from-lines.html)
+
+## GeoStatistics
+
+Predicting a continuous surface from sparse point samples — fitting a
+variogram model to how similar nearby points really are, instead of
+just averaging distance-weighted neighbors.
+
+**Tools** — [Kriging Interpolator](/tools/kriging-interpolator.html)
+
+**Articles** — [Kriging Interpolator](/posts/kriging-soil-sampling.html)

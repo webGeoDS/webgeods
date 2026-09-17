@@ -84,7 +84,13 @@
  *                status: "✓ example data loaded." },
  *     inspect: { cellId: "my-inspect-py",
  *                layers: [{ source, from, type, paint, fit, onClick }],
- *                stats: value => [["Label", value]] },
+ *                stats: value => [["Label", value]],
+ *                legend: value => [{ color, label }] }, // optional --
+ *                same shape as compute.legend below, shown instead of
+ *                it until Compute has actually run (see _renderLegend()
+ *                below) -- for a tool whose inspect layer already
+ *                colors data by value on its own (a client-side
+ *                preview), not every tool needs this,
  *     compute: { cellId: "my-compute-py", label: "▶ Compute",
  *                busyLabel: "⌛ Working...",
  *                inputs: [{ kind: "slider"|"checkbox"|"select", name,
@@ -942,15 +948,36 @@
 
     }
 
+    // Same compute-value-first, inspect-value-fallback shape as
+    // _renderStats() above -- until now, a tool whose inspect layer
+    // already colors its data by value (e.g. a preview computed
+    // entirely client-side, before any real compute run) had no way
+    // to show a matching legend for it: legend only ever read
+    // compute.legend, gated on state.result, which stays null until
+    // Compute actually runs.
     _renderLegend() {
 
-      const computeCfg =
-        this.config.compute;
+      const config =
+        this.config;
 
-      const items =
-        (this.state.result && computeCfg && computeCfg.legend)
-          ? computeCfg.legend(this.state.result)
-          : null;
+      let items;
+
+      if (this.state.result && config.compute && config.compute.legend) {
+
+        items =
+          config.compute.legend(this.state.result, this.state.inputs);
+
+      } else if (this.state.inspectValue && config.inspect && config.inspect.legend) {
+
+        items =
+          config.inspect.legend(this.state.inspectValue);
+
+      } else {
+
+        items =
+          null;
+
+      }
 
       this.legendWrapEl.replaceChildren(
         window.WebGeoDS.legend(items)

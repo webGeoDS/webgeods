@@ -107,6 +107,10 @@ website:
           - text: "---"
           - href: tools/network-from-lines.qmd
             text: Build Graph
+          # Fifth group, same "---"-as-anchor mechanism as above.
+          - text: "---"
+          - href: tools/kriging-interpolator.qmd
+            text: Interpolate
       - text: Articles
         menu:
           - href: articles.qmd
@@ -139,12 +143,16 @@ website:
           - text: "---"
           - href: posts/network-from-lines.qmd
             text: Build Graph
+          - text: "---"
+          - href: posts/kriging-soil-sampling.qmd
+            text: Interpolate
       - about.qmd
-    # Four groups per dropdown: "Vector" (renamed 2026-09-11 from
+    # Five groups per dropdown: "Vector" (renamed 2026-09-11 from
     # "Spatial Data Quality" once Buffer joined it as this group's
     # first non-quality-check tool — see roadmap-acquisizione.md),
-    # "Raster" (started 2026-09-06), "GeoML" (started 2026-09-09), and
-    # "Network" (started 2026-09-12) —
+    # "Raster" (started 2026-09-06), "GeoML" (started 2026-09-09),
+    # "Network" (started 2026-09-12), and "GeoStatistics" (started
+    # 2026-09-17) —
     # see include-after-body's script for how the "---" dividers
     # above become labeled headers.
   open-graph: true
@@ -227,7 +235,7 @@ format:
             // again in the future: forEach below only ever iterates
             // the dividers actually present in each dropdown.
             document.addEventListener("DOMContentLoaded", () => {
-              const GROUP_LABELS = ["Vector", "Raster", "GeoML", "Network"];
+              const GROUP_LABELS = ["Vector", "Raster", "GeoML", "Network", "GeoStatistics"];
               ["nav-menu-tools", "nav-menu-articles"].forEach((id) => {
                 const toggle = document.getElementById(id);
                 const dividers = toggle?.nextElementSibling?.querySelectorAll(".dropdown-divider");

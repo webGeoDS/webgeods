@@ -1,0 +1,691 @@
+---
+title: "Kriging Interpolator"
+date: 2026-09-17
+categories: [tool, geostatistics]
+description: "Upload sparse point samples (soil moisture, pH, pollution readings, anything measured at scattered locations) and predict a full continuous surface across the whole area — fitting a variogram model first, not just averaging nearby points. Runs entirely in your browser, powered by R."
+page-layout: full
+---
+
+Upload a point file with a numeric column — soil moisture, pH,
+pollutant concentration, anything measured at scattered sample
+locations — pick that column, and this tool fits a variogram model to
+how similar nearby points really are, then predicts a value everywhere
+across the area, not just at the points you measured.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your browser
+(R via WebAssembly) — it's never uploaded to any server, including
+ours. Nothing to configure, nothing to trust: the code never gets the
+chance to see your data.
+:::
+
+```{.webgeods-r #kriging-interpolator-example-r}
+#| package: sf
+library(sf)
+
+# Deterministic synthetic soil-moisture survey: 45 sample points
+# scattered across a roughly 800m x 600m field, with a real spatial
+# trend (a band of higher moisture, as if following a shallow
+# drainage line, plus a smaller ripple) and measurement noise on top
+# -- gives the variogram real spatial structure to find, not just
+# white noise a model could never fit meaningfully.
+set.seed(42)
+n <- 45
+
+lon0 <- 12.4450
+lat0 <- 41.8850
+# Rough local meters-per-degree at this latitude -- only used to size
+# the synthetic field in real-world terms, not a projection.
+dlon <- 800 / (111320 * cos(lat0 * pi / 180))
+dlat <- 600 / 110540
+
+x <- runif(n, 0, dlon)
+y <- runif(n, 0, dlat)
+
+trend <- 22 + 10 * exp(-((x / dlon - y / dlat)^2) / 0.08) + 3 * sin(4 * pi * x / dlon)
+moisture <- round(trend + rnorm(n, sd = 1.5), 1)
+
+pts <- st_as_sf(
+  data.frame(id = seq_len(n), soil_moisture_pct = moisture, lon = lon0 + x, lat = lat0 + y),
+  coords = c("lon", "lat"), crs = 4326
+)
+
+st_write(pts, "/uploaded.geojson", driver = "GeoJSON", delete_dsn = TRUE)
+
+"example soil moisture sample points written"
+```
+
+```{.webgeods-r #kriging-interpolator-inspect-r}
+#| package: sf, geojsonsf, jsonlite
+library(sf)
+library(geojsonsf)
+
+pts <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  pts <- tryCatch(st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(pts)) break
+}
+
+EMPTY_FC <- list(type = jsonlite::unbox("FeatureCollection"), features = list())
+
+# A column counts as usable for kriging if it's already numeric, or if
+# every non-missing value in it parses as a number (a common shape for
+# a column read from a CSV-derived GeoJSON, where numbers can arrive as
+# character strings) -- text/categorical columns are excluded rather
+# than crashing later inside variogram() with an opaque type error.
+looks_numeric <- function(v) {
+  if (is.numeric(v)) return(TRUE)
+  if (!is.character(v)) return(FALSE)
+  non_na <- v[!is.na(v)]
+  if (length(non_na) == 0) return(FALSE)
+  suppressWarnings(!any(is.na(as.numeric(non_na))))
+}
+
+crs_warning <- NULL
+summary_out <- NULL
+features_out <- EMPTY_FC
+
+if (!is.null(pts)) {
+  original_crs <- st_crs(pts)
+  if (is.na(original_crs)) {
+    pts <- st_set_crs(pts, 4326)
+    crs_warning <- "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
+    original_crs_label <- "Unknown (assumed WGS84)"
+  } else {
+    original_crs_label <- if (!is.na(original_crs$epsg)) paste0("EPSG:", original_crs$epsg) else original_crs$input
+    if (is.na(original_crs$epsg) || original_crs$epsg != 4326) {
+      pts <- st_transform(pts, 4326)
+    }
+  }
+
+  geom_col <- attr(pts, "sf_column")
+  cols <- setdiff(names(pts), geom_col)
+  numeric_cols <- cols[sapply(cols, function(c) looks_numeric(pts[[c]]))]
+
+  # Preview coloring: pick a default numeric column the same way
+  # Compute's own "Value column" input defaults (prefer
+  # "soil_moisture_pct", else the first numeric column found), so the
+  # map shows a meaningful preview immediately after Upload/Load
+  # example -- before the user has touched that selector at all, same
+  # as this tool's companion article, which has no column picker and
+  # colors its points the moment its one compute cell runs.
+  preview_col <- if ("soil_moisture_pct" %in% numeric_cols) {
+    "soil_moisture_pct"
+  } else if (length(numeric_cols) > 0) {
+    numeric_cols[1]
+  } else {
+    NA
+  }
+
+  preview_min <- NA
+  preview_max <- NA
+  pts_out <- pts
+  if (!is.na(preview_col)) {
+    preview_values <- suppressWarnings(as.numeric(as.character(sf::st_drop_geometry(pts)[[preview_col]])))
+    finite_values <- preview_values[is.finite(preview_values)]
+    if (length(finite_values) > 0) {
+      preview_min <- min(finite_values)
+      preview_max <- max(finite_values)
+      pts_out$.previewValue <- preview_values
+    }
+  }
+
+  summary_out <- list(
+    count = jsonlite::unbox(nrow(pts)),
+    crs = jsonlite::unbox(original_crs_label),
+    columns = cols,
+    numericColumns = numeric_cols,
+    previewColumn = if (is.na(preview_col)) NULL else jsonlite::unbox(preview_col),
+    previewMin = if (is.na(preview_min)) NULL else jsonlite::unbox(round(preview_min, 3)),
+    previewMax = if (is.na(preview_max)) NULL else jsonlite::unbox(round(preview_max, 3))
+  )
+  if (!is.null(crs_warning)) {
+    summary_out$crsWarning <- jsonlite::unbox(crs_warning)
+  }
+
+  features_out <- jsonlite::fromJSON(sf_geojson(pts_out), simplifyVector = FALSE)
+}
+
+list(features = features_out, summary = summary_out)
+```
+
+The code itself isn't shown here — it's a fixed, non-editable
+computation using `gstat::variogram()`, `fit.variogram()` and
+`krige()` underneath. Want to see the same pipeline built up one step
+at a time, and why this tool runs on R, not Python? Read
+[Interpolating Soil Moisture with Kriging](/posts/kriging-soil-sampling.html).
+
+```{.webgeods-r #kriging-interpolator-compute-r}
+#| inject: [valueColumn, variogramModel, gridResolution]
+#| package: sf, gstat, geojsonsf, jsonlite
+library(sf)
+library(gstat)
+library(geojsonsf)
+
+pts <- NULL
+for (path in c("/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip")) {
+  pts <- tryCatch(st_read(path, quiet = TRUE), error = function(e) NULL)
+  if (!is.null(pts)) break
+}
+if (is.na(st_crs(pts))) {
+  pts <- st_set_crs(pts, 4326)
+} else if (is.na(st_crs(pts)$epsg) || st_crs(pts)$epsg != 4326) {
+  pts <- st_transform(pts, 4326)
+}
+
+value_col <- valueColumn
+values_raw <- suppressWarnings(as.numeric(as.character(sf::st_drop_geometry(pts)[[value_col]])))
+value_mask <- !is.na(values_raw) & is.finite(values_raw)
+pts <- pts[value_mask, ]
+values_raw <- values_raw[value_mask]
+
+if (nrow(pts) < 5) {
+  stop(paste0(
+    "Need at least 5 points with a valid numeric value in \"", value_col,
+    "\" to fit a variogram — found ", nrow(pts), "."
+  ))
+}
+
+# Working/calculation CRS: a variogram fit on raw degrees would treat 1
+# degree of longitude and 1 degree of latitude as the same real
+# distance everywhere on Earth, which they aren't -- same UTM auto-pick
+# (bounding-box center) as this project's other vector tools.
+bbox <- st_bbox(pts)
+center_lon <- as.numeric((bbox["xmin"] + bbox["xmax"]) / 2)
+center_lat <- as.numeric((bbox["ymin"] + bbox["ymax"]) / 2)
+utm_zone <- floor((center_lon + 180) / 6) + 1
+calc_epsg <- if (center_lat >= 0) 32600 + utm_zone else 32700 + utm_zone
+calc_crs_label <- paste0("EPSG:", calc_epsg)
+
+pts_calc <- st_transform(pts, calc_epsg)
+pts_calc$.krige_value <- values_raw
+
+v_emp <- variogram(.krige_value ~ 1, pts_calc)
+
+init_range <- max(v_emp$dist) / 3
+init_psill <- var(pts_calc$.krige_value)
+v_model <- tryCatch(
+  fit.variogram(
+    v_emp,
+    vgm(psill = init_psill, model = variogramModel, range = init_range, nugget = init_psill / 4)
+  ),
+  error = function(e) NULL
+)
+
+if (is.null(v_model) || isTRUE(attr(v_model, "singular")) || any(v_model$psill < 0)) {
+  stop(paste0(
+    "Could not fit a ", variogramModel, " variogram model to this data ",
+    "(often too few points, or no real spatial structure to find). ",
+    "Try a different model, or more sample points."
+  ))
+}
+
+v_line <- variogramLine(v_model, maxdist = max(v_emp$dist), n = 100)
+
+# Prediction grid over the sample points' own extent, padded 5% on
+# each side so the surface doesn't stop exactly at the outermost
+# points. gridResolution cells along the LONGER side, same "cap the
+# cell count regardless of extent" formula as this project's other
+# grid-building tools (Spatial Classifier, e.g.).
+bbc <- st_bbox(pts_calc)
+pad_x <- as.numeric(bbc["xmax"] - bbc["xmin"]) * 0.05
+pad_y <- as.numeric(bbc["ymax"] - bbc["ymin"]) * 0.05
+gxmin <- as.numeric(bbc["xmin"]) - pad_x
+gxmax <- as.numeric(bbc["xmax"]) + pad_x
+gymin <- as.numeric(bbc["ymin"]) - pad_y
+gymax <- as.numeric(bbc["ymax"]) + pad_y
+
+longer_side <- max(gxmax - gxmin, gymax - gymin, 1e-6)
+cell_size <- longer_side / as.numeric(gridResolution)
+nx <- max(2, ceiling((gxmax - gxmin) / cell_size))
+ny <- max(2, ceiling((gymax - gymin) / cell_size))
+
+xs <- seq(gxmin, gxmax, length.out = nx)
+# Decreasing -- north (max) first: setRasterImage's own row-major
+# convention puts row 0 at the TOP of the image, i.e. the northernmost
+# row (see shared/map-raster.js), so the grid has to be built in that
+# same order rather than relying on any later reordering.
+ys <- seq(gymax, gymin, length.out = ny)
+# expand.grid varies its FIRST argument fastest -- x cycles through a
+# full row before y advances one step -- which is exactly row-major
+# order with x as the column index and y (already north-to-south) as
+# the row index. krige() below preserves this row order in its output.
+grid_df <- expand.grid(x = xs, y = ys)
+grid_sf <- st_as_sf(grid_df, coords = c("x", "y"), crs = calc_epsg)
+
+k <- krige(.krige_value ~ 1, pts_calc, grid_sf, model = v_model, debug.level = 0)
+pred <- as.numeric(k$var1.pred)
+var_pred <- as.numeric(k$var1.var)
+
+grid_bbox_calc <- st_sfc(
+  st_polygon(list(matrix(
+    c(gxmin, gymin, gxmax, gymin, gxmax, gymax, gxmin, gymax, gxmin, gymin),
+    ncol = 2, byrow = TRUE
+  ))),
+  crs = calc_epsg
+)
+bb_wgs84 <- st_bbox(st_transform(grid_bbox_calc, 4326))
+
+con <- rawConnection(raw(0), "wb")
+writeBin(pred, con, size = 4, endian = "little")
+raw_bytes <- rawConnectionValue(con)
+close(con)
+pred_b64 <- jsonlite::base64_enc(raw_bytes)
+
+pts_wgs84 <- st_transform(pts_calc, 4326)
+pts_wgs84$value <- pts_wgs84$.krige_value
+pts_out <- pts_wgs84[, "value"]
+
+result_out <- list(
+  summary = list(
+    count = jsonlite::unbox(nrow(pts_calc)),
+    calculationCrs = jsonlite::unbox(calc_crs_label),
+    valueColumn = jsonlite::unbox(value_col),
+    variogramModel = jsonlite::unbox(variogramModel),
+    nugget = jsonlite::unbox(round(v_model$psill[1], 4)),
+    partialSill = jsonlite::unbox(round(v_model$psill[2], 4)),
+    range = jsonlite::unbox(round(v_model$range[2], 1)),
+    gridResolution = jsonlite::unbox(as.numeric(gridResolution)),
+    gridCellCount = jsonlite::unbox(length(pred)),
+    meanPrediction = jsonlite::unbox(round(mean(pred, na.rm = TRUE), 3)),
+    meanVariance = jsonlite::unbox(round(mean(var_pred, na.rm = TRUE), 4))
+  ),
+  variogram = list(
+    empirical = list(dist = round(v_emp$dist, 2), gamma = round(v_emp$gamma, 5), npairs = v_emp$np),
+    fitted = list(dist = round(v_line$dist, 2), gamma = round(v_line$gamma, 5))
+  ),
+  raster = list(
+    width = jsonlite::unbox(nx),
+    height = jsonlite::unbox(ny),
+    data = jsonlite::unbox(pred_b64),
+    wgs84Bounds = round(c(bb_wgs84["xmin"], bb_wgs84["ymin"], bb_wgs84["xmax"], bb_wgs84["ymax"]), 6),
+    min = jsonlite::unbox(round(min(pred, na.rm = TRUE), 3)),
+    max = jsonlite::unbox(round(max(pred, na.rm = TRUE), 3))
+  )
+)
+
+out <- jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)
+# Attached AFTER the round-trip above, not inside it: sf_geojson()
+# already returns finished JSON, and a second toJSON() pass would turn
+# every scalar inside it back into a one-element array (same reasoning
+# as spatial-classification.qmd's own compute cell).
+out$samplePoints <- jsonlite::fromJSON(sf_geojson(pts_out), simplifyVector = FALSE)
+out
+```
+
+*First run loads the R engine — expect 1-3 minutes (R's WebAssembly
+build is noticeably slower to start than this site's Python tools).
+Instant after that, and again each time you come back to this page.*
+
+<div id="ki-dashboard"></div>
+
+<!-- Page-local, not site-wide -- same reasoning as spatial-classifier.qmd's
+     own comment: only this one tool (so far) needs the ~828KB vega
+     bundle. -->
+<script src="/vega.min.js"></script>
+<script src="/vega-lite.min.js"></script>
+<script src="/vega-embed.min.js"></script>
+<script src="/vega-chart.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+
+  const KRIGE_RAMP = [
+    [0.00, 166, 97, 26],
+    [0.25, 223, 194, 125],
+    [0.50, 245, 245, 245],
+    [0.75, 128, 205, 193],
+    [1.00, 1, 133, 113]
+  ];
+
+  // Same 5 colors as KRIGE_RAMP above, as literal MapLibre stops --
+  // shared by the inspect-preview layer, the compute layer, and the
+  // map legend below, so a point's fill is always the exact color the
+  // surface would show at that spot, not a rough match. Bringing this
+  // paint expression under a single function also fixed a different
+  // problem: with a hand-duplicated 3-stop expression (the tool's
+  // first version), most points -- anything near the middle of the
+  // range -- rendered almost pure white, reading as "not colored at
+  // all" against the light basemap. The heavier stroke keeps every
+  // point visible as a distinct marker even at that near-white
+  // midpoint, where the fill alone barely shows.
+  const KRIGE_POINT_COLORS = [
+    "rgb(166,97,26)", "rgb(223,194,125)", "rgb(245,245,245)", "rgb(128,205,193)", "rgb(1,133,113)"
+  ];
+  const krigeCirclePaint = (min, max, field) => {
+    const step = (max - min) / 4;
+    return {
+      "circle-radius": 6,
+      "circle-color": [
+        "interpolate", ["linear"], ["get", field],
+        min, KRIGE_POINT_COLORS[0],
+        min + step, KRIGE_POINT_COLORS[1],
+        min + step * 2, KRIGE_POINT_COLORS[2],
+        min + step * 3, KRIGE_POINT_COLORS[3],
+        max, KRIGE_POINT_COLORS[4]
+      ],
+      "circle-stroke-color": "#2a2117",
+      "circle-stroke-width": 1.5
+    };
+  };
+
+  const base64ToBytes = (base64Str) => {
+    const binary = atob(base64Str);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  };
+
+  window.kiChart = null;
+
+  new WebGeoDS.Dashboard({
+    tool: "kriging-interpolator",
+    mount: "#ki-dashboard",
+    layout: { sidePanel: { id: "ki-chart", flex: "1 1 280px", minWidth: "260px" } },
+    upload: { languages: ["r"], kind: "vector", label: "📁 Upload" },
+    example: {
+      cellId: "kriging-interpolator-example-r",
+      kind: "geojson",
+      status: "✓ example soil-moisture samples loaded — pick the value column and Interpolate below."
+    },
+    emptyStats: [
+      ["Points", "—"],
+      ["—", "Upload a point GeoJSON/Shapefile or load the example above"]
+    ],
+    inspect: {
+      cellId: "kriging-interpolator-inspect-r",
+      layers: [
+        // Colored the moment data loads (Upload/Load example), same
+        // as this tool's companion article -- the inspect cell itself
+        // already picked a best-guess default column (see its own
+        // "preview coloring" comment) and returns its min/max under
+        // v.summary, so this doesn't have to wait for the user to
+        // touch the Value column selector or click Interpolate.
+        { source: "kriging-interpolator-points-r", from: (v) => v.features, type: "circle", fit: true,
+          paint: (v) => {
+            const s = v.summary;
+            if (!s || s.previewMin == null || s.previewMax == null) {
+              return undefined;
+            }
+            return krigeCirclePaint(s.previewMin, s.previewMax, ".previewValue");
+          } }
+      ],
+      stats: (v) => {
+        const s = v.summary;
+        if (!s) return [["Points", "—"], ["—", "Upload a point GeoJSON/Shapefile or load the example above"]];
+        const rows = [
+          ["Points", s.count.toLocaleString()],
+          ["Original CRS", s.crs]
+        ];
+        if (s.crsWarning) rows.push(["CRS warning", s.crsWarning]);
+        if (!s.numericColumns || s.numericColumns.length === 0) {
+          rows.push(["⚠️", "No numeric column found to interpolate"]);
+        }
+        return rows;
+      },
+      // Shown from the moment data loads, using the SAME preview
+      // min/max the layer above colors points with -- otherwise the
+      // map would show colored points with no key explaining them
+      // until Interpolate is clicked, even though the color scale is
+      // already live. Replaced by compute.legend's own (slightly
+      // different, post-kriging) min/max once Interpolate actually
+      // runs -- see _renderLegend()'s own doc comment in dashboard.js
+      // for why this field exists alongside compute.legend.
+      legend: (v) => {
+        const s = v.summary;
+        if (!s || s.previewMin == null || s.previewMax == null) {
+          return null;
+        }
+        return [
+          { color: KRIGE_POINT_COLORS[0], label: `low (≈ ${s.previewMin}%)` },
+          { color: KRIGE_POINT_COLORS[2], label: "mid" },
+          { color: KRIGE_POINT_COLORS[4], label: `high (≈ ${s.previewMax}%)` }
+        ];
+      }
+    },
+    compute: {
+      cellId: "kriging-interpolator-compute-r",
+      label: "▶ Interpolate",
+      busyLabel: "⌛ Kriging...",
+      inputs: [
+        { kind: "select", name: "valueColumn", label: "Value column:",
+          options: (v) => v.summary?.numericColumns ?? [],
+          default: (v) => v.summary?.numericColumns?.includes("soil_moisture_pct")
+            ? "soil_moisture_pct" : v.summary?.numericColumns?.[0] },
+        { kind: "select", name: "variogramModel", label: "Model:",
+          options: () => ["Sph", "Exp", "Gau"],
+          default: () => "Sph" },
+        { kind: "slider", name: "gridResolution", label: "Grid resolution", range: [10, 40], value: 25, step: 5 }
+      ],
+      layers: [
+        { source: "kriging-interpolator-points-r", from: (v) => v.samplePoints, type: "circle",
+          paint: (v) => krigeCirclePaint(v.raster.min, v.raster.max, "value") }
+      ],
+      stats: (v) => {
+        const s = v.summary;
+        return [
+          ["Points used", s.count.toLocaleString()],
+          ["Calculation CRS", s.calculationCrs],
+          ["Value column", s.valueColumn],
+          ["Variogram model", s.variogramModel],
+          ["Nugget", s.nugget],
+          ["Partial sill", s.partialSill],
+          ["Range (m)", s.range],
+          ["Grid cells", s.gridCellCount.toLocaleString()],
+          ["Mean prediction", s.meanPrediction],
+          ["Mean prediction variance", s.meanVariance]
+        ];
+      },
+      // The map's own legend -- what the colors on both the surface
+      // and the sample points actually mean. The chart alongside
+      // needs none of its own: it's a plain distance-vs-semivariance
+      // plot with only ever the same three series (points, fitted
+      // line, reference lines), already named in its own title/axis
+      // labels, not a map of a color to a category.
+      legend: (v) => [
+        { color: KRIGE_POINT_COLORS[0], label: `low (≈ ${v.raster.min}%)` },
+        { color: KRIGE_POINT_COLORS[2], label: "mid" },
+        { color: KRIGE_POINT_COLORS[4], label: `high (≈ ${v.raster.max}%)` }
+      ],
+      onResult: async (v) => {
+
+        const dashboard =
+          WebGeoDS.Dashboard.find("kriging-interpolator");
+
+        window.kiChart?.destroy();
+        window.kiChart = null;
+
+        if (!v) {
+          await dashboard.map.removeRasterImage("kriging-interpolator-surface");
+          return;
+        }
+
+        await dashboard.map.setRasterImage("kriging-interpolator-surface", {
+          bounds: v.raster.wgs84Bounds,
+          width: v.raster.width,
+          height: v.raster.height,
+          values: new Float32Array(base64ToBytes(v.raster.data).buffer),
+          min: v.raster.min,
+          max: v.raster.max,
+          colorRamp: KRIGE_RAMP
+        });
+
+        // setRasterImage() always adds a brand-new layer ON TOP of
+        // whatever already exists (shared/map-raster.js's own
+        // addLayer() call takes no beforeId) -- moveLayer() with a
+        // single id argument brings the sample points back above the
+        // surface every run, so the actual measurements stay visible
+        // rather than being hidden under the interpolated colors.
+        const rawMap = dashboard.map?.map;
+        if (rawMap && rawMap.getLayer("kriging-interpolator-points-r")) {
+          rawMap.moveLayer("kriging-interpolator-points-r");
+        }
+
+        const empRows = v.variogram.empirical.dist.map((d, i) => ({
+          dist: d, gamma: v.variogram.empirical.gamma[i], npairs: v.variogram.empirical.npairs[i], key: `emp-${i}`
+        }));
+        const fitRows = v.variogram.fitted.dist.map((d, i) => ({
+          dist: d, gamma: v.variogram.fitted.gamma[i], key: `fit-${i}`
+        }));
+
+        const nugget = v.summary.nugget;
+        const sill = v.summary.nugget + v.summary.partialSill;
+        const range = v.summary.range;
+        const maxDist = Math.max(range, ...empRows.map((d) => d.dist), ...fitRows.map((d) => d.dist));
+        const maxGamma = Math.max(sill, ...empRows.map((d) => d.gamma), ...fitRows.map((d) => d.gamma));
+
+        // A live-measured NUMBER, not "container" + "fit-x" autosize:
+        // found live that Vega-Lite/vega-embed's own container
+        // measurement is unreliable here specifically -- it reads 0
+        // often enough to matter (an invisible, zero-width chart),
+        // apparently racing against the map's own async resize
+        // handling that runs right after setRasterImage() above
+        // (shared/map.js's ResizeObserver reacting to the just-added
+        // raster layer). A plain getBoundingClientRect() taken here,
+        // synchronously, is not subject to that race.
+        const chartWidth = dashboard.sidePanelEl.getBoundingClientRect().width || 300;
+
+        // No cross-linking need here (one map, one chart, nothing else
+        // to select into) -- shared/vega-chart.js's renderVegaChart()
+        // still requires a point-selection param and an externalParam
+        // regardless (see its own doc comment), so this supplies the
+        // minimum it asks for rather than a real interaction.
+        window.kiChart = await WebGeoDS.renderVegaChart(dashboard.sidePanelEl, {
+          "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+          "title": "Empirical variogram and fitted model",
+          "width": chartWidth,
+          "height": 220,
+          "autosize": { "type": "pad" },
+          "params": [{ "name": "krigeExternal", "value": null }],
+          "layer": [
+            {
+              "data": { "values": empRows },
+              "params": [{ "name": "krigeSelect", "select": { "type": "point", "fields": ["key"] } }],
+              "mark": { "type": "point", "filled": true, "size": 70, "color": "#42583c" },
+              "encoding": {
+                // Explicit domains, padded 5% past whichever is
+                // larger -- the empirical/fitted rows, or nugget/sill/
+                // range -- rather than Vega-Lite's own per-layer
+                // domain inference: found live that a "datum" (not
+                // "field") encoding on the reference-line layers below
+                // does NOT reliably extend the shared scale the way a
+                // field-sourced value does, so sill (typically the
+                // largest y value of the three) could plot just above
+                // the domain the point/line layers alone would imply,
+                // clipped by the chart's own edge instead of visible.
+                "x": { "field": "dist", "type": "quantitative", "title": "Distance (m)", "scale": { "domain": [0, maxDist * 1.05] } },
+                "y": { "field": "gamma", "type": "quantitative", "title": "Semivariance", "scale": { "domain": [0, maxGamma * 1.05] } },
+                "tooltip": [
+                  { "field": "dist", "title": "Distance (m)" },
+                  { "field": "gamma", "title": "Semivariance" },
+                  { "field": "npairs", "title": "Point pairs" }
+                ]
+              }
+            },
+            {
+              "data": { "values": fitRows },
+              "mark": { "type": "line", "color": "#ab502b" },
+              "encoding": {
+                "x": { "field": "dist", "type": "quantitative" },
+                "y": { "field": "gamma", "type": "quantitative" }
+              }
+            },
+            // Reference lines for the same nugget/sill/range the stat
+            // card already reports, in the same style as the article's
+            // own hand-rolled d3 chart -- "datum" (a literal value),
+            // not "field", since these three numbers come from
+            // v.summary, not a per-row dataset column. Each rule gets
+            // an EXPLICIT x/x2 (or y/y2) span rather than encoding only
+            // y (or only x) for an implicit full-width/full-height
+            // line: found live that Vega-Lite's "fit-x" + "width:
+            // container" autosize resolves to width 0 for the whole
+            // chart when any layer's rule has no x-domain-contributing
+            // encoding at all to size against.
+            {
+              "data": { "values": [{}] },
+              "mark": { "type": "rule", "strokeDash": [4, 3], "color": "#8a8378" },
+              "encoding": {
+                "x": { "datum": 0, "type": "quantitative" },
+                "x2": { "datum": maxDist },
+                "y": { "datum": nugget, "type": "quantitative" }
+              }
+            },
+            {
+              "data": { "values": [{}] },
+              "mark": { "type": "text", "align": "left", "baseline": "bottom", "dx": 8, "dy": -4, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
+              "encoding": {
+                "y": { "datum": nugget, "type": "quantitative" },
+                "x": { "datum": 0, "type": "quantitative" },
+                "text": { "value": `nugget ${nugget}` }
+              }
+            },
+            {
+              "data": { "values": [{}] },
+              "mark": { "type": "rule", "strokeDash": [4, 3], "color": "#8a8378" },
+              "encoding": {
+                "x": { "datum": 0, "type": "quantitative" },
+                "x2": { "datum": maxDist },
+                "y": { "datum": sill, "type": "quantitative" }
+              }
+            },
+            {
+              "data": { "values": [{}] },
+              "mark": { "type": "text", "align": "right", "baseline": "bottom", "dx": -2, "dy": -2, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
+              "encoding": {
+                "y": { "datum": sill, "type": "quantitative" },
+                "x": { "datum": maxDist, "type": "quantitative" },
+                "text": { "value": `sill ${sill}` }
+              }
+            },
+            {
+              "data": { "values": [{}] },
+              "mark": { "type": "rule", "strokeDash": [4, 3], "color": "#8a8378" },
+              "encoding": {
+                "x": { "datum": range, "type": "quantitative" },
+                "y": { "datum": 0, "type": "quantitative" },
+                "y2": { "datum": maxGamma }
+              }
+            },
+            {
+              "data": { "values": [{}] },
+              "mark": { "type": "text", "align": "left", "baseline": "top", "dx": 3, "dy": 3, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
+              "encoding": {
+                "x": { "datum": range, "type": "quantitative" },
+                "y": { "datum": 0, "type": "quantitative" },
+                "text": { "value": `range ${range}m` }
+              }
+            }
+          ]
+        }, {
+          selectParams: ["krigeSelect"],
+          externalParam: "krigeExternal",
+          keyField: "key",
+          onSelect: () => {}
+        });
+
+      }
+    }
+  });
+
+});
+</script>
+
+<style>
+#kriging-interpolator-example-r, #kriging-interpolator-inspect-r, #kriging-interpolator-compute-r {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+First tool in the GeoStatistics family. The green dots are your own
+sample points (brown = low, teal = high, on the same scale as the
+surface underneath); the colored surface is the prediction everywhere
+else. Want the code, or why this runs on R, not Python? Read the
+<a href="/posts/kriging-soil-sampling.html">full article</a>.
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

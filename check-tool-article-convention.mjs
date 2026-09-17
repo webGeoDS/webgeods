@@ -45,6 +45,10 @@ const BILINGUAL_EXCEPTIONS = new Map([
     "raster-viewshed.qmd",
     "no viewshed implementation exists in this browser's Python runtime (rasterio/GDAL have no viewshed function usable in Pyodide) -- Python is shown as an inert reference code block only, not an executable cell.",
   ],
+  [
+    "kriging-soil-sampling.qmd",
+    "pykrige has no WebAssembly build anywhere (not just missing from this browser's package index, unlike raster-viewshed.qmd's GDAL gap) -- Python is shown as an inert reference code block only, not an executable cell.",
+  ],
 ]);
 
 let failed = false;
