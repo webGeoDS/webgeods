@@ -24,34 +24,36 @@ never gets the chance to see your data.
 ```{.webgeods-python #spatial-classifier-example-py}
 import json
 
-# Deterministic synthetic dataset -- two groups, cleanly separated in
-# space, each carrying a fixed "class" label. Same coordinates as the
-# clustering tool's own EXAMPLE_POINTS (first and third groups,
-# already verified well-separated), minus the scattered noise points
-# -- classification wants clean labeled data, not noise to explain
-# away.
-north = [
-    [12.450066, 41.900016], [12.450332, 41.900159], [12.450202, 41.900152],
-    [12.450017, 41.899721], [12.449639, 41.899781], [12.44983, 41.900398],
-    [12.450168, 41.900137], [12.44989, 41.899805], [12.449684, 41.90032],
-    [12.45028, 41.900272], [12.449961, 41.899825], [12.450273, 41.899636],
-]
-south = [
-    [12.455277, 41.884832], [12.454614, 41.884991], [12.454621, 41.884723],
-    [12.45535, 41.884793], [12.45486, 41.885091], [12.455187, 41.885068],
-    [12.455246, 41.885086], [12.455096, 41.884671], [12.454816, 41.884664],
-    [12.45532, 41.885381],
-]
+# Deterministic synthetic survey, the same one the companion article
+# (Predicting Spatial Classes with Random Forest) builds from the same
+# rule: 150 points on an irregular lattice, three bands whose
+# boundaries undulate across the area, and one point in nine
+# relabelled to stand in for survey error.
+#
+# An earlier version reused the clustering tool's own well-separated
+# groups. That suits clustering, where separation is the point, but it
+# makes classification meaningless to evaluate: two clean clusters
+# score a perfect held-out accuracy on every class, so the accuracy
+# panel had nothing to report. The label noise below is what gives the
+# confusion matrix something real to show.
+NEXT_CLASS = {"south": "centre", "centre": "north", "north": "south"}
 
-features = [
-    {"type": "Feature", "properties": {"name": f"point {i + 1}", "class": "north"},
-     "geometry": {"type": "Point", "coordinates": coord}}
-    for i, coord in enumerate(north)
-] + [
-    {"type": "Feature", "properties": {"name": f"point {len(north) + i + 1}", "class": "south"},
-     "geometry": {"type": "Point", "coordinates": coord}}
-    for i, coord in enumerate(south)
-]
+features = []
+for i in range(150):
+    col, row = i % 15, i // 15
+    lon = 12.4450 + col * 0.0010 + ((i * 37) % 11 - 5) / 10000
+    lat = 41.8850 + row * 0.0012 + ((i * 53) % 13 - 6) / 12000
+    # Triangular wave on the column index: the band boundaries rise and
+    # fall, so no single horizontal cut separates the classes.
+    tri = abs((col * 2) % 8 - 4) - 2
+    cls = "south" if row < 3 + tri else ("centre" if row < 6 + tri else "north")
+    if i % 9 == 0:
+        cls = NEXT_CLASS[cls]
+    features.append({
+        "type": "Feature",
+        "properties": {"name": f"point {i + 1}", "class": cls},
+        "geometry": {"type": "Point", "coordinates": [lon, lat]}
+    })
 
 with open("/uploaded.geojson", "w") as f:
     json.dump({"type": "FeatureCollection", "features": features}, f)
@@ -195,19 +197,26 @@ splittable_classes = {c for c in class_labels if class_counts[c] >= 2}
 splittable_mask = np.isin(y, list(splittable_classes))
 can_split = len(splittable_classes) >= 2 and int(splittable_mask.sum()) >= 6
 
+# The split is done on ROW INDICES, not on the coordinate arrays
+# directly: the confusion matrix below needs to say which individual
+# points were held out and what each was predicted as, so that clicking
+# a matrix cell can highlight exactly those points on the map. Splitting
+# X/y alone would discard that identity.
+splittable_idx = np.flatnonzero(splittable_mask)
+
 if can_split:
-    X_split, y_split = X[splittable_mask], y[splittable_mask]
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_split, y_split, test_size=0.2, stratify=y_split, random_state=0
+    train_idx, test_idx = train_test_split(
+        splittable_idx, test_size=0.2, stratify=y[splittable_idx], random_state=0
     )
     # Singleton-class points never entered the split above -- always
     # trained on, never tested (there's nothing meaningful to test a
     # 1-example class against).
-    X_always_train, y_always_train = X[~splittable_mask], y[~splittable_mask]
-    if len(X_always_train) > 0:
-        X_train = np.vstack([X_train, X_always_train])
-        y_train = np.concatenate([y_train, y_always_train])
+    train_idx = np.concatenate([train_idx, np.flatnonzero(~splittable_mask)])
+    X_train, y_train = X[train_idx], y[train_idx]
+    X_test, y_test = X[test_idx], y[test_idx]
 else:
+    train_idx = np.arange(len(y))
+    test_idx = np.array([], dtype=int)
     X_train, y_train = X, y
     X_test, y_test = None, None
 
@@ -225,6 +234,7 @@ accuracy = float((model.predict(X_test) == y_test).mean()) if X_test is not None
 # no test split at all -- not "the model got it wrong every time",
 # which 0.0 would misleadingly claim.
 class_accuracy = {}
+y_pred_test = None
 if X_test is not None:
     y_pred_test = model.predict(X_test)
     for c in class_labels:
@@ -235,6 +245,25 @@ if X_test is not None:
                 "accuracy": float((y_pred_test[test_mask] == y_test[test_mask]).mean()),
                 "testCount": n
             }
+
+# Confusion matrix over the held-out points: which class was predicted
+# for points that really belong to each class. The diagonal is the same
+# information as class_accuracy above; the off-diagonal is what that
+# number can't tell you -- WHERE the errors go.
+#
+# Only the pairs that actually occur are listed, not a full N x N grid:
+# a file with many classes would otherwise carry a payload growing with
+# the square of the class count, for a matrix that is mostly zeros. At
+# most one entry per held-out point.
+confusion = []
+if y_pred_test is not None:
+    pair_counts = {}
+    for true_cls, pred_cls in zip(y_test.tolist(), y_pred_test.tolist()):
+        pair_counts[(true_cls, pred_cls)] = pair_counts.get((true_cls, pred_cls), 0) + 1
+    confusion = [
+        {"trueClass": t, "predictedClass": p, "count": int(n)}
+        for (t, p), n in sorted(pair_counts.items())
+    ]
 
 # Regular square-cell grid over the *full uploaded extent* (gdf's own
 # bounds, not just the labeled subset) -- gridResolution cells along
@@ -286,8 +315,30 @@ grid_wgs84 = grid_gdf.to_crs("EPSG:4326")
 training_wgs84 = labeled.copy()
 training_wgs84 = training_wgs84.rename(columns={classColumn: "class"})
 
+# Per-point held-out flag and prediction, so a click on a confusion
+# matrix cell can resolve to the individual points behind that cell.
+# Training points carry an empty prediction rather than their own
+# class: they were never predicted, and filling in the true value would
+# make them indistinguishable from correctly classified test points.
+# test_idx indexes X/y, which cover only the points that survived
+# finite_mask above -- training_wgs84 keeps every labeled point,
+# including any that couldn't be projected. The positions have to be
+# mapped back through finite_mask rather than used directly: with the
+# built-in example the two happen to line up (nothing is excluded), so
+# a direct index would look correct here and silently mark the wrong
+# points on an upload that spans too wide an area.
+finite_positions = np.flatnonzero(finite_mask)
+held_out_flags = np.zeros(len(training_wgs84), dtype=bool)
+predicted_labels = np.full(len(training_wgs84), "", dtype=object)
+if y_pred_test is not None:
+    original_positions = finite_positions[test_idx]
+    held_out_flags[original_positions] = True
+    predicted_labels[original_positions] = y_pred_test
+training_wgs84["heldOut"] = held_out_flags
+training_wgs84["predictedClass"] = predicted_labels
+
 {
-    "trainingFeatures": training_wgs84[["class", "geometry"]].__geo_interface__,
+    "trainingFeatures": training_wgs84[["class", "heldOut", "predictedClass", "geometry"]].__geo_interface__,
     "gridFeatures": grid_wgs84.__geo_interface__,
     "originalCrsFeatures": export_crs(grid_wgs84).__geo_interface__,
     "summary": {
@@ -307,6 +358,7 @@ training_wgs84 = training_wgs84.rename(columns={classColumn: "class"})
         # instead of a second pass over the same data.
         "classCounts": class_counts,
         "classAccuracy": class_accuracy,
+        "confusion": confusion,
         "labeledCount": int(len(labeled)),
         "excludedCount": excluded_count,
         "trainCount": int(len(X_train)),
@@ -424,8 +476,17 @@ document.addEventListener("DOMContentLoaded", () => {
             palette: WebGeoDS.DEFAULT_PALETTE, fill: true, strokeWidth: 1.5
           }) },
         { source: "spatial-classifier-training-py", from: (v) => v.trainingFeatures, type: "circle",
-          paint: (v) => WebGeoDS.matchPaint(v.summary.classLabels, "class", {
-            palette: WebGeoDS.DEFAULT_PALETTE, strokeWidth: 1.5
+          paint: (v) => ({
+            ...WebGeoDS.matchPaint(v.summary.classLabels, "class", {
+              palette: WebGeoDS.DEFAULT_PALETTE, strokeWidth: 1.5
+            }),
+            // Held-out (test) points get a thicker outline, ALWAYS --
+            // not only once one is selected. Without this, nothing on
+            // the map says which ~20% of the dots the confusion matrix
+            // and "Test accuracy" above are even about, before or
+            // after a click; heldOut is already on every feature (see
+            // the compute cell above).
+            "circle-stroke-width": ["case", ["==", ["get", "heldOut"], true], 3, 1.5]
           }),
           // Map -> chart half of the cross-link (chart -> map is the
           // chart's own onSelect below) -- declared right next to the
@@ -449,15 +510,21 @@ document.addEventListener("DOMContentLoaded", () => {
         rows.push(["Train / test split", r.testCount > 0 ? `${r.trainCount} / ${r.testCount}` : `${r.trainCount} / — (too few points to hold out)`]);
         // Python's None crosses over as JS `undefined`, not `null` (a
         // known site-wide ambiguity) -- loose equality catches both.
-        rows.push(["Held-out accuracy", r.accuracy == null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`]);
+        rows.push(["Test accuracy", r.accuracy == null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`]);
         rows.push(["Trees", r.nTrees]);
         rows.push(["Grid cells", r.gridCellCount.toLocaleString()]);
         return rows;
       },
-      legend: (v) => v.summary.classLabels.map((label, i) => ({
-        color: WebGeoDS.DEFAULT_PALETTE[i % WebGeoDS.DEFAULT_PALETTE.length],
-        label
-      })),
+      legend: (v) => [
+        ...v.summary.classLabels.map((label, i) => ({
+          color: WebGeoDS.DEFAULT_PALETTE[i % WebGeoDS.DEFAULT_PALETTE.length],
+          label
+        })),
+        // Documents the outline added to the training-points layer
+        // above -- a style distinction, not a class, hence outline:
+        // true (a hollow swatch) instead of one more filled color.
+        { color: "#2a2117", label: "held out for testing", outline: true }
+      ],
       // Declarative table (compute.table -- Dashboard's first use of
       // it, replacing what used to be a hand-wired tableCell() OJS
       // cell below): the training points, cross-linked to the chart
@@ -502,16 +569,90 @@ document.addEventListener("DOMContentLoaded", () => {
         const dashboard =
           WebGeoDS.Dashboard.find("spatial-classifier");
 
+        // Fades the training points so a matrix selection (always a
+        // held-out subset, ~20% of the dots) doesn't have to compete
+        // visually with the other 80% that were never part of the
+        // evaluation. Left OFF for a bars selection, which selects
+        // every point of a class -- training included -- so fading
+        // them there would hide part of what that selection means.
+        // setPaintProperty(), not a declarative layers[].paint field:
+        // this reacts to a chart click, which the Dashboard config
+        // has no hook for (paint is only ever recomputed from the
+        // compute value, see the config's own layers[] doc comment).
+        const setTrainingFade = (faded) => {
+          const rawMap = dashboard.map?.map;
+          if (!rawMap || !rawMap.getLayer("spatial-classifier-training-py")) {
+            return;
+          }
+          rawMap.setPaintProperty(
+            "spatial-classifier-training-py",
+            "circle-opacity",
+            faded ? ["case", ["==", ["get", "heldOut"], true], 1, 0.12] : 1
+          );
+        };
+
+        // The selection highlight is a SEPARATE overlay layer drawn ON
+        // TOP of the training layer (see shared/map-table.js's own
+        // selectionPaint()), with a flat color+radius and no stroke --
+        // so a selected held-out point loses its thicker ring the
+        // moment it's selected: the opaque highlight circle covers the
+        // base point, ring included. Called after EVERY selectMany()
+        // below, not just once: that same source gets its paint
+        // reset to the flat default on every single selection change
+        // (setGeoJSON() re-applies options.paint each time), which
+        // would otherwise wipe this override out on the very next
+        // click.
+        const restyleHighlightStroke = () => {
+          const rawMap = dashboard.map?.map;
+          if (!rawMap) {
+            return;
+          }
+          // No public API exposes the overlay's own layer id --
+          // map-table.js deliberately keeps SELECTION_SOURCE_ID
+          // internal, one per call to _tableController() (see its own
+          // doc comment: "per-CALL, not a fixed name"). Found instead
+          // by its "__webgeods_selection_" prefix, stable even though
+          // the numeric suffix isn't -- exactly one such layer can
+          // exist here, since this tool has only one compute.table.
+          const highlightLayer =
+            rawMap.getStyle().layers.find((l) => l.id.startsWith("__webgeods_selection_"));
+          if (!highlightLayer) {
+            // Nothing selected right now -- removeGeoJSON() already
+            // tore the layer down (selectByKeys()'s own doc comment).
+            return;
+          }
+          rawMap.setPaintProperty(highlightLayer.id, "circle-stroke-color", "#2a2117");
+          rawMap.setPaintProperty(
+            highlightLayer.id,
+            "circle-stroke-width",
+            ["case", ["==", ["get", "heldOut"], true], 3, 0]
+          );
+        };
+
         window.scClassChart?.destroy();
         window.scClassChart = null;
 
         if (!v) {
-          // Called with null on reset -- nothing to draw.
+          // Called with null on reset -- nothing to draw. The layer
+          // itself is gone too (Reset clears the map's own sources),
+          // but the paint override isn't tied to the data, so it would
+          // otherwise carry over, faded, into the next Compute run.
+          setTrainingFade(false);
           return;
         }
 
+        // Every row of both panels carries its selection key under the
+        // SAME field name, `key`: shared/vega-chart.js reads one
+        // keyField for the whole spec (see its selectParams doc
+        // comment), so two panels keying on differently-named fields
+        // would leave one of them returning undefined on click. The
+        // distribution panel's key is the class; the matrix's is the
+        // "true>predicted" pair, and onSelect below tells them apart by
+        // the separator.
+        const PAIR_SEPARATOR = ">";
+
         const distRows =
-          Object.entries(v.summary.classCounts).map(([cls, count]) => ({ cls, count }));
+          Object.entries(v.summary.classCounts).map(([cls, count]) => ({ cls, count, key: cls }));
 
         // Classes with NO held-out points (a singleton class, or no
         // test split at all -- see class_accuracy's own doc comment in
@@ -520,7 +661,26 @@ document.addEventListener("DOMContentLoaded", () => {
         // wrong".
         const accRows =
           Object.entries(v.summary.classAccuracy)
-            .map(([cls, a]) => ({ cls, accuracy: a.accuracy, testCount: a.testCount }));
+            .map(([cls, a]) => ({ cls, accuracy: a.accuracy, testCount: a.testCount, key: cls }));
+
+        const confusionRows =
+          (v.summary.confusion ?? []).map((c) => ({
+            trueClass: c.trueClass,
+            predictedClass: c.predictedClass,
+            count: c.count,
+            correct: c.trueClass === c.predictedClass,
+            key: `${c.trueClass}${PAIR_SEPARATOR}${c.predictedClass}`
+          }));
+
+        // A confusion matrix is only readable while it stays small: the
+        // class column comes from an uploaded file and can hold dozens
+        // of values, and a 30x30 grid of rects in a narrow side panel
+        // tells nobody anything. Past that, the per-class accuracy bars
+        // are kept instead -- they degrade into a long readable list
+        // where a matrix degrades into confetti.
+        const MAX_MATRIX_CLASSES = 6;
+        const useMatrix =
+          confusionRows.length > 0 && v.summary.classLabels.length <= MAX_MATRIX_CLASSES;
 
         // Shared color scale/condition, used identically by both
         // panels below -- written once rather than duplicated, so the
@@ -571,7 +731,7 @@ document.addEventListener("DOMContentLoaded", () => {
               // reported bug (chart -> map/table not propagating) for
               // a minor, unreported UX polish item.
               "params": [
-                { "name": "classSelectDist", "select": { "type": "point", "fields": ["cls"] } }
+                { "name": "classSelectDist", "select": { "type": "point", "fields": ["key"] } }
               ],
               "mark": "bar",
               "encoding": {
@@ -584,18 +744,72 @@ document.addEventListener("DOMContentLoaded", () => {
                 "color": classColor
               }
             },
-            {
-              "title": "Held-out accuracy per class",
+            useMatrix ? {
+              "title": { "text": "Confusion matrix", "subtitle": "held-out points only" },
+              "width": "container",
+              "height": 130,
+              "data": { "values": confusionRows },
+              "layer": [
+                {
+                  // The selection param belongs to THIS layer, not to
+                  // the layered spec around it: declared one level up,
+                  // Vega-Lite pushes it into every child and the rect
+                  // and text layers then register the same signal
+                  // twice, which fails outright with "Duplicate signal
+                  // name: classSelectAcc_tuple" and leaves the whole
+                  // chart undrawn.
+                  "params": [
+                    { "name": "classSelectAcc", "select": { "type": "point", "fields": ["key"] } }
+                  ],
+                  "mark": { "type": "rect", "stroke": "#ffffff", "strokeWidth": 1 },
+                  "encoding": {
+                    "color": {
+                      // Selected cell takes the same yellow a map or
+                      // table selection uses; otherwise correct cells
+                      // (the diagonal) are green and errors red, so the
+                      // shape of the mistakes reads before any number
+                      // does. Opacity carries the count.
+                      "condition": { "test": "datum.key === classExternal", "value": "#ffeb3b" },
+                      "field": "correct",
+                      "type": "nominal",
+                      "scale": { "domain": [true, false], "range": ["#42583c", "#ab502b"] },
+                      "legend": null
+                    },
+                    "opacity": {
+                      "field": "count", "type": "quantitative",
+                      "scale": { "range": [0.35, 1] }, "legend": null
+                    }
+                  }
+                },
+                {
+                  // The count written into the cell: colour alone reads
+                  // poorly as a magnitude, and with a handful of
+                  // classes there is room for the number itself.
+                  "mark": { "type": "text", "fontSize": 11, "fontWeight": 600 },
+                  "encoding": {
+                    "text": { "field": "count", "type": "quantitative" },
+                    "color": { "value": "#ffffff" }
+                  }
+                }
+              ],
+              "encoding": {
+                "x": { "field": "predictedClass", "type": "nominal", "title": "Predicted",
+                       "scale": { "domain": v.summary.classLabels } },
+                "y": { "field": "trueClass", "type": "nominal", "title": "Actual",
+                       "scale": { "domain": v.summary.classLabels } }
+              }
+            } : {
+              "title": { "text": "Test accuracy per class", "subtitle": "held-out points only" },
               "width": "container",
               "height": 100,
               "data": { "values": accRows },
               "params": [
-                { "name": "classSelectAcc", "select": { "type": "point", "fields": ["cls"] } }
+                { "name": "classSelectAcc", "select": { "type": "point", "fields": ["key"] } }
               ],
               "mark": "bar",
               "encoding": {
                 "x": { "field": "cls", "type": "nominal", "title": "Class" },
-                "y": { "field": "accuracy", "type": "quantitative", "title": "Held-out accuracy",
+                "y": { "field": "accuracy", "type": "quantitative", "title": "Test accuracy",
                        "scale": { "domain": [0, 1] }, "axis": { "format": "%" } },
                 "color": classColor
               }
@@ -604,7 +818,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }, {
           selectParams: ["classSelectDist", "classSelectAcc"],
           externalParam: "classExternal",
-          keyField: "cls",
+          keyField: "key",
           // Chart -> map+table half of the cross-link. Reuses the
           // SAME selection mechanism a map click or a table-row click
           // already drives -- reached directly as `dashboard.table`
@@ -627,7 +841,7 @@ document.addEventListener("DOMContentLoaded", () => {
           // is many points, not one representative one -- unlike
           // network-from-lines.qmd's node/diagram cross-link, where a
           // click really is a single node).
-          onSelect: (cls) => {
+          onSelect: async (selectedKey) => {
 
             const tableSelection =
               dashboard.table;
@@ -636,20 +850,46 @@ document.addEventListener("DOMContentLoaded", () => {
               return;
             }
 
-            if (!cls) {
+            if (!selectedKey) {
+              // Deselected -- also drops the training-point fade, so
+              // leaving either panel this way always returns the map
+              // to its normal state.
+              setTrainingFade(false);
               // Bar deselected -- selectMany() toggles OFF when
               // called with the SAME set again, same as re-clicking
               // every one of those features/rows by hand.
               if (window.scLastTableKeys) {
-                tableSelection.selectMany(window.scLastTableKeys);
+                await tableSelection.selectMany(window.scLastTableKeys);
+                restyleHighlightStroke();
               }
               window.scLastTableKeys = null;
               return;
             }
 
+            // Two shapes of key arrive here, told apart by the
+            // separator (see PAIR_SEPARATOR above). A class on its own
+            // comes from the distribution panel and means every point
+            // of that class. A "true>predicted" pair comes from the
+            // confusion matrix and means only the HELD-OUT points
+            // behind that cell -- so clicking an off-diagonal cell puts
+            // exactly the misclassified points on the map, which is the
+            // question a confusion matrix is usually asked.
+            const [trueClass, predictedClass] =
+              selectedKey.split(PAIR_SEPARATOR);
+
+            // Set before the keys lookup below (not after), so it
+            // still applies even in the rare case a cell or class
+            // resolves to zero points.
+            setTrainingFade(predictedClass !== undefined);
+
+            const matches =
+              predictedClass === undefined
+                ? (p) => p.class === trueClass
+                : (p) => p.heldOut === true && p.class === trueClass && p.predictedClass === predictedClass;
+
             const keys =
               v.trainingFeatures.features
-                .filter((f) => f.properties.class === cls)
+                .filter((f) => matches(f.properties))
                 .map((f) => `spatial-classifier-training-py:${Number(f.id)}`);
 
             if (keys.length === 0) {
@@ -659,7 +899,8 @@ document.addEventListener("DOMContentLoaded", () => {
             window.scLastTableKeys =
               keys;
 
-            tableSelection.selectMany(keys);
+            await tableSelection.selectMany(keys);
+            restyleHighlightStroke();
 
           }
         });
@@ -673,9 +914,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
 <div class="webgeods-closing-note" style="margin-top: 4px;">
 The filled grid is the model's prediction; the dots on top are your
-own labeled points, colored the same way — where a dot's color
-doesn't match the patch under it, that's a training error, the same
-one the held-out accuracy above is measuring.
+own labeled points, colored the same way. The thicker-outlined dots
+are the ones held out for testing (see the legend) — for one of
+those, a color that doesn't match the patch under it is exactly the
+error the test accuracy above is measuring. A thin-outlined dot was
+used to train the model, so a mismatch there says something different:
+a point the model still gets wrong even after seeing it.
+<br><br>
+The matrix reads actual class down the side, predicted class across
+the bottom, so the diagonal is what the model got right and everything
+off it is where the mistakes went. Click any cell to put those points
+on the map and the table: unlike the bar chart above it, which selects
+every point of a class, a cell selects only the <em>held-out</em>
+points behind that cell (the same thicker-outlined dots) — an
+off-diagonal click is therefore the shortest way to see exactly which
+points were misclassified, and
+where they are.
 </div>
 
 ```{ojs}

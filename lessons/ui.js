@@ -118,7 +118,7 @@
     wrap.style.rowGap =
       "8px";
 
-    for (const { color, label } of items) {
+    for (const { color, label, outline } of items) {
 
       const swatch =
         document.createElement("div");
@@ -129,8 +129,24 @@
       swatch.style.flex =
         `0 0 ${swatchWidth}px`;
 
-      swatch.style.background =
-        color;
+      // outline: true renders a hollow box (border only) instead of a
+      // filled one, for a legend entry describing a STYLE distinction
+      // (e.g. "this outline marks held-out points") rather than a
+      // category color -- filling it would misread as one more class.
+      if (outline) {
+
+        swatch.style.background =
+          "transparent";
+
+        swatch.style.border =
+          `2px solid ${color}`;
+
+      } else {
+
+        swatch.style.background =
+          color;
+
+      }
 
       const labelEl =
         document.createElement("span");
