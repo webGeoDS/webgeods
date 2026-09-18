@@ -85,12 +85,20 @@
  *     inspect: { cellId: "my-inspect-py",
  *                layers: [{ source, from, type, paint, fit, onClick }],
  *                stats: value => [["Label", value]],
- *                legend: value => [{ color, label }] }, // optional --
+ *                legend: value => [{ color, label }], // optional --
  *                same shape as compute.legend below, shown instead of
  *                it until Compute has actually run (see _renderLegend()
  *                below) -- for a tool whose inspect layer already
  *                colors data by value on its own (a client-side
  *                preview), not every tool needs this,
+ *                onResult: value => { ... } }, // optional -- same
+ *                escape hatch as compute.onResult below, fired from
+ *                _runInspectInner() instead of runCompute(); called
+ *                with `null` on reset() too. For a tool with NO
+ *                compute.cellId at all (pure inspection, nothing for
+ *                the user to configure first) -- otherwise
+ *                compute.onResult is the right place, since it also
+ *                receives that step's own inputs.
  *     compute: { cellId: "my-compute-py", label: "▶ Compute",
  *                busyLabel: "⌛ Working...",
  *                inputs: [{ kind: "slider"|"checkbox"|"select", name,
@@ -655,6 +663,17 @@
       this._renderLegend();
       this._syncSelectInputs(value);
 
+      // Same escape hatch as compute.onResult (below, runCompute()),
+      // for a tool whose whole job IS inspect -- no compute.cellId at
+      // all, e.g. a file-inspection summary with nothing for the user
+      // to configure before seeing a result. Without this, a tool
+      // like that had no way to populate layout.sidePanel (a chart,
+      // say) from anything: onResult only ever fired from the
+      // compute lifecycle, never from this one, even though the map/
+      // stats/legend above already support an inspect-only tool just
+      // fine.
+      cfg.onResult?.(value);
+
     }
 
 
@@ -794,9 +813,12 @@
         this._renderLegend();
         this._renderDiagram(this.config.compute?.diagram, null);
 
-        // Same onResult hook runCompute() calls, with `null` -- lets
-        // a tool-specific escape hatch clear itself on reset too.
+        // Same onResult hook runCompute()/_runInspectInner() call,
+        // with `null` -- lets a tool-specific escape hatch clear
+        // itself on reset too, regardless of which lifecycle it's
+        // actually wired to.
         this.config.compute?.onResult?.(null);
+        this.config.inspect?.onResult?.(null);
 
         // AFTER onResult(null): a tool without compute.diagram (e.g.
         // Spatial Classifier, whose onResult renders straight into

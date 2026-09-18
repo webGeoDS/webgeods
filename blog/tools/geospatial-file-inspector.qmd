@@ -2,7 +2,7 @@
 title: "GeoSpatial File Inspector"
 date: 2026-09-05
 categories: [tool, geometry]
-description: "Upload a GeoJSON or a Shapefile and get an instant summary — feature count, geometry type, CRS, bounds, attributes, invalid/empty/duplicate geometries. Free, runs entirely in your browser: the file never leaves your computer."
+description: "Upload a GeoJSON or a Shapefile and get an instant summary — feature count, geometry type, CRS, bounds, attributes, invalid/empty/duplicate geometries, and a chart per attribute column. Free, runs entirely in your browser: the file never leaves your computer."
 page-layout: full
 ---
 
@@ -17,100 +17,50 @@ including ours. Nothing to configure, nothing to trust: the code
 never gets the chance to see your data.
 :::
 
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
+```{.webgeods-python #inspect-example-py}
+import json
 
-```{ojs}
-//| echo: false
-// Pulses the status text while true — set around both the actual
-// file write AND the automatic inspection that follows it, same
-// pattern as every other tool on this site.
-mutable uploadBusy = false
-```
+# Deliberately varied, not just geometry-focused: one exact duplicate,
+# one invalid (self-intersecting) geometry, one missing numeric value,
+# a genuinely low-cardinality categorical column ("zone") and a
+# genuinely high-cardinality one ("name", unique per feature) -- so
+# every stat AND every column-profile kind (numeric, categorical,
+# too-many-distinct-values) has something real to show.
+ZONES = ["residential", "commercial", "industrial"]
+features = []
+for i in range(20):
+    col, row = i % 5, i // 5
+    x0, y0 = 12.40 + col * 0.05, 41.80 + row * 0.05
+    x1, y1 = x0 + 0.04, y0 + 0.04
+    population = None if i == 7 else 100 + i * 37
+    features.append({
+        "type": "Feature",
+        "properties": {
+            "name": f"parcel-{i + 1}",
+            "zone": ZONES[i % 3],
+            "population": population
+        },
+        "geometry": {"type": "Polygon", "coordinates": [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]}
+    })
 
-```{ojs}
-//| echo: false
-// The current file selection — a plain `mutable`, written by
-// uploadControl's onChange below. See WebGeoDS.Upload.createControl's
-// doc comment in shared/upload.js for why this is a native
-// <input type="file"> instead of a `viewof`-bound Observable Inputs
-// widget.
-mutable uploadedFiles = null
-```
+# An exact duplicate of parcel-1 (same coordinates, different name) --
+# tests the duplicate-geometry check.
+dup = json.loads(json.dumps(features[0]))
+dup["properties"]["name"] = "parcel-1-copy"
+features.append(dup)
 
-```{ojs}
-//| echo: false
-mutable uploadKind = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// The upload control itself — a native <input type="file"> wrapped
-// in a <label> styled as a .webgeods-panel-btn. output:false + only
-// ever consumed via controlPanelRow's row.append() below (same
-// reasoning as loadExampleButton/downloadButton there): folding it
-// into that one JS-built row, instead of giving it its own
-// `${uploadControl}` markdown interpolation, sidesteps a real bug
-// found on geojson-shapefile-validator.qmd — two `${...}`
-// interpolations on separate paragraphs each get wrapped in their own
-// <p> by Pandoc, and each <p> becomes an independent flex item,
-// breaking vertical alignment between them.
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "📁 Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
+# The same self-intersecting "bowtie" shape this tool's example has
+# always used to test geometry validity.
+features.append({
+    "type": "Feature",
+    "properties": {"name": "bowtie (invalid)", "zone": "residential", "population": None},
+    "geometry": {"type": "Polygon", "coordinates": [[[12.75, 41.80], [12.85, 41.90], [12.75, 41.90], [12.85, 41.80], [12.75, 41.80]]]}
 })
-```
 
-```{ojs}
-//| echo: false
-//| output: false
-{
-  // Python-only tool: skip writing to R's filesystem entirely, so
-  // selecting a file doesn't also load webR in the background for no
-  // reason (see shared/upload.js's `languages` option doc).
-  mutable uploadBusy = true;
-  mutable uploadStatus = "⌛ Uploading...";
-  try {
-    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
-    if (result.ok) {
-      mutable uploadKind = result.kind;
-      mutable uploadStatus = "⌛ Inspecting...";
-      await autoInspect();
-      mutable uploadStatus = result.message;
-    } else {
-      mutable uploadStatus = result.message;
-    }
-  } finally {
-    mutable uploadBusy = false;
-  }
-}
-```
+with open("/uploaded.geojson", "w") as f:
+    json.dump({"type": "FeatureCollection", "features": features}, f)
 
-```{ojs}
-//| echo: false
-//| output: false
-// Only ever shown via ${uploadStatusEl} inside the panel — see
-// loadExampleButton's comment for why this needs output:false too.
-uploadStatusEl = {
-  const span = document.createElement("span");
-  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
-  span.textContent = uploadStatus;
-  return span;
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  window.WebGeoDS.track?.("tool_loaded", { tool: "geospatial-file-inspector" });
-  return map;
-}
+"example data written"
 ```
 
 The code itself isn't shown here — it's a fixed, non-editable summary
@@ -118,56 +68,11 @@ using GeoPandas/Shapely underneath; see the
 [full article](/posts/geospatial-file-inspection.html) for the actual
 code, editable and explained one stat at a time.
 
-```{ojs}
-//| echo: false
-//| output: false
-// No fallback on page load anymore (an earlier version of this
-// pattern — see geojson-shapefile-validator.qmd's own history —
-// diagnosed hardcoded data automatically) — the page starts genuinely
-// empty until the user either uploads a file or clicks "Load
-// example" below. A small, deliberately imperfect dataset: one exact
-// duplicate (b2), one invalid geometry (bowtie), so every stat in the
-// summary below has something real to show.
-EXAMPLE_GEOJSON = JSON.stringify({
-  type: "FeatureCollection",
-  features: [
-    { type: "Feature", properties: { name: "square-1", population: 1200 }, geometry: { type: "Polygon", coordinates: [[[12.40, 41.80], [12.50, 41.80], [12.50, 41.90], [12.40, 41.90], [12.40, 41.80]]] } },
-    { type: "Feature", properties: { name: "square-1-copy", population: 1200 }, geometry: { type: "Polygon", coordinates: [[[12.40, 41.80], [12.50, 41.80], [12.50, 41.90], [12.40, 41.90], [12.40, 41.80]]] } },
-    { type: "Feature", properties: { name: "triangle", population: 340 }, geometry: { type: "Polygon", coordinates: [[[12.60, 41.80], [12.70, 41.80], [12.65, 41.90], [12.60, 41.80]]] } },
-    { type: "Feature", properties: { name: "bowtie (invalid)", population: null }, geometry: { type: "Polygon", coordinates: [[[12.75, 41.80], [12.85, 41.90], [12.75, 41.90], [12.85, 41.80], [12.75, 41.80]]] } }
-  ]
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-loadExampleButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "📋 Load example";
-  button.onclick = async () => {
-    mutable uploadBusy = true;
-    mutable uploadStatus = "⌛ Loading example...";
-    try {
-      const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
-      await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
-      mutable uploadKind = "geojson";
-      mutable uploadStatus = "⌛ Inspecting...";
-      await autoInspect();
-      mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
-    } finally {
-      mutable uploadBusy = false;
-    }
-  };
-  return button;
-}
-```
-
 ```{.webgeods-python #inspect-py}
 #| package: geopandas, shapely
 import geopandas as gpd
+import numpy as np
+import pandas as pd
 
 gdf = None
 for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
@@ -186,6 +91,65 @@ crs_warning = None
 if gdf is not None and gdf.crs is None:
     gdf = gdf.set_crs("EPSG:4326")
     crs_warning = "No CRS found in the file — assuming WGS84 (EPSG:4326)."
+
+# A chart per attribute column, for the side panel -- computed BEFORE
+# the fillna("") pass further down (that fillna exists only so a
+# missing value survives JSON serialization of the map/download
+# features as an empty string, not to change what "missing" means
+# here; doing this after it would turn a numeric column's real nulls
+# into non-numeric empty strings and break both the numeric check and
+# the null count).
+#
+# A column earns a chart if it's numeric (a distribution is always
+# meaningful), or if it's non-numeric with few enough distinct values
+# to read as genuinely categorical (zoning, road type, status) rather
+# than a near-unique identifier (name, id) where a bar per value would
+# say nothing. MAX_CATEGORIES is the one knob for that line.
+MAX_CATEGORIES = 15
+
+column_profiles = []
+if gdf is not None:
+    for col in [c for c in gdf.columns if c != "geometry"]:
+        series = gdf[col]
+        non_null = series.dropna()
+        null_count = int(series.isna().sum())
+
+        if len(non_null) == 0:
+            column_profiles.append({"name": col, "kind": "empty"})
+            continue
+
+        if pd.api.types.is_numeric_dtype(series):
+            values = non_null.to_numpy(dtype=float)
+            distinct_values = len(set(values))
+            counts, edges = np.histogram(values, bins=min(10, max(1, distinct_values)))
+            column_profiles.append({
+                "name": col,
+                "kind": "numeric",
+                "binEdges": [round(float(e), 4) for e in edges],
+                "counts": [int(c) for c in counts],
+                "nullCount": null_count
+            })
+            continue
+
+        value_counts = non_null.astype(str).value_counts()
+        if len(value_counts) <= 1:
+            column_profiles.append({
+                "name": col, "kind": "constant",
+                "value": str(value_counts.index[0]) if len(value_counts) == 1 else None
+            })
+        elif len(value_counts) > MAX_CATEGORIES:
+            column_profiles.append({
+                "name": col, "kind": "highCardinality",
+                "distinctCount": int(len(value_counts))
+            })
+        else:
+            column_profiles.append({
+                "name": col,
+                "kind": "categorical",
+                "categories": value_counts.index.tolist(),
+                "counts": [int(c) for c in value_counts.to_numpy()],
+                "nullCount": null_count
+            })
 
 if gdf is not None:
     if "name" not in gdf.columns:
@@ -230,6 +194,7 @@ map_gdf = gdf if (gdf is None or gdf.crs == "EPSG:4326") else gdf.to_crs("EPSG:4
 {
     "features": gdf.__geo_interface__ if gdf is not None else {"type": "FeatureCollection", "features": []},
     "mapFeatures": map_gdf.__geo_interface__ if map_gdf is not None else {"type": "FeatureCollection", "features": []},
+    "columnProfiles": column_profiles,
     "summary": {
         "total": len(gdf) if gdf is not None else 0,
         "geometryTypes": geometry_types,
@@ -245,7 +210,7 @@ map_gdf = gdf if (gdf is None or gdf.crs == "EPSG:4326") else gdf.to_crs("EPSG:4
 ```
 
 ```{.webgeods-python #inspect-export-shp-py}
-# Only run on demand (see downloadButton below), not on every
+# Only run on demand (see the download button below), not on every
 # inspect: re-exports gdf (already in the file's own native CRS, see
 # inspect-py's own comments -- no reprojection needed) as an actual
 # shapefile (geopandas.to_file()), zips the resulting
@@ -269,232 +234,298 @@ with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
 base64.b64encode(buf.getvalue()).decode("ascii")
 ```
 
-```{ojs}
-//| echo: false
-//| output: false
-autoInspect = async () => {
-  await window.WebGeoDS.CodeCell.find("inspect-py").run();
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Same coloring convention as geojson-shapefile-validator.qmd's
-// VALIDITY_PAINT — green valid, red invalid — so a reader who has
-// already seen that tool recognizes the color language immediately.
-INSPECT_PAINT = ({
-  "fill-color": [
-    "case",
-    ["==", ["get", "valid"], true],
-    "#2ea44f",
-    "#e05252"
-  ],
-  "fill-opacity": 0.55
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Line companion to INSPECT_PAINT -- the example's own "bowtie
-// (invalid)" feature is a self-intersecting polygon, which
-// tessellates to a ZERO-area fill in MapLibre (verified empirically:
-// only the square and the triangle were ever visible, the bowtie
-// never was). WebGeoDS.toOutlineFeatures() (shared/ui.js) draws every
-// feature's ring as a line too, which has no such dependency -- same
-// fix as geometry-validity.qmd and geospatial-file-inspection.qmd.
-INSPECT_OUTLINE_PAINT = ({
-  "line-color": [
-    "case",
-    ["==", ["get", "valid"], true],
-    "#2ea44f",
-    "#e05252"
-  ],
-  "line-width": 2.5
-})
-```
-
-```{ojs}
-//| echo: false
-// The summary card's own state, separate from reading pyInspect
-// directly: pyInspect is the CodeCell's cached value, which Reset
-// below has no way to clear (there's nothing to re-run) — without
-// this, clicking Reset would empty the map but leave the summary card
-// showing stale numbers. Set alongside the map update below, cleared
-// alongside the map reset further down, so the two always agree.
-mutable inspectSummary = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
-{
-  if (pyInspect) {
-    // mapFeatures, not features: the map needs WGS84, the summary
-    // card (and the download button below) intentionally keep the
-    // file's own native CRS — see inspect-py's own comment.
-    await sharedMap.setGeoJSON("inspect-py", pyInspect.mapFeatures, { paint: INSPECT_PAINT });
-    await sharedMap.setGeoJSON("inspect-py-outline", WebGeoDS.toOutlineFeatures(pyInspect.mapFeatures), { paint: INSPECT_OUTLINE_PAINT });
-    // Zooms to whatever was just inspected — an upload or "Load
-    // example" — same as every other tool. A no-op on an empty
-    // FeatureCollection.
-    await sharedMap.fitToData(pyInspect.mapFeatures);
-    mutable inspectSummary = pyInspect.summary;
-    // See geojson-shapefile-validator.qmd's own comment on this same
-    // call -- the Tool Utility Rate funnel's own step, distinct from
-    // the generic code_run_completed.
-    window.WebGeoDS.track?.("validation_completed", { tool: "geospatial-file-inspector" });
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-resetInspector = async () => {
-  for (const id of ["inspect-py", "inspect-py-outline"]) {
-    if (sharedMap.getGeoJSON(id)) {
-      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
-    }
-  }
-  mutable inspectSummary = null;
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-resetMapButton = WebGeoDS.resetButton(resetInspector)
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// WebGeoDS.downloadButton (shared/ui.js). Downloads the enriched
-// GeoJSON (original columns + valid/empty/duplicate) in the file's
-// own native CRS — pyInspect.features, not the map source: the map
-// source holds the WGS84 copy reprojected just for display (see
-// inspect-py/pyInspect's comments), and a downloaded file should give
-// back the same CRS it came in. When the upload was itself a
-// shapefile, the `shapefile` option re-exports one instead (see
-// downloadButton's own doc comment in shared/ui.js).
-downloadButton = WebGeoDS.downloadButton({
-  getFeatures: () => pyInspect?.features,
-  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
-  filenameSuffix: "-inspected.geojson",
-  defaultFilename: "inspected.geojson",
-  enabled: !!pyInspect,
-  tool: "geospatial-file-inspector",
-  shapefile: {
-    cellId: "inspect-export-shp-py",
-    uploadKind,
-    filenameSuffix: "-inspected.zip",
-    defaultFilename: "inspected-shapefile.zip"
-  }
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// output:false: this cell's own definition sits well before the
-// panel in the document — without it, the fully-grouped row would
-// flash into view there FIRST (Quarto's own auto-display), then
-// disappear and reappear down in the panel once ${controlPanelRow}
-// mounts the same node — same reasoning as every button cell above.
-controlPanelRow = {
-  const row = document.createElement("div");
-  row.className = "webgeods-panel-row";
-  row.append(uploadControl, loadExampleButton, downloadButton, resetMapButton);
-  const status = document.createElement("span");
-  status.className = "webgeods-panel-status";
-  status.textContent = "";
-  row.appendChild(status);
-  return row;
-}
-```
-
 *First run loads the Python engine — expect 30-40 seconds. Instant
 after that, and again each time you come back to this page.*
 
-:::: {.webgeods-panel}
+<div id="gfi-dashboard"></div>
 
-::: {.webgeods-panel-row}
-${controlPanelRow}
-:::
+<!-- Page-local, not site-wide -- same reasoning as spatial-classifier.qmd's
+     own comment: only this tool's column-profile carousel needs the
+     ~828KB vega bundle among the Vector Toolkit tools. -->
+<script src="/vega.min.js"></script>
+<script src="/vega-lite.min.js"></script>
+<script src="/vega-embed.min.js"></script>
+<script src="/vega-chart.js"></script>
 
-::: {.webgeods-panel-row}
-${uploadStatusEl}
-:::
+<script>
+document.addEventListener("DOMContentLoaded", () => {
 
-::::
-
-```{ojs}
-//| echo: false
-// Reactive directly on inspectSummary (a mutable set alongside the
-// map, cleared alongside it too — see resetInspector), not on the
-// map's "sourcedata" event like other tools' stats lines: reading
-// straight from pyInspect instead would have left this showing stale
-// numbers after Reset, since there's no cell to re-run that would
-// naturally clear it. Physically positioned here, between the panel
-// and the map, matching the roadmap's own sketch of this tool:
-// controls, then a summary card, then the map to see it on.
-statCard = {
-  const s = inspectSummary;
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
+  // Keeps every carousel-card label short and bounded regardless of
+  // the uploaded data's own category names or bin edges -- the full
+  // value still reaches the reader via the chart's own tooltip.
+  const truncateLabel = (text, max = 12) => {
+    const str = String(text);
+    return str.length > max ? `${str.slice(0, max - 1)}…` : str;
   };
 
-  if (!s || s.total === 0) {
-    row("Features", "0");
-    row("—", "Upload a file or load the example above");
-    return box;
+  // Same coloring convention as geojson-shapefile-validator.qmd's
+  // VALIDITY_PAINT — green valid, red invalid — so a reader who has
+  // already seen that tool recognizes the color language immediately.
+  const INSPECT_PAINT = {
+    "fill-color": ["case", ["==", ["get", "valid"], true], "#2ea44f", "#e05252"],
+    "fill-opacity": 0.55
+  };
+
+  // Line companion to INSPECT_PAINT -- a self-intersecting polygon
+  // (this tool's own "bowtie" example) tessellates to a ZERO-area
+  // fill in MapLibre, so its fill color alone would never be visible.
+  // WebGeoDS.toOutlineFeatures() (shared/ui.js) draws every feature's
+  // ring as a line too, which has no such dependency.
+  const INSPECT_OUTLINE_PAINT = {
+    "line-color": ["case", ["==", ["get", "valid"], true], "#2ea44f", "#e05252"],
+    "line-width": 2.5
+  };
+
+  let gfiDownloadBtn = null;
+
+  new WebGeoDS.Dashboard({
+    tool: "geospatial-file-inspector",
+    mount: "#gfi-dashboard",
+    layout: {
+      sidePanel: {
+        id: "gfi-carousel",
+        flex: "1 1 320px",
+        minWidth: "280px",
+        placeholder: "A chart per attribute column appears here after you upload a file or load the example."
+      }
+    },
+    upload: { languages: ["python"], kind: "vector", label: "📁 Upload" },
+    example: {
+      cellId: "inspect-example-py",
+      kind: "geojson",
+      status: "✓ example data loaded — ready for all the cells below."
+    },
+    emptyStats: [
+      ["Features", "0"],
+      ["—", "Upload a file or load the example above"]
+    ],
+    // No `compute` block at all -- this tool has no separate action
+    // for the user to configure and run: it's pure, automatic
+    // inspection, upload/example straight to a result. That's exactly
+    // the gap `inspect.onResult` below fills in Dashboard itself (see
+    // shared/dashboard.js's own doc comment on it): every other
+    // sidePanel tool on this site populates it from a compute step
+    // this one simply doesn't have.
+    inspect: {
+      cellId: "inspect-py",
+      layers: [
+        { source: "inspect-py", from: (v) => v.mapFeatures, type: "fill", paint: () => INSPECT_PAINT, fit: true },
+        { source: "inspect-py-outline", from: (v) => WebGeoDS.toOutlineFeatures(v.mapFeatures), type: "line", paint: () => INSPECT_OUTLINE_PAINT }
+      ],
+      stats: (v) => {
+        const s = v.summary;
+        if (!s || s.total === 0) {
+          return [["Features", "0"], ["—", "Upload a file or load the example above"]];
+        }
+        const geometryLabel = s.geometryTypes.length > 1
+          ? `Mixed (${s.geometryTypes.join(", ")})`
+          : (s.geometryTypes[0] ?? "—");
+        return [
+          ["Features", s.total.toLocaleString()],
+          ["Geometry", geometryLabel],
+          ["CRS", s.crsWarning ? `${s.crs} ⚠️ ${s.crsWarning}` : (s.crs ?? "Unknown")],
+          ["Bounds", s.bounds ? s.bounds.join(", ") : "—"],
+          ["Attributes", `${s.attributeNames.length}${s.attributeNames.length > 0 ? ` (${s.attributeNames.join(", ")})` : ""}`],
+          ["Invalid", String(s.invalid)],
+          ["Empty", String(s.empty)],
+          ["Duplicates", String(s.duplicates)]
+        ];
+      },
+      legend: (v) => (v.summary && v.summary.total > 0)
+        ? [{ color: "#2ea44f", label: "Valid" }, { color: "#e05252", label: "Invalid" }]
+        : null,
+      onResult: (v) => {
+
+        if (gfiDownloadBtn) {
+          gfiDownloadBtn.disabled = !v || !v.summary || v.summary.total === 0;
+        }
+
+        if (!v || !v.summary || v.summary.total === 0) {
+          return;
+        }
+
+        const dashboard =
+          WebGeoDS.Dashboard.find("geospatial-file-inspector");
+
+        const navRow = document.createElement("div");
+        navRow.className = "webgeods-carousel-nav-row";
+        const prevBtn = document.createElement("button");
+        prevBtn.className = "webgeods-panel-btn";
+        prevBtn.dataset.variant = "outline";
+        prevBtn.textContent = "‹";
+        const nextBtn = document.createElement("button");
+        nextBtn.className = "webgeods-panel-btn";
+        nextBtn.dataset.variant = "outline";
+        nextBtn.textContent = "›";
+
+        const carousel = document.createElement("div");
+        carousel.className = "webgeods-carousel";
+
+        // One card width (220px) + its gap (12px) -- matches
+        // .webgeods-carousel-card/.webgeods-carousel's own CSS
+        // (shared/styles.css), so one click moves exactly one card.
+        prevBtn.onclick = () => carousel.scrollBy({ left: -232, behavior: "smooth" });
+        nextBtn.onclick = () => carousel.scrollBy({ left: 232, behavior: "smooth" });
+
+        navRow.append(prevBtn, nextBtn);
+        dashboard.sidePanelEl.replaceChildren(navRow, carousel);
+
+        (v.columnProfiles || []).forEach((profile, i) => {
+
+          const card = document.createElement("div");
+          card.className = "webgeods-carousel-card";
+
+          const title = document.createElement("div");
+          title.className = "webgeods-carousel-title";
+          title.textContent = profile.name;
+          title.title = profile.name;
+          card.appendChild(title);
+
+          const note = (text) => {
+            const el = document.createElement("div");
+            el.className = "webgeods-carousel-note";
+            el.textContent = text;
+            card.appendChild(el);
+          };
+
+          if (profile.kind === "empty") {
+            note("No data in this column.");
+          } else if (profile.kind === "constant") {
+            note(`Every value is "${profile.value}".`);
+          } else if (profile.kind === "highCardinality") {
+            note(`${profile.distinctCount} distinct values — too many for a readable chart.`);
+          } else {
+
+            const isNumeric =
+              profile.kind === "numeric";
+
+            // binFull/category kept alongside the truncated label
+            // (bin) so the tooltip still shows the real value even
+            // when the on-chart label itself is shortened.
+            const rows =
+              isNumeric
+                ? profile.counts.map((count, j) => {
+                    const full = `${profile.binEdges[j].toLocaleString()}–${profile.binEdges[j + 1].toLocaleString()}`;
+                    const short = `${profile.binEdges[j].toLocaleString(undefined, { maximumFractionDigits: 0 })}–${profile.binEdges[j + 1].toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+                    return { bin: truncateLabel(short), binFull: full, count, order: j, key: `bin-${j}` };
+                  })
+                : profile.categories.map((category, j) => ({
+                    bin: truncateLabel(category), binFull: category, count: profile.counts[j], order: j, key: `cat-${j}`
+                  }));
+
+            const chartMount = document.createElement("div");
+            card.appendChild(chartMount);
+
+            // Forces an immediate layout pass before measuring below
+            // -- a container measured right after insertion, with no
+            // yield to the event loop yet, can otherwise read a stale
+            // pre-layout width (same fix as kriging-interpolator.qmd's
+            // own chart-width bug, found live from a screenshot: the
+            // chart's plot area overflowed its own card to the
+            // right).
+            void chartMount.offsetHeight;
+
+            // Vega-Lite's own "width" is the PLOT AREA only -- the
+            // category axis's label gutter is added on top of it, so
+            // passing the card's full available width still overflows
+            // once that gutter is added. Reserving a fixed 60px for it
+            // (labels are pre-truncated above, so that gutter stays
+            // bounded regardless of the data) keeps the whole chart,
+            // gutter included, inside the card.
+            const chartWidth =
+              Math.max(60, chartMount.getBoundingClientRect().width - 60);
+
+            // No cross-linking need here (a histogram bin or a
+            // category count has no obvious single-click target on
+            // the map/table) -- shared/vega-chart.js's
+            // renderVegaChart() still requires a point-selection
+            // param and an externalParam regardless (see its own doc
+            // comment), so this supplies the minimum it asks for. A
+            // per-card index keeps every chart's param names unique,
+            // even though each mounts into its own isolated Vega view
+            // and would likely be fine reusing the same names anyway.
+            WebGeoDS.renderVegaChart(chartMount, {
+              "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+              "width": chartWidth,
+              // Bar count varies per column (a categorical column has
+              // as many bars as categories, up to MAX_CATEGORIES; a
+              // numeric one always has up to 10 bins) -- a fixed
+              // height cramped a 10-bin histogram into unreadably
+              // thin bars, so this scales with row count instead.
+              "height": Math.max(90, rows.length * 22),
+              "autosize": { "type": "pad" },
+              "params": [{ "name": `gfiExternal${i}`, "value": null }],
+              "layer": [{
+                "data": { "values": rows },
+                "params": [{ "name": `gfiSelect${i}`, "select": { "type": "point", "fields": ["key"] } }],
+                "mark": { "type": "bar", "color": "#42583c" },
+                "encoding": {
+                  // Horizontal bars: the bin/category label reads
+                  // left-to-right at a normal angle instead of being
+                  // squeezed and tilted under the axis -- the actual
+                  // readability fix. No axis title on this side
+                  // either (the card's own HTML title above already
+                  // names the column; repeating "Category"/"Value"
+                  // rotated beside the bars added nothing).
+                  "y": { "field": "bin", "type": "nominal", "sort": { "field": "order" }, "title": null, "axis": { "labelFontSize": 9 } },
+                  "x": { "field": "count", "type": "quantitative", "title": "Count" },
+                  "tooltip": [{ "field": "binFull", "title": isNumeric ? "Value" : "Category" }, { "field": "count" }]
+                }
+              }]
+            }, {
+              selectParams: [`gfiSelect${i}`],
+              externalParam: `gfiExternal${i}`,
+              keyField: "key",
+              onSelect: () => {}
+            });
+
+          }
+
+          carousel.appendChild(card);
+
+        });
+
+      }
+    }
+  });
+
+  // WebGeoDS.downloadButton (shared/ui.js). Downloads the enriched
+  // GeoJSON (original columns + valid/empty/duplicate) in the file's
+  // own native CRS — inspectValue.features, not the map source: the
+  // map source holds the WGS84 copy reprojected just for display, and
+  // a downloaded file should give back the same CRS it came in. When
+  // the upload was itself a shapefile, the `shapefile` option
+  // re-exports one instead. Dashboard has no declarative download
+  // field for a tool with no compute step (compute.download is keyed
+  // off config.compute, which this tool doesn't have) -- wired up
+  // directly here, same precedent as kriging-interpolator.qmd's own
+  // GeoTIFF button, and inserted into the same control row Dashboard
+  // itself builds.
+  gfiDownloadBtn = WebGeoDS.downloadButton({
+    getFeatures: () => WebGeoDS.Dashboard.find("geospatial-file-inspector").inspectValue?.features,
+    getBaseName: () => WebGeoDS.Upload.baseName(WebGeoDS.Dashboard.find("geospatial-file-inspector").state.files),
+    filenameSuffix: "-inspected.geojson",
+    defaultFilename: "inspected.geojson",
+    enabled: false,
+    tool: "geospatial-file-inspector",
+    shapefile: {
+      cellId: "inspect-export-shp-py",
+      get uploadKind() { return WebGeoDS.Dashboard.find("geospatial-file-inspector").state.kind; },
+      filenameSuffix: "-inspected.zip",
+      defaultFilename: "inspected-shapefile.zip"
+    }
+  });
+
+  const gfiControlRow = document.querySelector("#gfi-dashboard .webgeods-panel-row");
+  if (gfiControlRow) {
+    gfiControlRow.insertBefore(gfiDownloadBtn, gfiControlRow.lastElementChild);
   }
 
-  const geometryLabel = s.geometryTypes.length > 1
-    ? `Mixed (${s.geometryTypes.join(", ")})`
-    : (s.geometryTypes[0] ?? "—");
-
-  row("Features", s.total.toLocaleString());
-  row("Geometry", geometryLabel);
-  row("CRS", s.crsWarning ? `${s.crs} ⚠️ ${s.crsWarning}` : (s.crs ?? "Unknown"));
-  row("Bounds", s.bounds ? s.bounds.join(", ") : "—");
-  row("Attributes", `${s.attributeNames.length}${s.attributeNames.length > 0 ? ` (${s.attributeNames.join(", ")})` : ""}`);
-  row("Invalid", String(s.invalid));
-  row("Empty", String(s.empty));
-  row("Duplicates", String(s.duplicates));
-
-  return box;
-}
-```
-
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+});
+</script>
 
 <style>
-/* inspect-py is functional (the CodeCell engine still runs it), just
-   not shown — see geojson-shapefile-validator.qmd for the full
-   rationale and the display:none pitfall (breaks maplibre-gl.js
-   loading) already found and avoided here from the start. Stays HERE,
-   after the last {ojs} cell, and the closing note below is raw HTML
-   rather than a Pandoc fenced div — same two Quarto/Pandoc bugs
-   documented at length in geojson-shapefile-validator.qmd's own
-   equivalent block: this block must stay after the OJS cells, and the
-   closing note must stay raw HTML, or the page breaks in one of two
-   different ways. */
-#inspect-py {
+#inspect-example-py, #inspect-py, #inspect-export-shp-py {
   height: 0;
   overflow: hidden;
   margin: 0;

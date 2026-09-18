@@ -524,6 +524,51 @@ input[type="range"] {
   border: 1px solid var(--border-hairline);
 }
 
+/* A horizontally scrollable strip of cards -- one per attribute
+   column, geospatial-file-inspector.qmd's own use, but generic enough
+   for any tool wanting a "one small chart per X" side panel without a
+   fixed tab count decided at build time. scroll-snap gives touch
+   swipe/trackpad scroll for free; the nav buttons (plain
+   .webgeods-panel-btn, no new button style needed) are for anyone on
+   a plain mouse. Cards use --surface (not --surface-muted, the
+   sidePanel's own background) so each one reads as a distinct card
+   sitting on the panel, not a continuation of it. */
+.webgeods-carousel {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding: 4px 2px;
+}
+.webgeods-carousel-card {
+  flex: 0 0 220px;
+  scroll-snap-align: start;
+  border: 1px solid var(--border-hairline);
+  border-radius: 4px;
+  background-color: var(--surface);
+  padding: 10px;
+}
+.webgeods-carousel-title {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.webgeods-carousel-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.webgeods-carousel-nav-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
 /* Closing cross-link to the full article — previously butted straight
    up against the table/style block above it with only a bare <hr>;
    more breathing room and a touch more visual weight so it reads as
