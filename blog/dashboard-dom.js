@@ -358,8 +358,20 @@
       // Vega-Lite chart's background is themed to "transparent" by
       // shared/vega-chart.js for the exact same reason -- both rely
       // on THIS background, not a background of their own.
+      // overflow-y: auto, not hidden -- raster-inspector.qmd stacks
+      // TWO charts in here (a boxplot plus a histogram), and
+      // DEFAULT_MAP_HEIGHT's own clamp() has a 320px floor: on a
+      // short/landscape phone viewport, 320px is real, measured
+      // clipping short (two real-world charts came to ~400px+
+      // combined) -- `hidden` doesn't shrink the content to fit, it
+      // just throws away whatever doesn't fit, silently. A scrollbar
+      // when content is genuinely taller than the box beats content
+      // vanishing with no indication anything's missing. overflow-x
+      // stays hidden -- the per-chart width math (see raster-
+      // inspector.qmd's own AXIS_PAD-style reservations) is what's
+      // responsible for fitting horizontally, not a scrollbar.
       this.sidePanelEl.style.cssText =
-        `flex: ${sidePanelCfg.flex ?? "1 1 280px"}; min-width: ${sidePanelCfg.minWidth ?? "260px"}; height: ${mapHeight}; overflow: hidden; border: 1px solid #d8cdb8; border-radius: 4px; background-color: var(--surface-muted);`;
+        `flex: ${sidePanelCfg.flex ?? "1 1 280px"}; min-width: ${sidePanelCfg.minWidth ?? "260px"}; height: ${mapHeight}; overflow-x: hidden; overflow-y: auto; border: 1px solid #d8cdb8; border-radius: 4px; background-color: var(--surface-muted);`;
 
       this.mapSlotEl.style.flex =
         "2 1 480px";

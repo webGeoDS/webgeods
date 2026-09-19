@@ -438,8 +438,15 @@ document.addEventListener("DOMContentLoaded", () => {
           plottable.map((b) => ({ band: `Band ${b.band}`, order: b.band, min: b.min, q1: b.q1, median: b.median, q3: b.q3, max: b.max }));
 
         void riBoxplotSlotEl.offsetHeight;
+        // 65px, not a tighter guess -- "Band 13"-style labels (a
+        // real multi-band file, not just this tool's own 2-band demo)
+        // at Vega-Lite's default axis font size need more room than a
+        // narrow phone screen leaves much slack for; found only by
+        // measuring a real mobile viewport, not by eyeballing a
+        // desktop window where a few missing pixels of gutter don't
+        // visibly matter.
         const boxplotWidth =
-          Math.max(60, riBoxplotSlotEl.getBoundingClientRect().width - 50);
+          Math.max(60, riBoxplotSlotEl.getBoundingClientRect().width - 65);
 
         // Vega-Lite's own "boxplot" compound mark expects raw
         // per-observation rows to aggregate itself -- these are
@@ -653,7 +660,14 @@ document.addEventListener("DOMContentLoaded", () => {
           const hi = v.histogram.binEdges[j + 1];
           const full = `${lo.toLocaleString()}–${hi.toLocaleString()}`;
           const short = `${lo.toLocaleString(undefined, { maximumFractionDigits: 0 })}–${hi.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-          return { bin: truncateLabel(short), binFull: full, count, order: j, key: `bin-${j}` };
+          // truncateLabel's default (12) left this right at the edge
+          // of the 60px gutter reserved below on a narrow phone
+          // screen -- shortened here specifically for these bin
+          // labels (still full-precision in the tooltip via binFull)
+          // to buy the reservation some real slack instead of a
+          // razor-thin fit that only just barely worked on a desktop
+          // window.
+          return { bin: truncateLabel(short, 10), binFull: full, count, order: j, key: `bin-${j}` };
         });
 
         // Only THIS slot is touched -- riBoxplotSlotEl (the all-bands
@@ -666,8 +680,11 @@ document.addEventListener("DOMContentLoaded", () => {
         chartMount.className = "";
         chartMount.replaceChildren();
         void chartMount.offsetHeight;
+        // 75px, not 60 -- same reasoning as the boxplot's own
+        // reservation just above: measured against a real mobile
+        // viewport, not a desktop window with slack to spare.
         const chartWidth =
-          Math.max(60, chartMount.getBoundingClientRect().width - 60);
+          Math.max(60, chartMount.getBoundingClientRect().width - 75);
 
         // Horizontal bars, same reasoning as
         // geospatial-file-inspector.qmd's own column-profile charts:
