@@ -661,7 +661,17 @@ document.addEventListener("DOMContentLoaded", () => {
         // (shared/map.js's ResizeObserver reacting to the just-added
         // raster layer). A plain getBoundingClientRect() taken here,
         // synchronously, is not subject to that race.
-        const chartWidth = dashboard.sidePanelEl.getBoundingClientRect().width || 300;
+        //
+        // -50px: "autosize":"pad" below adds the y-axis's own label
+        // gutter ON TOP of this number, not inside it -- passing the
+        // panel's full width overflowed the panel by exactly that
+        // gutter (~22px on a phone-width panel), found live auditing
+        // this chart specifically after a live viewport resize/
+        // rotation (Dashboard's own resize listener re-runs this exact
+        // code at the new width -- see shared/dashboard.js's own
+        // comment on it -- so this needed to hold at ANY panel width,
+        // not just the one it happened to be authored against).
+        const chartWidth = Math.max(200, (dashboard.sidePanelEl.getBoundingClientRect().width || 300) - 50);
 
         // No cross-linking need here (one map, one chart, nothing else
         // to select into) -- shared/vega-chart.js's renderVegaChart()

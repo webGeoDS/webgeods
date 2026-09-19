@@ -497,6 +497,58 @@
 
       }
 
+      // A tool's own inspect.onResult/compute.onResult (a Vega-Lite
+      // chart, almost always -- shared/vega-chart.js's
+      // renderVegaChart()) measures sidePanelEl's width ONCE, the
+      // moment it runs, and bakes that pixel number into the spec.
+      // Found live, auditing every sidePanel tool at both a phone's
+      // portrait and landscape width: correctly sized on a FRESH load
+      // at either one, but a reader who ROTATES after a chart has
+      // already drawn is left with one sized for the orientation they
+      // rotated OUT of -- clipped or cramped, with nothing to notice
+      // it happened. Same category of problem shared/map.js's own
+      // ResizeObserver already solves for the map itself (see its
+      // "Automatic resize" comment); Vega-Lite charts have no
+      // equivalent built in, so this adds one at the Dashboard level
+      // instead of teaching every tool's own onResult about resize.
+      //
+      // Not a new rendering path -- a debounced re-invocation of
+      // whichever onResult(s) are currently populated, with the SAME
+      // last-known value the original render used. That function
+      // already re-measures the container's CURRENT width every time
+      // it runs (that's what made it correct on a fresh load in the
+      // first place); replaying it is the whole fix. Harmless to call
+      // one that isn't configured for a given tool (kriging has no
+      // inspect.onResult, geospatial-file-inspector has no compute at
+      // all) -- optional chaining no-ops it. inspect before compute:
+      // raster-inspector's inspect.onResult rebuilds BOTH sidePanel
+      // slots from scratch (including the histogram slot compute.
+      // onResult later fills in) -- calling compute first would have
+      // it write into a slot inspect.onResult is about to discard.
+      if (this.config.layout?.sidePanel) {
+
+        let resizeTimer = null;
+
+        window.addEventListener("resize", () => {
+
+          clearTimeout(resizeTimer);
+
+          resizeTimer = setTimeout(() => {
+
+            if (this.state.inspectValue) {
+              this.config.inspect?.onResult?.(this.state.inspectValue);
+            }
+
+            if (this.state.result) {
+              this.config.compute?.onResult?.(this.state.result, this.state.inputs);
+            }
+
+          }, 300);
+
+        });
+
+      }
+
     }
 
 
