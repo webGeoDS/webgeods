@@ -200,6 +200,17 @@
           checkbox.checked =
             !!input.value;
 
+          // Same id convention as the select/slider branches below --
+          // no tool needed to address a checkbox input directly from
+          // its own page script until raster-inspector.qmd's RGB-
+          // composite toggle (hides/shows OTHER inputs based on this
+          // one's state, something no declarative Dashboard field
+          // covers), but there's no reason a checkbox should be the
+          // one input kind a tool can't just `document.querySelector`
+          // for the same way.
+          checkbox.id =
+            `${config.tool}-${input.name}`;
+
           wrap.append(
             checkbox,
             document.createTextNode(" " + input.label)

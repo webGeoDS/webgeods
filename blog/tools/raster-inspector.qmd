@@ -2,14 +2,16 @@
 title: "Raster Inspector & Statistics"
 date: 2026-09-06
 categories: [tool, raster]
-description: "Upload a GeoTIFF and get an instant summary — dimensions, resolution, band count, CRS, NoData, per-band min/max/mean, and a colored preview of any band with its own value histogram. Free, runs entirely in your browser: the file never leaves your computer."
+description: "Upload a GeoTIFF and get an instant summary — dimensions, resolution, band count, CRS, NoData, per-band min/max/mean, and a colored preview of any band (or an RGB composite of any three) with its own value histogram. Free, runs entirely in your browser: the file never leaves your computer."
 page-layout: full
 ---
 
 Upload a `.tif`/`.tiff` file and get an instant summary of what's
 actually in it — size, resolution, bands, coordinate reference
 system, and the value range of each band. Pick a band and a color
-ramp below to actually see it, not just read numbers about it.
+ramp below to actually see it, not just read numbers about it — or
+check "RGB composite" to combine any three bands into one color image
+instead.
 
 ::: {.callout-tip}
 **Private by design.** Your file is processed entirely in your
@@ -166,59 +168,84 @@ if path is not None:
 ```
 
 ```{.webgeods-python #raster-preview-py}
-#| inject: [bandIndex]
+#| inject: [bandIndex, rgbMode, redBand, greenBand, blueBand]
 #| package: rasterio, numpy
 import rasterio
 import numpy as np
+import base64
 from rasterio.warp import transform_bounds
 
-with rasterio.open("/uploaded.tif") as src:
-    band_i = int(bandIndex)
+# Row 0 of a rasterio-read array is already the TOP (north) row for a
+# standard north-up GeoTIFF -- no reordering needed before encoding,
+# unlike a hand-built grid (see kriging-interpolator.qmd's own comment
+# on this same point for why that one does need it).
+def read_band(src, band_i):
     band = src.read(band_i, masked=True)
+    valid = band.compressed()  # 1-D array of non-masked (non-NoData) values
+    has_valid = valid.size > 0
+    band_min = float(valid.min()) if has_valid else 0.0
+    band_max = float(valid.max()) if has_valid else 1.0
+    filled = band.filled(np.nan).astype("float32")
+    return filled, valid, band_min, band_max
 
+def encode(filled):
+    return base64.b64encode(filled.tobytes()).decode("ascii")
+
+with rasterio.open("/uploaded.tif") as src:
     crs_for_transform = src.crs if src.crs is not None else "EPSG:4326"
     try:
         wgs84_bounds = transform_bounds(crs_for_transform, "EPSG:4326", *src.bounds)
     except Exception:
         wgs84_bounds = src.bounds
+    wgs84_bounds = [round(float(b), 6) for b in wgs84_bounds]
 
-    valid = band.compressed()  # 1-D array of non-masked (non-NoData) values
-    has_valid = valid.size > 0
-    band_min = float(valid.min()) if has_valid else 0.0
-    band_max = float(valid.max()) if has_valid else 1.0
+    if rgbMode:
+        # Three arbitrary bands, one per channel -- NOT necessarily
+        # the file's first three -- each independently read and
+        # base64-encoded the same way the single-band path already
+        # does. No histogram here: a per-pixel color built from three
+        # different bands has no single "value" a histogram could
+        # describe.
+        r_filled, _, r_min, r_max = read_band(src, int(redBand))
+        g_filled, _, g_min, g_max = read_band(src, int(greenBand))
+        b_filled, _, b_min, b_max = read_band(src, int(blueBand))
 
-    # Row 0 of a rasterio-read array is already the TOP (north) row for
-    # a standard north-up GeoTIFF -- no reordering needed before
-    # encoding, unlike a hand-built grid (see kriging-interpolator.qmd's
-    # own comment on this same point for why that one does need it).
-    filled = band.filled(np.nan).astype("float32")
+        result = {
+            "mode": "rgb",
+            "bands": [int(redBand), int(greenBand), int(blueBand)],
+            "raster": {
+                "width": src.width,
+                "height": src.height,
+                "wgs84Bounds": wgs84_bounds,
+                "red": {"data": encode(r_filled), "min": round(r_min, 4), "max": round(r_max, 4)},
+                "green": {"data": encode(g_filled), "min": round(g_min, 4), "max": round(g_max, 4)},
+                "blue": {"data": encode(b_filled), "min": round(b_min, 4), "max": round(b_max, 4)}
+            },
+            "histogram": None
+        }
+    else:
+        band_i = int(bandIndex)
+        filled, valid, band_min, band_max = read_band(src, band_i)
+        has_valid = valid.size > 0
+        counts, edges = np.histogram(valid, bins=min(10, max(1, len(set(valid.tolist()))))) if has_valid else (np.array([]), np.array([]))
 
-    con_values = filled.tobytes()
+        result = {
+            "mode": "single",
+            "band": band_i,
+            "raster": {
+                "width": src.width,
+                "height": src.height,
+                "data": encode(filled),
+                "wgs84Bounds": wgs84_bounds,
+                "min": round(band_min, 4),
+                "max": round(band_max, 4)
+            },
+            "histogram": {
+                "binEdges": [round(float(e), 4) for e in edges],
+                "counts": [int(c) for c in counts]
+            }
+        }
 
-    counts, edges = np.histogram(valid, bins=min(10, max(1, len(set(valid.tolist()))))) if has_valid else (np.array([]), np.array([]))
-
-import io
-buf = io.BytesIO()
-buf.write(con_values)
-
-import base64
-data_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-
-result = {
-    "band": band_i,
-    "raster": {
-        "width": src.width,
-        "height": src.height,
-        "data": data_b64,
-        "wgs84Bounds": [round(float(b), 6) for b in wgs84_bounds],
-        "min": round(band_min, 4),
-        "max": round(band_max, 4)
-    },
-    "histogram": {
-        "binEdges": [round(float(e), 4) for e in edges],
-        "counts": [int(c) for c in counts]
-    }
-}
 result
 ```
 
@@ -467,9 +494,29 @@ document.addEventListener("DOMContentLoaded", () => {
         // about what Python needs to compute.
         { kind: "select", name: "colorRamp", label: "Color ramp:",
           options: () => Object.keys(RASTER_RAMPS),
-          default: () => "Viridis" }
+          default: () => "Viridis" },
+        // The four RGB-only inputs below are always present in the
+        // config (Dashboard has no declarative way to hide one input
+        // based on another's value) but hidden/shown together as a
+        // pair with Band/Color ramp above -- wired up right after
+        // construction, see the rgbMode checkbox's own change
+        // listener further down.
+        { kind: "checkbox", name: "rgbMode", label: "RGB composite", value: false },
+        { kind: "select", name: "redBand", label: "Red:",
+          options: (v) => Array.from({ length: v.summary?.bandCount ?? 0 }, (_, i) => String(i + 1)),
+          default: () => "1" },
+        { kind: "select", name: "greenBand", label: "Green:",
+          options: (v) => Array.from({ length: v.summary?.bandCount ?? 0 }, (_, i) => String(i + 1)),
+          default: (v) => (v.summary?.bandCount ?? 0) >= 2 ? "2" : "1" },
+        { kind: "select", name: "blueBand", label: "Blue:",
+          options: (v) => Array.from({ length: v.summary?.bandCount ?? 0 }, (_, i) => String(i + 1)),
+          default: (v) => (v.summary?.bandCount ?? 0) >= 3 ? "3" : "1" }
       ],
-      legend: (v, inputs) => ({
+      // An RGB composite has no single value ramp to show -- three
+      // independently-stretched channels, not one value-to-color
+      // mapping (see setRasterRGBImage()'s own doc comment in
+      // shared/map-raster.js).
+      legend: (v, inputs) => v.mode === "rgb" ? null : ({
         gradient: RASTER_RAMPS[inputs.colorRamp] || RASTER_RAMPS.Viridis,
         minLabel: `${v.raster.min}`,
         maxLabel: `${v.raster.max}`
@@ -489,6 +536,27 @@ document.addEventListener("DOMContentLoaded", () => {
             riHistogramSlotEl.textContent = HISTOGRAM_PLACEHOLDER;
           }
           return;
+        }
+
+        if (v.mode === "rgb") {
+
+          await dashboard.map.setRasterRGBImage("raster-preview-py", {
+            bounds: v.raster.wgs84Bounds,
+            width: v.raster.width,
+            height: v.raster.height,
+            red: { values: new Float32Array(base64ToBytes(v.raster.red.data).buffer), min: v.raster.red.min, max: v.raster.red.max },
+            green: { values: new Float32Array(base64ToBytes(v.raster.green.data).buffer), min: v.raster.green.min, max: v.raster.green.max },
+            blue: { values: new Float32Array(base64ToBytes(v.raster.blue.data).buffer), min: v.raster.blue.min, max: v.raster.blue.max }
+          });
+
+          if (riHistogramSlotEl) {
+            riHistogramSlotEl.className = "webgeods-carousel-note";
+            riHistogramSlotEl.textContent =
+              `RGB composite (bands ${v.bands.join(", ")}) — no single-band histogram to show. Uncheck "RGB composite" to see one band's value distribution instead.`;
+          }
+
+          return;
+
         }
 
         const ramp =
@@ -562,6 +630,54 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
   });
+
+  // Dashboard renders every configured compute input unconditionally,
+  // in one row -- no declarative way to hide one input based on
+  // another's value. "RGB composite" and "Band"/"Color ramp" are
+  // mutually exclusive in practice (a composite ignores both), so this
+  // toggles each pair's visibility by hand from the checkbox's own
+  // change event: each <select> gets an id of `${tool}-${name}`
+  // (shared/dashboard-dom.js), and its own label <span> is the
+  // preceding sibling Dashboard appended it right after.
+  (() => {
+
+    const toolId =
+      "raster-inspector";
+
+    const rgbCheckbox =
+      document.querySelector(`#${toolId}-rgbMode`);
+
+    const pairEls = (name) => {
+      const select = document.querySelector(`#${toolId}-${name}`);
+      return select ? [select.previousElementSibling, select] : [];
+    };
+
+    const singleBandEls =
+      [...pairEls("bandIndex"), ...pairEls("colorRamp")];
+
+    const rgbEls =
+      [...pairEls("redBand"), ...pairEls("greenBand"), ...pairEls("blueBand")];
+
+    const syncVisibility = () => {
+
+      const isRgb =
+        !!rgbCheckbox?.checked;
+
+      for (const el of singleBandEls) {
+        if (el) el.style.display = isRgb ? "none" : "";
+      }
+
+      for (const el of rgbEls) {
+        if (el) el.style.display = isRgb ? "" : "none";
+      }
+
+    };
+
+    rgbCheckbox?.addEventListener("change", syncVisibility);
+
+    syncVisibility();
+
+  })();
 
   // No declarative download field fits here either (this tool has a
   // real compute step, but downloadButton's own `getFeatures` shape is

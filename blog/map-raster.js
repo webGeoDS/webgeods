@@ -286,67 +286,24 @@
 
 
   // ==========================================================
-  // Set raster image
-  //
-  // Displays a computed single-band raster (e.g. Band Math/NDVI
-  // output — there is no per-pixel color rendering anywhere else on
-  // this site, the Inspector tool deliberately shows only a
-  // footprint) as a colored overlay via MapLibre's `image` source
-  // type, georeferenced to `bounds`' axis-aligned WGS84 bounding box
-  // — the SAME reprojected-bbox approximation the footprint feature
-  // already uses elsewhere (not a new source of imprecision).
-  //
-  // `values` — a flat, row-major Float32Array/Array (NaN = NoData).
-  // `bounds` — [minx, miny, maxx, maxy] in WGS84.
-  // `options.opacity` — layer opacity, default 0.85.
-  // `options.colorRamp` — override _sampleRasterRamp()'s default.
-  //
-  // Create-if-absent / update-if-present, same shape as setGeoJSON:
-  // an existing image source is updated via MapLibre's own
-  // updateImage() (no remove/re-add churn) rather than recreated.
+  // Adds/updates the MapLibre `image` source + `raster` layer a
+  // rendered canvas is displayed through — the part setRasterImage()
+  // and setRasterRGBImage() below share verbatim (georeferencing to
+  // `bounds`' axis-aligned WGS84 bounding box, create-if-absent /
+  // update-if-present via MapLibre's own updateImage()). Split out
+  // once a second real caller (the RGB composite below) needed the
+  // exact same wiring around a differently-rendered canvas — the one
+  // thing that varies between the two is how the canvas's pixels get
+  // decided, not how they reach the map.
   // ==========================================================
 
-  WebGeoDSMap.prototype.setRasterImage = async function (
+  WebGeoDSMap.prototype._setImageSourceCanvas = function (
     sourceId,
-    {
-      bounds,
-      width,
-      height,
-      values,
-      min,
-      max,
-      opacity = 0.85,
-      colorRamp
-    } = {},
-    options = {}
+    canvas,
+    bounds,
+    opacity,
+    layerId
   ) {
-
-    await this.ready();
-
-
-    const layerId =
-      options.layerId ??
-      sourceId;
-
-
-    const preview =
-      this._downsampleRasterForPreview({
-        width,
-        height,
-        values,
-        maxDim: WebGeoDSMap.MAX_RASTER_PREVIEW_DIM
-      });
-
-    const canvas =
-      this._renderRasterCanvas({
-        width: preview.width,
-        height: preview.height,
-        values: preview.values,
-        min,
-        max,
-        colorRamp
-      });
-
 
     const [minx, miny, maxx, maxy] =
       bounds;
@@ -416,6 +373,226 @@
 
     }
 
+  };
+
+
+  // ==========================================================
+  // Set raster image
+  //
+  // Displays a computed single-band raster (e.g. Band Math/NDVI
+  // output — there is no per-pixel color rendering anywhere else on
+  // this site, the Inspector tool deliberately shows only a
+  // footprint) as a colored overlay via MapLibre's `image` source
+  // type, georeferenced to `bounds`' axis-aligned WGS84 bounding box
+  // — the SAME reprojected-bbox approximation the footprint feature
+  // already uses elsewhere (not a new source of imprecision).
+  //
+  // `values` — a flat, row-major Float32Array/Array (NaN = NoData).
+  // `bounds` — [minx, miny, maxx, maxy] in WGS84.
+  // `options.opacity` — layer opacity, default 0.85.
+  // `options.colorRamp` — override _sampleRasterRamp()'s default.
+  //
+  // Create-if-absent / update-if-present, same shape as setGeoJSON:
+  // an existing image source is updated via MapLibre's own
+  // updateImage() (no remove/re-add churn) rather than recreated.
+  // ==========================================================
+
+  WebGeoDSMap.prototype.setRasterImage = async function (
+    sourceId,
+    {
+      bounds,
+      width,
+      height,
+      values,
+      min,
+      max,
+      opacity = 0.85,
+      colorRamp
+    } = {},
+    options = {}
+  ) {
+
+    await this.ready();
+
+    const preview =
+      this._downsampleRasterForPreview({
+        width,
+        height,
+        values,
+        maxDim: WebGeoDSMap.MAX_RASTER_PREVIEW_DIM
+      });
+
+    const canvas =
+      this._renderRasterCanvas({
+        width: preview.width,
+        height: preview.height,
+        values: preview.values,
+        min,
+        max,
+        colorRamp
+      });
+
+    this._setImageSourceCanvas(
+      sourceId,
+      canvas,
+      bounds,
+      opacity,
+      options.layerId ?? sourceId
+    );
+
+    return this;
+
+  };
+
+
+  // ==========================================================
+  // Renders three independently-stretched bands into one off-DOM
+  // <canvas> — an RGB composite (raster-inspector.qmd's "one band per
+  // channel" preview), not a value-ramp mapping: each channel's own
+  // min/max stretches ITS values to 0-255 (the conventional way to
+  // preview an arbitrary band triple, since the three bands rarely
+  // share a common value range), and the three stretched values
+  // become that pixel's actual R/G/B — no _sampleRasterRamp()
+  // involved, there is no single "value" to look up a color for. A
+  // pixel is fully transparent if ANY of its three channels is
+  // NoData there (a color built from only two real channels isn't a
+  // real color).
+  // ==========================================================
+
+  WebGeoDSMap.prototype._renderRasterRGBCanvas = function ({
+    width,
+    height,
+    red,
+    green,
+    blue
+  }) {
+
+    const canvas =
+      document.createElement("canvas");
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx =
+      canvas.getContext("2d");
+
+    const imageData =
+      ctx.createImageData(width, height);
+
+    const stretch = (channel) => {
+
+      const range =
+        (channel.max - channel.min) || 1;
+
+      return (v) =>
+        Math.round(
+          Math.min(255, Math.max(0, ((v - channel.min) / range) * 255))
+        );
+
+    };
+
+    const toR = stretch(red);
+    const toG = stretch(green);
+    const toB = stretch(blue);
+
+    for (let i = 0; i < red.values.length; i++) {
+
+      const r = red.values[i];
+      const g = green.values[i];
+      const b = blue.values[i];
+
+      const offset =
+        i * 4;
+
+      if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) {
+
+        imageData.data[offset + 3] =
+          0;
+
+        continue;
+
+      }
+
+      imageData.data[offset] = toR(r);
+      imageData.data[offset + 1] = toG(g);
+      imageData.data[offset + 2] = toB(b);
+      imageData.data[offset + 3] = 255;
+
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    return canvas;
+
+  };
+
+
+  // ==========================================================
+  // Set raster RGB image
+  //
+  // Same overlay mechanics as setRasterImage() above (georeferenced
+  // `image` source, create-if-absent/update-if-present), but for
+  // three bands composited as one color image instead of a single
+  // band mapped through a color ramp — raster-inspector.qmd's "RGB
+  // composite" mode, picking any three of a file's bands as Red/
+  // Green/Blue rather than always the first three.
+  //
+  // `red`/`green`/`blue` — each `{values, min, max}`, `values` a
+  // flat, row-major Float32Array/Array for THAT band (NaN = NoData),
+  // same shape setRasterImage() takes for its own single `values`.
+  // All three must share `width`/`height` (the same raster's bands
+  // always do).
+  // ==========================================================
+
+  WebGeoDSMap.prototype.setRasterRGBImage = async function (
+    sourceId,
+    {
+      bounds,
+      width,
+      height,
+      red,
+      green,
+      blue,
+      opacity = 0.85
+    } = {},
+    options = {}
+  ) {
+
+    await this.ready();
+
+    const maxDim =
+      WebGeoDSMap.MAX_RASTER_PREVIEW_DIM;
+
+    // Each channel is downsampled independently, but the scale is a
+    // pure function of width/height/maxDim (see
+    // _downsampleRasterForPreview()) -- never the data -- so all
+    // three come back at the identical outWidth/outHeight, still
+    // pixel-aligned with each other afterward.
+    const previewRed =
+      this._downsampleRasterForPreview({ width, height, values: red.values, maxDim });
+
+    const previewGreen =
+      this._downsampleRasterForPreview({ width, height, values: green.values, maxDim });
+
+    const previewBlue =
+      this._downsampleRasterForPreview({ width, height, values: blue.values, maxDim });
+
+    const canvas =
+      this._renderRasterRGBCanvas({
+        width: previewRed.width,
+        height: previewRed.height,
+        red: { values: previewRed.values, min: red.min, max: red.max },
+        green: { values: previewGreen.values, min: green.min, max: green.max },
+        blue: { values: previewBlue.values, min: blue.min, max: blue.max }
+      });
+
+    this._setImageSourceCanvas(
+      sourceId,
+      canvas,
+      bounds,
+      opacity,
+      options.layerId ?? sourceId
+    );
 
     return this;
 
