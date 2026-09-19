@@ -629,7 +629,7 @@ bufferTable = sharedMap.tableCell(["buffer-result-py"], null, Generators, {
 ```
 
 <style>
-#buffer-inspect-py, #buffer-compute-py {
+#buffer-inspect-py, #buffer-compute-py, #buffer-export-shp-py {
   height: 0;
   overflow: hidden;
   margin: 0;

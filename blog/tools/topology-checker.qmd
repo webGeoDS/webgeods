@@ -880,7 +880,7 @@ controlPanelRow = {
    equivalent block, right down to the exact same reasoning: this
    block must stay after the OJS cells, and the closing note must
    stay raw HTML, or the page breaks in one of two different ways. */
-#topology-diagnose-py {
+#topology-diagnose-py, #topology-export-shp-py {
   height: 0;
   overflow: hidden;
   margin: 0;
