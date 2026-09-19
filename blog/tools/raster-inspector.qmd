@@ -10,8 +10,8 @@ Upload a `.tif`/`.tiff` file and get an instant summary of what's
 actually in it — size, resolution, bands, coordinate reference
 system, and the value range of each band. Pick a band and a color
 ramp below to actually see it, not just read numbers about it — or
-check "RGB composite" to combine any three bands into one color image
-instead.
+pick "RGB composite" from the band menu to combine any three bands
+into one color image instead.
 
 ::: {.callout-tip}
 **Private by design.** Your file is processed entirely in your
@@ -168,7 +168,7 @@ if path is not None:
 ```
 
 ```{.webgeods-python #raster-preview-py}
-#| inject: [bandIndex, rgbMode, redBand, greenBand, blueBand]
+#| inject: [bandIndex, redBand, greenBand, blueBand]
 #| package: rasterio, numpy
 import rasterio
 import numpy as np
@@ -199,7 +199,7 @@ with rasterio.open("/uploaded.tif") as src:
         wgs84_bounds = src.bounds
     wgs84_bounds = [round(float(b), 6) for b in wgs84_bounds]
 
-    if rgbMode:
+    if bandIndex == "RGB composite":
         # Three arbitrary bands, one per channel -- NOT necessarily
         # the file's first three -- each independently read and
         # base64-encoded the same way the single-band path already
@@ -308,6 +308,15 @@ document.addEventListener("DOMContentLoaded", () => {
   let riHistogramSlotEl = null;
   let riDownloadBtn = null;
 
+  // Real implementation assigned once the DOM exists to query, right
+  // after the Dashboard constructor call below -- a no-op placeholder
+  // here only so inspect.onResult (part of the config passed INTO
+  // that same constructor call, so necessarily defined first) has
+  // something safe to call before that assignment happens. Shows
+  // Red/Green/Blue (hides Color ramp) when the Band menu's own
+  // current value is "RGB composite", the reverse otherwise.
+  let syncBandModeVisibility = () => {};
+
   const HISTOGRAM_PLACEHOLDER =
     "Pick a band and a color ramp, then Preview, to see its value histogram here.";
 
@@ -382,6 +391,15 @@ document.addEventListener("DOMContentLoaded", () => {
         if (riDownloadBtn) {
           riDownloadBtn.disabled = !v || !v.summary;
         }
+
+        // _syncSelectInputs() (shared/dashboard.js, runs just before
+        // this onResult) just reset the Band menu's value back to "1"
+        // programmatically -- which does NOT fire the change event
+        // syncBandModeVisibility below is normally driven by, so a
+        // stale RGB-mode layout (Red/Green/Blue shown, ramp hidden)
+        // from a PREVIOUS file could otherwise survive a fresh upload
+        // even though the dropdown itself already moved on.
+        syncBandModeVisibility();
 
         riBoxplotChart?.destroy();
         riBoxplotChart = null;
@@ -485,23 +503,33 @@ document.addEventListener("DOMContentLoaded", () => {
       label: "👁 Preview",
       busyLabel: "⌛ Rendering...",
       inputs: [
+        // "RGB composite" is a real, selectable entry in this SAME
+        // menu, not a separate checkbox -- it only shows up once
+        // bandCount is actually known (an empty menu before any file
+        // is uploaded has nothing else in it either, same as before),
+        // and picking it is what switches the rest of the row to
+        // Red/Green/Blue below (see the change listener wired up
+        // right after construction, further down).
         { kind: "select", name: "bandIndex", label: "Band:",
-          options: (v) => Array.from({ length: v.summary?.bandCount ?? 0 }, (_, i) => String(i + 1)),
+          options: (v) => {
+            const n = v.summary?.bandCount ?? 0;
+            if (n === 0) return [];
+            return [...Array.from({ length: n }, (_, i) => String(i + 1)), "RGB composite"];
+          },
           default: () => "1" },
         // Not injected into the Python cell (see raster-preview-py's
         // own #| inject: list) -- the ramp only affects how the SAME
         // pixel values are colored client-side, it changes nothing
-        // about what Python needs to compute.
+        // about what Python needs to compute. Meaningless once "RGB
+        // composite" is picked above (hidden then, not removed).
         { kind: "select", name: "colorRamp", label: "Color ramp:",
           options: () => Object.keys(RASTER_RAMPS),
           default: () => "Viridis" },
-        // The four RGB-only inputs below are always present in the
+        // The three RGB-only inputs below are always present in the
         // config (Dashboard has no declarative way to hide one input
-        // based on another's value) but hidden/shown together as a
-        // pair with Band/Color ramp above -- wired up right after
-        // construction, see the rgbMode checkbox's own change
-        // listener further down.
-        { kind: "checkbox", name: "rgbMode", label: "RGB composite", value: false },
+        // based on another's value) but hidden until "RGB composite"
+        // is the Band menu's own current value -- wired up right
+        // after construction.
         { kind: "select", name: "redBand", label: "Red:",
           options: (v) => Array.from({ length: v.summary?.bandCount ?? 0 }, (_, i) => String(i + 1)),
           default: () => "1" },
@@ -552,7 +580,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (riHistogramSlotEl) {
             riHistogramSlotEl.className = "webgeods-carousel-note";
             riHistogramSlotEl.textContent =
-              `RGB composite (bands ${v.bands.join(", ")}) — no single-band histogram to show. Uncheck "RGB composite" to see one band's value distribution instead.`;
+              `RGB composite (bands ${v.bands.join(", ")}) — no single-band histogram to show. Pick a single band from the Band menu to see its value distribution instead.`;
           }
 
           return;
@@ -633,37 +661,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Dashboard renders every configured compute input unconditionally,
   // in one row -- no declarative way to hide one input based on
-  // another's value. "RGB composite" and "Band"/"Color ramp" are
-  // mutually exclusive in practice (a composite ignores both), so this
-  // toggles each pair's visibility by hand from the checkbox's own
-  // change event: each <select> gets an id of `${tool}-${name}`
-  // (shared/dashboard-dom.js), and its own label <span> is the
-  // preceding sibling Dashboard appended it right after.
+  // another's value. "RGB composite" (an entry IN the Band menu, not
+  // a separate control) and Red/Green/Blue are mutually exclusive
+  // with Color ramp in practice, so this toggles their visibility by
+  // hand from the Band select's own change event: each <select> gets
+  // an id of `${tool}-${name}` (shared/dashboard-dom.js), and its own
+  // label <span> is the preceding sibling Dashboard appended it right
+  // after.
   (() => {
 
     const toolId =
       "raster-inspector";
 
-    const rgbCheckbox =
-      document.querySelector(`#${toolId}-rgbMode`);
+    const bandSelect =
+      document.querySelector(`#${toolId}-bandIndex`);
 
     const pairEls = (name) => {
       const select = document.querySelector(`#${toolId}-${name}`);
       return select ? [select.previousElementSibling, select] : [];
     };
 
-    const singleBandEls =
-      [...pairEls("bandIndex"), ...pairEls("colorRamp")];
+    const rampEls =
+      pairEls("colorRamp");
 
     const rgbEls =
       [...pairEls("redBand"), ...pairEls("greenBand"), ...pairEls("blueBand")];
 
-    const syncVisibility = () => {
+    syncBandModeVisibility = () => {
 
       const isRgb =
-        !!rgbCheckbox?.checked;
+        bandSelect?.value === "RGB composite";
 
-      for (const el of singleBandEls) {
+      for (const el of rampEls) {
         if (el) el.style.display = isRgb ? "none" : "";
       }
 
@@ -673,9 +702,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     };
 
-    rgbCheckbox?.addEventListener("change", syncVisibility);
+    bandSelect?.addEventListener("change", syncBandModeVisibility);
 
-    syncVisibility();
+    syncBandModeVisibility();
 
   })();
 
