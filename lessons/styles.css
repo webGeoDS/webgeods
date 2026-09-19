@@ -524,49 +524,35 @@ input[type="range"] {
   border: 1px solid var(--border-hairline);
 }
 
-/* A horizontally scrollable strip of cards -- one per attribute
-   column, geospatial-file-inspector.qmd's own use, but generic enough
-   for any tool wanting a "one small chart per X" side panel without a
-   fixed tab count decided at build time. scroll-snap gives touch
-   swipe/trackpad scroll for free; the nav buttons (plain
-   .webgeods-panel-btn, no new button style needed) are for anyone on
-   a plain mouse. Cards use --surface (not --surface-muted, the
-   sidePanel's own background) so each one reads as a distinct card
-   sitting on the panel, not a continuation of it. */
-.webgeods-carousel {
-  display: flex;
-  gap: 12px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  padding: 4px 2px;
-}
-.webgeods-carousel-card {
-  flex: 0 0 220px;
-  scroll-snap-align: start;
-  border: 1px solid var(--border-hairline);
-  border-radius: 4px;
-  background-color: var(--surface);
-  padding: 10px;
-}
-.webgeods-carousel-title {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* A short placeholder note standing in for a chart a side panel can't
+   draw right now -- raster-inspector.qmd's histogram slot before
+   Preview has ever run. Styled quieter than the stat text around it. */
 .webgeods-carousel-note {
   font-size: 12px;
   color: var(--text-muted);
 }
-.webgeods-carousel-nav-row {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-bottom: 6px;
+
+/* Vega/vega-embed's OWN classes for a spec-bound control (a
+   `"bind": {"input": "select", ...}` param -- geospatial-file-
+   inspector.qmd's column dropdown, rendered by Vega itself, not
+   hand-built markup here). No stylesheet ships with vega-embed on
+   this site, so left alone these render with bare browser form
+   defaults, visibly out of place next to the rest of a tool's own
+   IBM Plex Mono chrome -- this is the minimum touch to match it,
+   not a full redesign of Vega's own bindings form. */
+.vega-bindings {
+  margin-top: 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.vega-bind-name {
+  font-weight: 600;
+  margin-right: 6px;
+}
+.vega-bindings select {
+  font-family: inherit;
+  font-size: 12px;
 }
 
 /* Closing cross-link to the full article — previously butted straight

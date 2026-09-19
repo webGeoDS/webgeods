@@ -240,8 +240,8 @@ after that, and again each time you come back to this page.*
 <div id="gfi-dashboard"></div>
 
 <!-- Page-local, not site-wide -- same reasoning as spatial-classifier.qmd's
-     own comment: only this tool's column-profile carousel needs the
-     ~828KB vega bundle among the Vector Toolkit tools. -->
+     own comment: only this tool's per-column chart needs the ~828KB
+     vega bundle among the Vector Toolkit tools. -->
 <script src="/vega.min.js"></script>
 <script src="/vega-lite.min.js"></script>
 <script src="/vega-embed.min.js"></script>
@@ -250,8 +250,8 @@ after that, and again each time you come back to this page.*
 <script>
 document.addEventListener("DOMContentLoaded", () => {
 
-  // Keeps every carousel-card label short and bounded regardless of
-  // the uploaded data's own category names or bin edges -- the full
+  // Keeps every chart label short and bounded regardless of the
+  // uploaded data's own category names or bin edges -- the full
   // value still reaches the reader via the chart's own tooltip.
   const truncateLabel = (text, max = 12) => {
     const str = String(text);
@@ -283,7 +283,7 @@ document.addEventListener("DOMContentLoaded", () => {
     mount: "#gfi-dashboard",
     layout: {
       sidePanel: {
-        id: "gfi-carousel",
+        id: "gfi-column-chart",
         flex: "1 1 320px",
         minWidth: "280px",
         placeholder: "A chart per attribute column appears here after you upload a file or load the example."
@@ -347,142 +347,189 @@ document.addEventListener("DOMContentLoaded", () => {
         const dashboard =
           WebGeoDS.Dashboard.find("geospatial-file-inspector");
 
-        const navRow = document.createElement("div");
-        navRow.className = "webgeods-carousel-nav-row";
-        const prevBtn = document.createElement("button");
-        prevBtn.className = "webgeods-panel-btn";
-        prevBtn.dataset.variant = "outline";
-        prevBtn.textContent = "‹";
-        const nextBtn = document.createElement("button");
-        nextBtn.className = "webgeods-panel-btn";
-        nextBtn.dataset.variant = "outline";
-        nextBtn.textContent = "›";
+        const profiles = v.columnProfiles || [];
 
-        const carousel = document.createElement("div");
-        carousel.className = "webgeods-carousel";
+        if (profiles.length === 0) {
+          return;
+        }
 
-        // One card width (220px) + its gap (12px) -- matches
-        // .webgeods-carousel-card/.webgeods-carousel's own CSS
-        // (shared/styles.css), so one click moves exactly one card.
-        prevBtn.onclick = () => carousel.scrollBy({ left: -232, behavior: "smooth" });
-        nextBtn.onclick = () => carousel.scrollBy({ left: 232, behavior: "smooth" });
+        const chartMount = document.createElement("div");
+        dashboard.sidePanelEl.replaceChildren(chartMount);
 
-        navRow.append(prevBtn, nextBtn);
-        dashboard.sidePanelEl.replaceChildren(navRow, carousel);
+        // One combined dataset, every column's rows tagged with their
+        // own column name -- lets a SINGLE Vega-Lite spec do the whole
+        // job (data + the dropdown itself + the switch between them),
+        // instead of a hand-rolled HTML <select> re-rendering a fresh
+        // spec on every change (this tool's first cut, replaced after
+        // asking: a chart-embedded control is one more UI language on
+        // the page than a webgeods-panel-status <select> would be, but
+        // keeps every bit of the interaction declarative in the spec
+        // itself, which is what was actually asked for here). Numeric
+        // and categorical columns already reduce to the same
+        // {bin, binFull, count, order} row shape; a column with no
+        // chart at all (too many distinct values, constant, empty)
+        // gets one "note" row instead of "bar" rows, rendered by a
+        // second, text-mark layer -- see the two `transform`s below.
+        const allRows = [];
 
-        (v.columnProfiles || []).forEach((profile, i) => {
+        profiles.forEach((profile) => {
 
-          const card = document.createElement("div");
-          card.className = "webgeods-carousel-card";
-
-          const title = document.createElement("div");
-          title.className = "webgeods-carousel-title";
-          title.textContent = profile.name;
-          title.title = profile.name;
-          card.appendChild(title);
-
-          const note = (text) => {
-            const el = document.createElement("div");
-            el.className = "webgeods-carousel-note";
-            el.textContent = text;
-            card.appendChild(el);
-          };
+          const col = profile.name;
 
           if (profile.kind === "empty") {
-            note("No data in this column.");
-          } else if (profile.kind === "constant") {
-            note(`Every value is "${profile.value}".`);
-          } else if (profile.kind === "highCardinality") {
-            note(`${profile.distinctCount} distinct values — too many for a readable chart.`);
-          } else {
-
-            const isNumeric =
-              profile.kind === "numeric";
-
-            // binFull/category kept alongside the truncated label
-            // (bin) so the tooltip still shows the real value even
-            // when the on-chart label itself is shortened.
-            const rows =
-              isNumeric
-                ? profile.counts.map((count, j) => {
-                    const full = `${profile.binEdges[j].toLocaleString()}–${profile.binEdges[j + 1].toLocaleString()}`;
-                    const short = `${profile.binEdges[j].toLocaleString(undefined, { maximumFractionDigits: 0 })}–${profile.binEdges[j + 1].toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-                    return { bin: truncateLabel(short), binFull: full, count, order: j, key: `bin-${j}` };
-                  })
-                : profile.categories.map((category, j) => ({
-                    bin: truncateLabel(category), binFull: category, count: profile.counts[j], order: j, key: `cat-${j}`
-                  }));
-
-            const chartMount = document.createElement("div");
-            card.appendChild(chartMount);
-
-            // Forces an immediate layout pass before measuring below
-            // -- a container measured right after insertion, with no
-            // yield to the event loop yet, can otherwise read a stale
-            // pre-layout width (same fix as kriging-interpolator.qmd's
-            // own chart-width bug, found live from a screenshot: the
-            // chart's plot area overflowed its own card to the
-            // right).
-            void chartMount.offsetHeight;
-
-            // Vega-Lite's own "width" is the PLOT AREA only -- the
-            // category axis's label gutter is added on top of it, so
-            // passing the card's full available width still overflows
-            // once that gutter is added. Reserving a fixed 60px for it
-            // (labels are pre-truncated above, so that gutter stays
-            // bounded regardless of the data) keeps the whole chart,
-            // gutter included, inside the card.
-            const chartWidth =
-              Math.max(60, chartMount.getBoundingClientRect().width - 60);
-
-            // No cross-linking need here (a histogram bin or a
-            // category count has no obvious single-click target on
-            // the map/table) -- shared/vega-chart.js's
-            // renderVegaChart() still requires a point-selection
-            // param and an externalParam regardless (see its own doc
-            // comment), so this supplies the minimum it asks for. A
-            // per-card index keeps every chart's param names unique,
-            // even though each mounts into its own isolated Vega view
-            // and would likely be fine reusing the same names anyway.
-            WebGeoDS.renderVegaChart(chartMount, {
-              "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-              "width": chartWidth,
-              // Bar count varies per column (a categorical column has
-              // as many bars as categories, up to MAX_CATEGORIES; a
-              // numeric one always has up to 10 bins) -- a fixed
-              // height cramped a 10-bin histogram into unreadably
-              // thin bars, so this scales with row count instead.
-              "height": Math.max(90, rows.length * 22),
-              "autosize": { "type": "pad" },
-              "params": [{ "name": `gfiExternal${i}`, "value": null }],
-              "layer": [{
-                "data": { "values": rows },
-                "params": [{ "name": `gfiSelect${i}`, "select": { "type": "point", "fields": ["key"] } }],
-                "mark": { "type": "bar", "color": "#42583c" },
-                "encoding": {
-                  // Horizontal bars: the bin/category label reads
-                  // left-to-right at a normal angle instead of being
-                  // squeezed and tilted under the axis -- the actual
-                  // readability fix. No axis title on this side
-                  // either (the card's own HTML title above already
-                  // names the column; repeating "Category"/"Value"
-                  // rotated beside the bars added nothing).
-                  "y": { "field": "bin", "type": "nominal", "sort": { "field": "order" }, "title": null, "axis": { "labelFontSize": 9 } },
-                  "x": { "field": "count", "type": "quantitative", "title": "Count" },
-                  "tooltip": [{ "field": "binFull", "title": isNumeric ? "Value" : "Category" }, { "field": "count" }]
-                }
-              }]
-            }, {
-              selectParams: [`gfiSelect${i}`],
-              externalParam: `gfiExternal${i}`,
-              keyField: "key",
-              onSelect: () => {}
-            });
-
+            allRows.push({ column: col, type: "note", message: "No data in this column." });
+            return;
+          }
+          if (profile.kind === "constant") {
+            allRows.push({ column: col, type: "note", message: `Every value is "${profile.value}".` });
+            return;
+          }
+          if (profile.kind === "highCardinality") {
+            allRows.push({ column: col, type: "note", message: `${profile.distinctCount} distinct values — too many for a readable chart.` });
+            return;
           }
 
-          carousel.appendChild(card);
+          const isNumeric =
+            profile.kind === "numeric";
 
+          // binFull/category kept alongside the truncated label (bin)
+          // so the tooltip still shows the real value even when the
+          // on-chart label itself is shortened. `key` is namespaced by
+          // column (not just index) since every column's rows now
+          // share one dataset/one selection param.
+          const rows =
+            isNumeric
+              ? profile.counts.map((count, j) => {
+                  const full = `${profile.binEdges[j].toLocaleString()}–${profile.binEdges[j + 1].toLocaleString()}`;
+                  const short = `${profile.binEdges[j].toLocaleString(undefined, { maximumFractionDigits: 0 })}–${profile.binEdges[j + 1].toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+                  return { column: col, type: "bar", bin: truncateLabel(short), binFull: full, count, order: j, key: `${col}::bin-${j}` };
+                })
+              : profile.categories.map((category, j) => ({
+                  column: col, type: "bar", bin: truncateLabel(category), binFull: category, count: profile.counts[j], order: j, key: `${col}::cat-${j}`
+                }));
+
+          allRows.push(...rows);
+
+        });
+
+        // Forces an immediate layout pass before measuring below -- a
+        // container measured right after insertion, with no yield to
+        // the event loop yet, can otherwise read a stale pre-layout
+        // width (same fix as kriging-interpolator.qmd's own
+        // chart-width bug, found live from a screenshot: the chart's
+        // plot area overflowed its own container to the right).
+        void chartMount.offsetHeight;
+
+        // AXIS_PAD reserves room for the y-axis's own bin/category
+        // labels (left) and the x-axis's ticks/title (bottom) as an
+        // EXPLICIT, fixed pixel budget -- not Vega-Lite's own
+        // automatic "pad" autosize, which measures label text and
+        // adds margin for it. That auto-measurement runs ONCE, at
+        // first render: found live, switching this dropdown (bound
+        // straight into the spec, see "gfiColumn" below) from a
+        // no-chart column (nothing to measure, ~0 margin reserved) to
+        // a real histogram clipped every bin label clean off the left
+        // edge -- Vega never re-measures margins on a later reactive
+        // param change, only on the very first layout. A constant
+        // budget generous enough for the longest label this chart can
+        // ever show (truncateLabel caps every label at 12 characters)
+        // sidesteps that entirely: it's already correct before any
+        // data exists to measure.
+        const AXIS_PAD =
+          { left: 90, top: 6, right: 10, bottom: 34 };
+
+        const chartWidth =
+          Math.max(80, chartMount.getBoundingClientRect().width - AXIS_PAD.left - AXIS_PAD.right);
+
+        // Set once from the WIDEST column across the whole file, not
+        // recomputed per selection -- a single spec's "height" isn't
+        // reactive to which column the bound dropdown currently shows,
+        // so this sizes for the busiest case (up to 10 numeric bins,
+        // or up to MAX_CATEGORIES categories) once, up front.
+        const maxRows =
+          Math.max(1, ...profiles.map((p) => {
+            if (p.kind === "numeric") return p.counts.length;
+            if (p.kind === "categorical") return p.categories.length;
+            return 1;
+          }));
+        const chartHeight =
+          Math.max(140, maxRows * 26);
+
+        // Reads --etichetta LIVE off :root, same reasoning as
+        // shared/vega-chart.js's own designToken() (not imported here
+        // -- this page-local script has no dependency on that file's
+        // internals): a literal hex baked in here could independently
+        // drift from shared/styles.css's own muted-text token.
+        const noteColor =
+          getComputedStyle(document.documentElement).getPropertyValue("--etichetta").trim() || "#766851";
+
+        WebGeoDS.renderVegaChart(chartMount, {
+          "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+          "width": chartWidth,
+          "height": chartHeight,
+          // "none" -- not "pad" -- pairs with the explicit AXIS_PAD
+          // above: total canvas size becomes exactly width/height plus
+          // this fixed padding, never recomputed from rendered label
+          // text (see AXIS_PAD's own comment for why that recompute
+          // never happening is exactly the bug this avoids).
+          "autosize": { "type": "none" },
+          "padding": AXIS_PAD,
+          "data": { "values": allRows },
+          "params": [
+            // The dropdown itself, bound straight into the spec --
+            // Vega-Lite renders this as an actual <select> under the
+            // chart (vega-embed's own default "bindings" placement).
+            // No onchange handler anywhere in this file: every layer
+            // below re-filters against this one signal automatically
+            // whenever it changes.
+            {
+              "name": "gfiColumn",
+              "value": profiles[0].name,
+              "bind": { "input": "select", "options": profiles.map((p) => p.name), "name": "Column  " }
+            },
+            { "name": "gfiColumnExternal", "value": null }
+          ],
+          "layer": [
+            {
+              "transform": [{ "filter": "datum.column === gfiColumn && datum.type === 'bar'" }],
+              "params": [{ "name": "gfiColumnSelect", "select": { "type": "point", "fields": ["key"] } }],
+              "mark": { "type": "bar", "color": "#42583c" },
+              "encoding": {
+                // Horizontal bars: the bin/category label reads
+                // left-to-right at a normal angle instead of being
+                // squeezed and tilted under the axis -- the actual
+                // readability fix. No axis title on this side either
+                // (the dropdown above already names the column;
+                // repeating "Category"/"Value" rotated beside the bars
+                // added nothing).
+                "y": { "field": "bin", "type": "nominal", "sort": { "field": "order" }, "title": null, "axis": { "labelFontSize": 10 } },
+                "x": { "field": "count", "type": "quantitative", "title": "Count" },
+                "tooltip": [{ "field": "binFull", "title": "Value" }, { "field": "count" }]
+              }
+            },
+            {
+              // The companion to the bar layer above: a column with no
+              // chart (too many distinct values, constant, empty) has
+              // no "bar" rows to filter to, so this text layer -- the
+              // only one with a matching "note" row for that column --
+              // is the only thing that actually draws. Centered via
+              // signal expressions (Vega-Lite 5's `"value": {"expr"}`)
+              // rather than a data-driven x/y, since a note has no
+              // natural position of its own the way a bar does.
+              "transform": [{ "filter": "datum.column === gfiColumn && datum.type === 'note'" }],
+              "mark": { "type": "text", "align": "center", "baseline": "middle", "fontSize": 12, "color": noteColor, "limit": Math.max(80, chartWidth - 20) },
+              "encoding": {
+                "x": { "value": { "expr": "width / 2" } },
+                "y": { "value": { "expr": "height / 2" } },
+                "text": { "field": "message" }
+              }
+            }
+          ]
+        }, {
+          selectParams: ["gfiColumnSelect"],
+          externalParam: "gfiColumnExternal",
+          keyField: "key",
+          onSelect: () => {}
         });
 
       }
