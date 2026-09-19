@@ -8,10 +8,10 @@ page-layout: full
 
 Upload a `.tif`/`.tiff` file and get an instant summary of what's
 actually in it — size, resolution, bands, coordinate reference
-system, and the value range of each band. Pick a band and a color
-ramp below to actually see it, not just read numbers about it — or
-pick "RGB composite" from the band menu to combine any three bands
-into one color image instead.
+system, and the value range of each band. A file with two or more
+bands gets an RGB composite on the map right away; pick a single band
+and a color ramp below to see that band alone instead, not just read
+numbers about it.
 
 ::: {.callout-tip}
 **Private by design.** Your file is processed entirely in your
@@ -495,6 +495,50 @@ document.addEventListener("DOMContentLoaded", () => {
           keyField: "band",
           onSelect: () => {}
         });
+
+        // A multi-band file gets its RGB composite on the map right
+        // away -- not just the boxplot -- instead of making a reader
+        // pick "RGB composite" from the Band menu and press Preview
+        // themselves before seeing anything. redBand/greenBand/
+        // blueBand already hold the right defaults (their own
+        // `default()` callbacks, same ones a manual selection would
+        // use) from _syncSelectInputs() a few lines up the call stack
+        // -- only bandIndex needs to be pointed at "RGB composite"
+        // before runCompute() reads the row. A single-band file has
+        // nothing to composite, so it's left exactly as before
+        // (Band menu on "1", nothing previewed until Preview is
+        // pressed by hand).
+        //
+        // Safe to await runCompute() here even though this whole
+        // onResult() is itself already running INSIDE a queued
+        // inspect task (loadExample()/handleFiles()/reset() each wrap
+        // their own work in Dashboard's own _queue(), which chains
+        // through one shared promise, `this._chain`): _runInspectInner()
+        // fires `cfg.onResult?.(value)` without awaiting it, so by the
+        // time this function reaches ITS OWN first `await` above (the
+        // boxplot's renderVegaChart call), the outer inspect task has
+        // already finished and settled `this._chain` -- runCompute()'s
+        // own _queue() call below is appending onto an already-
+        // resolved chain, not the one this code is still inside.
+        // Moving this above that first await would reintroduce the
+        // exact self-referential deadlock this ordering avoids.
+        if (v.summary.bandCount >= 2) {
+
+          const bandSelect =
+            document.querySelector("#raster-inspector-bandIndex");
+
+          if (bandSelect) {
+
+            bandSelect.value =
+              "RGB composite";
+
+            syncBandModeVisibility();
+
+            await dashboard.runCompute();
+
+          }
+
+        }
 
       }
     },
