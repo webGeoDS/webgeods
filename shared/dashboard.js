@@ -91,6 +91,12 @@
  *                below) -- for a tool whose inspect layer already
  *                colors data by value on its own (a client-side
  *                preview), not every tool needs this,
+ *                download: { ... }, // optional -- same shape as
+ *                compute.download below, for a tool whose download is
+ *                ready right after inspect instead of gated behind a
+ *                Compute click (e.g. an inspector tool with no
+ *                compute.cellId at all, or one whose download just
+ *                isn't tied to what Compute produces),
  *                onResult: value => { ... } }, // optional -- same
  *                escape hatch as compute.onResult below, fired from
  *                _runInspectInner() instead of runCompute(); called
@@ -116,20 +122,50 @@
  *                stats: (value, inputs) => [["Label", value]],
  *                legend: value => [{ color, label }],
  *                download: { getFeatures: value => featureCollection,
- *                            filenameSuffix, defaultFilename,
+ *                            filenameSuffix, defaultFilename, mimeType,
  *                            shapefile: { cellId, filenameSuffix,
- *                            defaultFilename } }, // optional -- same
- *                            `shapefile` option downloadButton() itself
- *                            takes (shared/ui.js), minus `uploadKind`
- *                            (Dashboard supplies that live from its own
- *                            state, see _buildDom() below). Lives under
- *                            `compute`, not as a sibling of upload/
+ *                            defaultFilename },
+ *                            enabled: value => boolean }, // optional --
+ *                            same `shapefile`/`mimeType` options
+ *                            downloadButton() itself takes (shared/
+ *                            ui.js), minus `uploadKind` (Dashboard
+ *                            supplies that live from its own state, see
+ *                            _buildDom() below). `enabled` defaults to
+ *                            `!!value` -- override it when "ready" needs
+ *                            more than "does a value exist" (e.g. "and
+ *                            it isn't an empty FeatureCollection").
+ *                            Lives under `compute` (or `inspect`, see
+ *                            above) rather than as a sibling of upload/
  *                            example, even though its BUTTON renders in
  *                            the same control row as theirs -- a real
  *                            data dependency, not just an organizing
  *                            choice: `getFeatures` operates on the
- *                            COMPUTE value, so its config travels with
- *                            the step that produces what it downloads.
+ *                            value from WHICHEVER step it's declared
+ *                            under, so its config travels with that
+ *                            step. A tool needing a raster (GeoTIFF)
+ *                            instead of GeoJSON/JSON swaps `getFeatures`/
+ *                            `shapefile` for a `raster: { prepare:
+ *                            (value, inputs) => boolean|void, cellId,
+ *                            decode: base64 => bytes, getFilename: base
+ *                            => filename, mimeType, label }` block
+ *                            instead -- rasterDownloadButton()'s own
+ *                            shape (shared/ui.js): the payload comes
+ *                            from running a hidden export CodeCell and
+ *                            reading its result back, not from
+ *                            serializing `value` directly, so it needs
+ *                            its own sequence (`prepare` sets whatever
+ *                            `window.*` globals that cell's own `#|
+ *                            inject:` list reads, doubling as the
+ *                            live readiness check -- returning `false`
+ *                            aborts). `prepare` receives the SAME
+ *                            value/inputs pair `stats`/`legend` above
+ *                            already do -- `inputs` specifically is
+ *                            `this.state.inputs`, which only changes at
+ *                            the START of a runCompute() call, so it's
+ *                            always the exact inputs the CURRENT
+ *                            `value` was actually computed with, never
+ *                            live unsaved slider positions a reader
+ *                            nudged after the fact.
  *                diagram: { nodes: value => features, links: value =>
  *                           features, ...renderForceGraph()'s own
  *                           options (nodeColor, onNodeClick, ...) },
@@ -1202,8 +1238,16 @@
 
       if (this._downloadBtn) {
 
+        // `this._downloadSource`/`this._downloadReady` are set once in
+        // _buildDom() (shared/dashboard-dom.js), from whichever of
+        // inspect.download/compute.download the tool actually
+        // declared -- see that file's own comment for why the button
+        // itself can be built from either step.
+        const downloadValue =
+          this._downloadSource === "inspect" ? this.state.inspectValue : this.state.result;
+
         this._downloadBtn.disabled =
-          this.state.busy || !this.state.result;
+          this.state.busy || !this._downloadReady(downloadValue);
 
       }
 

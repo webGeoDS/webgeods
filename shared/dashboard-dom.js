@@ -100,37 +100,87 @@
 
     }
 
-    if (config.compute && config.compute.download) {
+    // inspect.download takes priority if a tool somehow declared both
+    // (it shouldn't -- one step or the other actually produces the
+    // download's data) -- inspect runs first in a tool's own
+    // lifecycle, so a download tied to it is ready earlier, the more
+    // permissive of the two to default to.
+    const downloadHost =
+      config.inspect && config.inspect.download ? "inspect" :
+      (config.compute && config.compute.download ? "compute" : null);
 
-      const downloadCfg =
-        config.compute.download;
+    const downloadCfg =
+      downloadHost && config[downloadHost].download;
+
+    if (downloadCfg) {
 
       const dashboard =
         this;
 
-      this._downloadBtn =
-        window.WebGeoDS.downloadButton({
-          getFeatures: () => downloadCfg.getFeatures(this.state.result),
-          getBaseName: () => window.WebGeoDS.Upload.baseName(this.state.files),
-          filenameSuffix: downloadCfg.filenameSuffix,
-          defaultFilename: downloadCfg.defaultFilename,
-          enabled: false,
-          tool: config.tool,
-          mimeType: downloadCfg.mimeType,
-          // `uploadKind` as a GETTER, not a frozen value: this button
-          // is built once in the constructor and never rebuilt (see
-          // this file's own doc comment on compute inputs), but the
-          // upload kind changes on every upload/example load after
-          // that -- a plain property would freeze it at its initial
-          // value (null) forever. downloadButton() (shared/ui.js)
-          // reads shapefile.uploadKind fresh on every click, so a
-          // getter transparently stays current with no change needed
-          // there.
-          shapefile: downloadCfg.shapefile ? {
-            ...downloadCfg.shapefile,
-            get uploadKind() { return dashboard.state.kind; }
-          } : undefined
-        });
+      this._downloadSource =
+        downloadHost;
+
+      this._downloadReady =
+        downloadCfg.enabled || ((value) => !!value);
+
+      if (downloadCfg.raster) {
+
+        // rasterDownloadButton() (shared/ui.js) reads its result back
+        // from running a hidden export CodeCell, not from serializing
+        // `value` directly -- `value`/`inputs` are read fresh from
+        // dashboard.state INSIDE prepare(), at click time, not closed
+        // over here at construction time, so a later inspect/compute
+        // (which replaces both) is always what a click actually
+        // downloads.
+        this._downloadBtn =
+          window.WebGeoDS.rasterDownloadButton({
+            label: downloadCfg.raster.label,
+            enabled: false,
+            prepare: () => {
+
+              const value =
+                downloadHost === "inspect" ? dashboard.state.inspectValue : dashboard.state.result;
+
+              return downloadCfg.raster.prepare(value, dashboard.state.inputs);
+
+            },
+            cellId: downloadCfg.raster.cellId,
+            decode: downloadCfg.raster.decode,
+            getBaseName: () => window.WebGeoDS.Upload.baseName(dashboard.state.files),
+            getFilename: downloadCfg.raster.getFilename,
+            tool: config.tool,
+            mimeType: downloadCfg.raster.mimeType
+          });
+
+      } else {
+
+        this._downloadBtn =
+          window.WebGeoDS.downloadButton({
+            getFeatures: () => downloadCfg.getFeatures(
+              downloadHost === "inspect" ? dashboard.state.inspectValue : dashboard.state.result
+            ),
+            getBaseName: () => window.WebGeoDS.Upload.baseName(this.state.files),
+            filenameSuffix: downloadCfg.filenameSuffix,
+            defaultFilename: downloadCfg.defaultFilename,
+            enabled: false,
+            tool: config.tool,
+            mimeType: downloadCfg.mimeType,
+            // `uploadKind` as a GETTER, not a frozen value: this button
+            // is built once in the constructor and never rebuilt (see
+            // this file's own doc comment on compute inputs), but the
+            // upload kind changes on every upload/example load after
+            // that -- a plain property would freeze it at its initial
+            // value (null) forever. downloadButton() (shared/ui.js)
+            // reads shapefile.uploadKind fresh on every click, so a
+            // getter transparently stays current with no change needed
+            // there.
+            shapefile: downloadCfg.shapefile ? {
+              ...downloadCfg.shapefile,
+              get uploadKind() { return dashboard.state.kind; }
+            } : undefined
+          });
+
+      }
 
       controlChildren.push(this._downloadBtn);
 

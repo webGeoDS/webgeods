@@ -306,7 +306,6 @@ document.addEventListener("DOMContentLoaded", () => {
   let riBoxplotChart = null;
   let riBoxplotSlotEl = null;
   let riHistogramSlotEl = null;
-  let riDownloadBtn = null;
 
   // Real implementation assigned once the DOM exists to query, right
   // after the Dashboard constructor call below -- a no-op placeholder
@@ -375,6 +374,17 @@ document.addEventListener("DOMContentLoaded", () => {
         );
         return rows;
       },
+      // Ready the moment a file's stats are known, not gated behind
+      // Preview -- this download is the stats summary itself
+      // (dimensions/bands/CRS/per-band min-max-mean), unrelated to
+      // whatever Preview does or doesn't currently show on the map.
+      download: {
+        getFeatures: (v) => v?.summary,
+        filenameSuffix: "-stats.json",
+        defaultFilename: "raster-stats.json",
+        mimeType: "application/json",
+        enabled: (v) => !!(v && v.summary)
+      },
       // Builds the side panel's TWO persistent slots -- a boxplot
       // comparing every band at once (this cell's own data, computed
       // automatically, no Preview needed) sitting above a histogram
@@ -387,10 +397,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const dashboard =
           WebGeoDS.Dashboard.find("raster-inspector");
-
-        if (riDownloadBtn) {
-          riDownloadBtn.disabled = !v || !v.summary;
-        }
 
         // _syncSelectInputs() (shared/dashboard.js, runs just before
         // this onResult) just reset the Band menu's value back to "1"
@@ -768,31 +774,6 @@ document.addEventListener("DOMContentLoaded", () => {
     syncBandModeVisibility();
 
   })();
-
-  // No declarative download field fits here either (this tool has a
-  // real compute step, but downloadButton's own `getFeatures` shape is
-  // GeoJSON-only, and rasterDownloadButton needs a dedicated GeoTIFF
-  // export cell this tool doesn't have) -- kept as the same
-  // machine-readable stats download the hand-wired version already
-  // had, wired up directly like kriging-interpolator.qmd's GeoTIFF
-  // button and geospatial-file-inspector.qmd's GeoJSON button. Enabled/
-  // disabled from inspect.onResult above (not compute.onResult): the
-  // stats it downloads are ready the moment a file is inspected, not
-  // only after Preview is clicked.
-  riDownloadBtn = WebGeoDS.downloadButton({
-    getFeatures: () => WebGeoDS.Dashboard.find("raster-inspector").inspectValue?.summary,
-    getBaseName: () => WebGeoDS.Upload.baseName(WebGeoDS.Dashboard.find("raster-inspector").state.files),
-    filenameSuffix: "-stats.json",
-    defaultFilename: "raster-stats.json",
-    enabled: false,
-    tool: "raster-inspector",
-    mimeType: "application/json"
-  });
-
-  const riControlRow = document.querySelector("#ri-dashboard .webgeods-panel-row");
-  if (riControlRow) {
-    riControlRow.insertBefore(riDownloadBtn, riControlRow.lastElementChild);
-  }
 
 });
 </script>

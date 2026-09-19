@@ -461,12 +461,6 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   window.kiChart = null;
-  window.kiLastInputs = null;
-  // Assigned right after the Dashboard is constructed below, but
-  // referenced from inside its own onResult closure -- fine in JS,
-  // since a closure resolves a `let` binding at CALL time, not at the
-  // moment it was created.
-  let kiDownloadBtn = null;
 
   new WebGeoDS.Dashboard({
     tool: "kriging-interpolator",
@@ -573,7 +567,33 @@ document.addEventListener("DOMContentLoaded", () => {
       // ever the same three series (points, fitted line, reference
       // lines), already named in its own title/axis labels.
       legend: (v) => ({ gradient: KRIGE_RAMP, minLabel: `${v.raster.min}%`, maxLabel: `${v.raster.max}%` }),
-      onResult: async (v, inputs) => {
+      // A GeoTIFF, not GeoJSON/JSON -- downloadButton()'s own
+      // `getFeatures` shape doesn't fit, so this is the `raster`
+      // variant instead (rasterDownloadButton()'s own shape, shared/
+      // ui.js): the payload comes from running export-r (a hidden R
+      // cell that re-krigs the surface with terra::rast()/
+      // writeRaster()) and reading its result back, not from
+      // serializing `value` directly. `prepare`'s own `inputs`
+      // argument is `this.state.inputs` (shared/dashboard.js), which
+      // only changes at the START of a runCompute() call -- always the
+      // EXACT inputs the current result was computed with, never a
+      // slider position nudged after Interpolate but before Download
+      // that hasn't actually been re-interpolated yet.
+      download: {
+        raster: {
+          label: "⬇ Download GeoTIFF",
+          prepare: (value, inputs) => {
+            if (!value) return false;
+            window.valueColumn = inputs.valueColumn;
+            window.variogramModel = inputs.variogramModel;
+            window.gridResolution = inputs.gridResolution;
+          },
+          cellId: "kriging-interpolator-export-r",
+          decode: base64ToBytes,
+          getFilename: () => "kriged-surface.tif"
+        }
+      },
+      onResult: async (v) => {
 
         const dashboard =
           WebGeoDS.Dashboard.find("kriging-interpolator");
@@ -583,19 +603,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!v) {
           await dashboard.map.removeRasterImage("kriging-interpolator-surface");
-          window.kiLastInputs = null;
-          if (kiDownloadBtn) kiDownloadBtn.disabled = true;
           return;
         }
-
-        // Captured here (not read fresh from the UI at click time):
-        // the download button's own prepare() needs the EXACT inputs
-        // this result was computed with, which could otherwise have
-        // drifted if the reader nudges a slider after Interpolate but
-        // before clicking Download, producing a file that doesn't
-        // match what's actually on screen.
-        window.kiLastInputs = inputs;
-        if (kiDownloadBtn) kiDownloadBtn.disabled = false;
 
         await dashboard.map.setRasterImage("kriging-interpolator-surface", {
           bounds: v.raster.wgs84Bounds,
@@ -775,34 +784,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
   });
-
-  // Dashboard has no declarative option for a RASTER download (its
-  // own compute.download field is GeoJSON/Shapefile-shaped only, see
-  // dashboard.js's own doc comment) -- this tool is the first one
-  // that needs it, so it's wired up here directly rather than
-  // extending shared code for a single caller (same "wait for a
-  // second real need" discipline this project already applies to
-  // Dashboard's layout and selection-store questions). Inserted into
-  // the SAME control row Dashboard itself built, right before Reset,
-  // matching where a declarative download button would have landed.
-  kiDownloadBtn = WebGeoDS.rasterDownloadButton({
-    label: "⬇ Download GeoTIFF",
-    enabled: false,
-    prepare: () => {
-      if (!window.kiLastInputs) return false;
-      window.valueColumn = window.kiLastInputs.valueColumn;
-      window.variogramModel = window.kiLastInputs.variogramModel;
-      window.gridResolution = window.kiLastInputs.gridResolution;
-    },
-    cellId: "kriging-interpolator-export-r",
-    decode: base64ToBytes,
-    getFilename: () => "kriged-surface.tif",
-    tool: "kriging-interpolator"
-  });
-  const kiControlRow = document.querySelector("#ki-dashboard .webgeods-panel-row");
-  if (kiControlRow) {
-    kiControlRow.insertBefore(kiDownloadBtn, kiControlRow.lastElementChild);
-  }
 
 });
 </script>

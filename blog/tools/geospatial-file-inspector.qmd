@@ -276,8 +276,6 @@ document.addEventListener("DOMContentLoaded", () => {
     "line-width": 2.5
   };
 
-  let gfiDownloadBtn = null;
-
   new WebGeoDS.Dashboard({
     tool: "geospatial-file-inspector",
     mount: "#gfi-dashboard",
@@ -334,11 +332,28 @@ document.addEventListener("DOMContentLoaded", () => {
       legend: (v) => (v.summary && v.summary.total > 0)
         ? [{ color: "#2ea44f", label: "Valid" }, { color: "#e05252", label: "Invalid" }]
         : null,
-      onResult: (v) => {
-
-        if (gfiDownloadBtn) {
-          gfiDownloadBtn.disabled = !v || !v.summary || v.summary.total === 0;
+      // Downloads the enriched GeoJSON (original columns + valid/
+      // empty/duplicate) in the file's own native CRS -- v.features,
+      // not the map source: the map source holds the WGS84 copy
+      // reprojected just for display, and a downloaded file should
+      // give back the same CRS it came in. When the upload was itself
+      // a shapefile, `shapefile` re-exports one instead. Lives under
+      // `inspect`, not `compute` -- this tool has no compute step at
+      // all, pure automatic inspection, so its download is ready the
+      // moment a file resolves, same as its stats/legend/map already
+      // are.
+      download: {
+        getFeatures: (v) => v?.features,
+        filenameSuffix: "-inspected.geojson",
+        defaultFilename: "inspected.geojson",
+        enabled: (v) => !!(v && v.summary && v.summary.total > 0),
+        shapefile: {
+          cellId: "inspect-export-shp-py",
+          filenameSuffix: "-inspected.zip",
+          defaultFilename: "inspected-shapefile.zip"
         }
+      },
+      onResult: (v) => {
 
         if (!v || !v.summary || v.summary.total === 0) {
           return;
@@ -535,38 +550,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
   });
-
-  // WebGeoDS.downloadButton (shared/ui.js). Downloads the enriched
-  // GeoJSON (original columns + valid/empty/duplicate) in the file's
-  // own native CRS — inspectValue.features, not the map source: the
-  // map source holds the WGS84 copy reprojected just for display, and
-  // a downloaded file should give back the same CRS it came in. When
-  // the upload was itself a shapefile, the `shapefile` option
-  // re-exports one instead. Dashboard has no declarative download
-  // field for a tool with no compute step (compute.download is keyed
-  // off config.compute, which this tool doesn't have) -- wired up
-  // directly here, same precedent as kriging-interpolator.qmd's own
-  // GeoTIFF button, and inserted into the same control row Dashboard
-  // itself builds.
-  gfiDownloadBtn = WebGeoDS.downloadButton({
-    getFeatures: () => WebGeoDS.Dashboard.find("geospatial-file-inspector").inspectValue?.features,
-    getBaseName: () => WebGeoDS.Upload.baseName(WebGeoDS.Dashboard.find("geospatial-file-inspector").state.files),
-    filenameSuffix: "-inspected.geojson",
-    defaultFilename: "inspected.geojson",
-    enabled: false,
-    tool: "geospatial-file-inspector",
-    shapefile: {
-      cellId: "inspect-export-shp-py",
-      get uploadKind() { return WebGeoDS.Dashboard.find("geospatial-file-inspector").state.kind; },
-      filenameSuffix: "-inspected.zip",
-      defaultFilename: "inspected-shapefile.zip"
-    }
-  });
-
-  const gfiControlRow = document.querySelector("#gfi-dashboard .webgeods-panel-row");
-  if (gfiControlRow) {
-    gfiControlRow.insertBefore(gfiDownloadBtn, gfiControlRow.lastElementChild);
-  }
 
 });
 </script>
