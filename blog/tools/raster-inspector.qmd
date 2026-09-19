@@ -2,13 +2,14 @@
 title: "Raster Inspector & Statistics"
 date: 2026-09-06
 categories: [tool, raster]
-description: "Upload a GeoTIFF and get an instant summary — dimensions, resolution, band count, CRS, NoData, and per-band min/max/mean. Free, runs entirely in your browser: the file never leaves your computer."
+description: "Upload a GeoTIFF and get an instant summary — dimensions, resolution, band count, CRS, NoData, per-band min/max/mean, and a colored preview of any band with its own value histogram. Free, runs entirely in your browser: the file never leaves your computer."
 page-layout: full
 ---
 
 Upload a `.tif`/`.tiff` file and get an instant summary of what's
 actually in it — size, resolution, bands, coordinate reference
-system, and the value range of each band.
+system, and the value range of each band. Pick a band and a color
+ramp below to actually see it, not just read numbers about it.
 
 ::: {.callout-tip}
 **Private by design.** Your file is processed entirely in your
@@ -17,75 +18,39 @@ including ours. Nothing to configure, nothing to trust: the code
 never gets the chance to see your data.
 :::
 
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
+```{.webgeods-python #raster-generate-example-py}
+#| package: rasterio, numpy
+import rasterio
+from rasterio.transform import from_origin
+import numpy as np
 
-```{ojs}
-//| echo: false
-mutable uploadBusy = false
-```
+# Two bands, not one: a Gaussian hill (band 1, same shape used
+# elsewhere on this site for terrain-like examples, with one
+# deliberately-NoData corner pixel so that row in the summary has
+# something real to show) and a diagonal gradient (band 2) -- visibly
+# different from band 1, so switching the band selector below
+# actually shows something different, not just the same shape
+# recolored.
+n = 20
+xs = np.arange(n)
+ys = np.arange(n)
+X, Y = np.meshgrid(xs, ys)
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
+band1 = (100 + 40 * np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)).astype("float32")
+band1[0, 0] = -9999
 
-```{ojs}
-//| echo: false
-//| output: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "📁 Upload",
-  onChange: (files) => { mutable uploadedFiles = files; },
-  kind: "raster"
-})
-```
+band2 = ((X + Y) * 2.5).astype("float32")
 
-```{ojs}
-//| echo: false
-//| output: false
-{
-  // Python-only tool, same reasoning as every other tool here: skip
-  // writing to R's filesystem entirely so selecting a file doesn't
-  // also boot webR in the background for nothing.
-  mutable uploadBusy = true;
-  mutable uploadStatus = "⌛ Uploading...";
-  try {
-    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
-    if (result.ok) {
-      mutable uploadStatus = "⌛ Inspecting...";
-      await autoInspect();
-      mutable uploadStatus = result.message;
-    } else {
-      mutable uploadStatus = result.message;
-    }
-  } finally {
-    mutable uploadBusy = false;
-  }
-}
-```
+transform = from_origin(12.40, 41.95, 0.005, 0.005)
 
-```{ojs}
-//| echo: false
-//| output: false
-uploadStatusEl = {
-  const span = document.createElement("span");
-  span.className = "webgeods-panel-status" + (uploadBusy ? " webgeods-btn-loading" : "");
-  span.textContent = uploadStatus;
-  return span;
-}
-```
+with rasterio.open(
+    "/uploaded.tif", "w", driver="GTiff", height=n, width=n, count=2,
+    dtype="float32", crs="EPSG:4326", transform=transform, nodata=-9999
+) as dst:
+    dst.write(band1, 1)
+    dst.write(band2, 2)
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  window.WebGeoDS.track?.("tool_loaded", { tool: "raster-inspector" });
-  return map;
-}
+"example raster written"
 ```
 
 The code itself isn't shown here — it's a fixed, non-editable summary
@@ -93,74 +58,10 @@ using `rasterio` underneath. Want to see the same statistics built up
 step by step, in Python *and* R? Read
 [First Look at a Raster File](/posts/raster-file-inspection.html).
 
-```{ojs}
-//| echo: false
-//| output: false
-// "Load example" writes a small synthetic raster directly, instead of
-// decoding a pre-made GeoJSON string the way every vector tool's
-// example does (see geospatial-file-inspector.qmd) — a GeoTIFF is a
-// binary format, so the natural equivalent is a dedicated Python cell
-// that builds one with `rasterio` on demand, not a string constant.
-generateExample = async () => {
-  await window.WebGeoDS.CodeCell.find("raster-generate-example-py").run();
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-loadExampleButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "📋 Load example";
-  button.onclick = async () => {
-    mutable uploadBusy = true;
-    mutable uploadStatus = "⌛ Loading example...";
-    try {
-      await generateExample();
-      mutable uploadStatus = "⌛ Inspecting...";
-      await autoInspect();
-      mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
-    } finally {
-      mutable uploadBusy = false;
-    }
-  };
-  return button;
-}
-```
-
-```{.webgeods-python #raster-generate-example-py}
-#| package: rasterio, numpy
-import rasterio
-from rasterio.transform import from_origin
-import numpy as np
-
-# A small synthetic hill (Gaussian bump), same shape already used
-# elsewhere on this site for terrain-like examples (see the viewshed
-# feasibility check) — one deliberately-NoData corner pixel, so the
-# NoData row in the summary below has something real to show.
-n = 20
-xs = np.arange(n)
-ys = np.arange(n)
-X, Y = np.meshgrid(xs, ys)
-elevation = (100 + 40 * np.exp(-((X - 10) ** 2 + (Y - 10) ** 2) / 30)).astype("float32")
-elevation[0, 0] = -9999
-
-transform = from_origin(12.40, 41.95, 0.005, 0.005)
-
-with rasterio.open(
-    "/uploaded.tif", "w", driver="GTiff", height=n, width=n, count=1,
-    dtype="float32", crs="EPSG:4326", transform=transform, nodata=-9999
-) as dst:
-    dst.write(elevation, 1)
-
-"example raster written"
-```
-
 ```{.webgeods-python #raster-inspect-py}
 #| package: rasterio, numpy
 import rasterio
+import numpy as np
 from rasterio.warp import transform_bounds
 
 path = None
@@ -196,18 +97,29 @@ if path is not None:
             crs_warning = "No CRS declared — spatial location cannot be reliably interpreted."
             display_crs_assumption = "EPSG:4326"
 
-        # Per-band min/max/mean, NoData pixels excluded via masked=True
-        # — a band with every pixel masked (all-NoData) reports nulls
-        # instead of a bogus min/max from an empty array.
+        # Per-band min/max/mean/quartiles, NoData pixels excluded via
+        # masked=True — a band with every pixel masked (all-NoData)
+        # reports nulls instead of bogus stats from an empty array.
+        # The quartiles feed the side panel's boxplot below: an
+        # at-a-glance comparison across ALL bands at once, which the
+        # single-band histogram (only ever one band, only after
+        # Preview) can't give by itself.
         band_stats = []
         for i in range(1, src.count + 1):
             band = src.read(i, masked=True)
             has_valid = band.count() > 0
+            if has_valid:
+                q1, median, q3 = [float(x) for x in np.percentile(band.compressed(), [25, 50, 75])]
+            else:
+                q1 = median = q3 = None
             band_stats.append({
                 "band": i,
                 "min": round(float(band.min()), 4) if has_valid else None,
                 "max": round(float(band.max()), 4) if has_valid else None,
                 "mean": round(float(band.mean()), 4) if has_valid else None,
+                "q1": round(q1, 4) if has_valid else None,
+                "median": round(median, 4) if has_valid else None,
+                "q3": round(q3, 4) if has_valid else None,
             })
 
         bounds = [round(float(b), 6) for b in src.bounds]
@@ -253,6 +165,63 @@ if path is not None:
 }
 ```
 
+```{.webgeods-python #raster-preview-py}
+#| inject: [bandIndex]
+#| package: rasterio, numpy
+import rasterio
+import numpy as np
+from rasterio.warp import transform_bounds
+
+with rasterio.open("/uploaded.tif") as src:
+    band_i = int(bandIndex)
+    band = src.read(band_i, masked=True)
+
+    crs_for_transform = src.crs if src.crs is not None else "EPSG:4326"
+    try:
+        wgs84_bounds = transform_bounds(crs_for_transform, "EPSG:4326", *src.bounds)
+    except Exception:
+        wgs84_bounds = src.bounds
+
+    valid = band.compressed()  # 1-D array of non-masked (non-NoData) values
+    has_valid = valid.size > 0
+    band_min = float(valid.min()) if has_valid else 0.0
+    band_max = float(valid.max()) if has_valid else 1.0
+
+    # Row 0 of a rasterio-read array is already the TOP (north) row for
+    # a standard north-up GeoTIFF -- no reordering needed before
+    # encoding, unlike a hand-built grid (see kriging-interpolator.qmd's
+    # own comment on this same point for why that one does need it).
+    filled = band.filled(np.nan).astype("float32")
+
+    con_values = filled.tobytes()
+
+    counts, edges = np.histogram(valid, bins=min(10, max(1, len(set(valid.tolist()))))) if has_valid else (np.array([]), np.array([]))
+
+import io
+buf = io.BytesIO()
+buf.write(con_values)
+
+import base64
+data_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+result = {
+    "band": band_i,
+    "raster": {
+        "width": src.width,
+        "height": src.height,
+        "data": data_b64,
+        "wgs84Bounds": [round(float(b), 6) for b in wgs84_bounds],
+        "min": round(band_min, 4),
+        "max": round(band_max, 4)
+    },
+    "histogram": {
+        "binEdges": [round(float(e), 4) for e in edges],
+        "counts": [int(c) for c in counts]
+    }
+}
+result
+```
+
 ```{ojs}
 //| echo: false
 //| output: false
@@ -261,151 +230,369 @@ autoInspect = async () => {
 }
 ```
 
-```{ojs}
-//| echo: false
-//| output: false
-FOOTPRINT_PAINT = ({
-  "fill-color": "#42583c",
-  "fill-opacity": 0.35,
-  "fill-outline-color": "#2a2117"
-})
-```
-
-```{ojs}
-//| echo: false
-mutable inspectSummary = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyInspect = WebGeoDS.getCellValue("raster-inspect-py", Generators)
-{
-  if (pyInspect && pyInspect.summary) {
-    await sharedMap.setGeoJSON("raster-inspect-py", pyInspect.footprint, { paint: FOOTPRINT_PAINT });
-    await sharedMap.fitToData(pyInspect.footprint);
-    mutable inspectSummary = pyInspect.summary;
-    window.WebGeoDS.track?.("validation_completed", { tool: "raster-inspector" });
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-resetInspector = async () => {
-  if (sharedMap.getGeoJSON("raster-inspect-py")) {
-    await sharedMap.setGeoJSON("raster-inspect-py", { type: "FeatureCollection", features: [] });
-  }
-  mutable inspectSummary = null;
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-resetMapButton = WebGeoDS.resetButton(resetInspector)
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Downloads the computed summary itself (JSON) rather than a
-// modified copy of the raster — unlike the vector tools, there's no
-// natural "enriched" raster to hand back (the stats are page-level
-// scalars, not a per-pixel value to overlay), so a machine-readable
-// report of what's on screen is the closest equivalent.
-downloadButton = WebGeoDS.downloadButton({
-  getFeatures: () => pyInspect?.summary,
-  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
-  filenameSuffix: "-stats.json",
-  defaultFilename: "raster-stats.json",
-  enabled: true,
-  tool: "raster-inspector",
-  mimeType: "application/json"
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-controlPanelRow = WebGeoDS.controlPanelRow([uploadControl, loadExampleButton, downloadButton, resetMapButton])
-```
-
 *First run loads the Python engine — expect 30-40 seconds. Instant
 after that, and again each time you come back to this page.*
 
-:::: {.webgeods-panel}
+<div id="ri-dashboard"></div>
 
-::: {.webgeods-panel-row}
-${controlPanelRow}
-:::
+<!-- Page-local, not site-wide -- same reasoning as the other
+     sidePanel-chart tools: only this one needs the ~828KB vega
+     bundle among the Raster Toolkit tools. -->
+<script src="/vega.min.js"></script>
+<script src="/vega-lite.min.js"></script>
+<script src="/vega-embed.min.js"></script>
+<script src="/vega-chart.js"></script>
 
-::: {.webgeods-panel-row}
-${uploadStatusEl}
-:::
+<script>
+document.addEventListener("DOMContentLoaded", () => {
 
-::::
-
-```{ojs}
-//| echo: false
-// Same reactive-on-a-dedicated-mutable pattern as
-// geospatial-file-inspector.qmd's statCard, for the same reason:
-// Reset has nothing to re-run, so reading straight from pyInspect
-// would leave stale numbers on screen after clicking it.
-statCard = {
-  const s = inspectSummary;
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
+  // Three named ramps a reader can actually choose between, not one
+  // fixed default -- "Viridis" is byte-for-byte
+  // WebGeoDSMap.DEFAULT_RASTER_RAMP (shared/map-raster.js), listed
+  // explicitly here so it's a selectable option rather than only ever
+  // the silent fallback when no colorRamp is passed.
+  const RASTER_RAMPS = {
+    Viridis: [[0.00, 68, 1, 84], [0.25, 59, 82, 139], [0.50, 33, 144, 140], [0.75, 94, 201, 98], [1.00, 253, 231, 37]],
+    Grayscale: [[0.00, 20, 20, 20], [1.00, 240, 240, 240]],
+    Spectral: [[0.00, 50, 90, 180], [0.25, 120, 180, 220], [0.50, 240, 240, 220], [0.75, 240, 160, 80], [1.00, 180, 40, 40]]
   };
 
-  if (!s) {
-    row("Dimensions", "—");
-    row("—", "Upload a .tif/.tiff file or load the example above");
-    return box;
+  const truncateLabel = (text, max = 12) => {
+    const str = String(text);
+    return str.length > max ? `${str.slice(0, max - 1)}…` : str;
+  };
+
+  const base64ToBytes = (base64Str) => {
+    const binary = atob(base64Str);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  };
+
+  const FOOTPRINT_PAINT = {
+    "fill-color": "#42583c",
+    "fill-opacity": 0.35,
+    "fill-outline-color": "#2a2117"
+  };
+
+  let riChart = null;
+  let riBoxplotChart = null;
+  let riBoxplotSlotEl = null;
+  let riHistogramSlotEl = null;
+  let riDownloadBtn = null;
+
+  const HISTOGRAM_PLACEHOLDER =
+    "Pick a band and a color ramp, then Preview, to see its value histogram here.";
+
+  new WebGeoDS.Dashboard({
+    tool: "raster-inspector",
+    mount: "#ri-dashboard",
+    layout: {
+      sidePanel: {
+        id: "ri-histogram",
+        flex: "1 1 320px",
+        minWidth: "280px",
+        placeholder: "Pick a band and a color ramp, then Preview, to see its value histogram here."
+      }
+    },
+    upload: { languages: ["python"], kind: "raster", label: "📁 Upload" },
+    example: {
+      cellId: "raster-generate-example-py",
+      kind: "raster",
+      status: "✓ example raster loaded — pick a band and a color ramp, then Preview."
+    },
+    emptyStats: [
+      ["Dimensions", "—"],
+      ["—", "Upload a .tif/.tiff file or load the example above"]
+    ],
+    inspect: {
+      cellId: "raster-inspect-py",
+      layers: [
+        { source: "raster-inspect-py", from: (v) => v.footprint, type: "fill", paint: () => FOOTPRINT_PAINT, fit: true }
+      ],
+      stats: (v) => {
+        const s = v.summary;
+        if (!s) {
+          return [["Dimensions", "—"], ["—", "Upload a .tif/.tiff file or load the example above"]];
+        }
+        const MAX_BANDS_SHOWN = 6;
+        const bandLines = s.bandStats.slice(0, MAX_BANDS_SHOWN).map((b) =>
+          b.min === null ? `Band ${b.band}: all NoData` : `Band ${b.band}: ${b.min} to ${b.max} (mean ${b.mean})`
+        );
+        if (s.bandStats.length > MAX_BANDS_SHOWN) {
+          bandLines.push(`… and ${s.bandStats.length - MAX_BANDS_SHOWN} more band(s)`);
+        }
+        const rows = [
+          ["Dimensions", `${s.width} × ${s.height} px`],
+          ["Bands", String(s.bandCount)],
+          ["CRS", s.crs === null || s.crs === undefined ? `Unknown ⚠️ ${s.crsWarning}` : s.crs]
+        ];
+        if (s.displayCrsAssumption) {
+          rows.push(["Display assumption", `${s.displayCrsAssumption} — map only, not a fact about the file`]);
+        }
+        rows.push(
+          ["Resolution", s.resolution.join(" × ")],
+          ["Data type", s.dtype],
+          ["NoData", s.nodata === null || s.nodata === undefined ? "None declared" : String(s.nodata)],
+          ["Bounds", s.bounds.join(", ")],
+          ["Value range", bandLines.join(" · ")]
+        );
+        return rows;
+      },
+      // Builds the side panel's TWO persistent slots -- a boxplot
+      // comparing every band at once (this cell's own data, computed
+      // automatically, no Preview needed) sitting above a histogram
+      // slot for whichever single band Preview last rendered.
+      // Separate slots, not one shared container: compute.onResult
+      // below only ever touches riHistogramSlotEl, so clicking Preview
+      // can never wipe out the boxplot the way overwriting the whole
+      // sidePanelEl would.
+      onResult: async (v) => {
+
+        const dashboard =
+          WebGeoDS.Dashboard.find("raster-inspector");
+
+        if (riDownloadBtn) {
+          riDownloadBtn.disabled = !v || !v.summary;
+        }
+
+        riBoxplotChart?.destroy();
+        riBoxplotChart = null;
+
+        if (!v || !v.summary) {
+          riBoxplotSlotEl = null;
+          riHistogramSlotEl = null;
+          return;
+        }
+
+        dashboard.sidePanelEl.replaceChildren();
+        dashboard.sidePanelEl.style.display = "flex";
+        dashboard.sidePanelEl.style.flexDirection = "column";
+        dashboard.sidePanelEl.style.gap = "12px";
+
+        riBoxplotSlotEl = document.createElement("div");
+        riHistogramSlotEl = document.createElement("div");
+        riHistogramSlotEl.className = "webgeods-carousel-note";
+        riHistogramSlotEl.textContent = HISTOGRAM_PLACEHOLDER;
+        dashboard.sidePanelEl.append(riBoxplotSlotEl, riHistogramSlotEl);
+
+        // Bands with no valid (non-NoData) pixels at all have no
+        // five-number summary to plot -- the stat card above already
+        // says "all NoData" for those, so they're just left out here
+        // rather than plotted as a degenerate zero-width box.
+        const plottable =
+          v.summary.bandStats.filter((b) => b.min !== null);
+
+        if (plottable.length === 0) {
+          riBoxplotSlotEl.className = "webgeods-carousel-note";
+          riBoxplotSlotEl.textContent = "No band has any valid (non-NoData) pixels to compare.";
+          return;
+        }
+
+        const boxRows =
+          plottable.map((b) => ({ band: `Band ${b.band}`, order: b.band, min: b.min, q1: b.q1, median: b.median, q3: b.q3, max: b.max }));
+
+        void riBoxplotSlotEl.offsetHeight;
+        const boxplotWidth =
+          Math.max(60, riBoxplotSlotEl.getBoundingClientRect().width - 50);
+
+        // Vega-Lite's own "boxplot" compound mark expects raw
+        // per-observation rows to aggregate itself -- these are
+        // already-aggregated per-band summaries (shipping every pixel
+        // just to let Vega recompute what Python already computed
+        // would defeat the point), so the box/whiskers/median are
+        // built by hand from three layers sharing one band-axis
+        // instead: a rule (min-max whisker), a thicker bar (Q1-Q3
+        // box), and a tick (median).
+        riBoxplotChart = await WebGeoDS.renderVegaChart(riBoxplotSlotEl, {
+          "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+          "title": "All bands compared",
+          "width": boxplotWidth,
+          "height": Math.max(50, boxRows.length * 26),
+          "autosize": { "type": "pad" },
+          "params": [{ "name": "riBoxExternal", "value": null }],
+          "layer": [
+            {
+              "data": { "values": boxRows },
+              "params": [{ "name": "riBoxSelect", "select": { "type": "point", "fields": ["band"] } }],
+              "mark": { "type": "rule", "color": "#8a8378" },
+              "encoding": {
+                "y": { "field": "band", "type": "nominal", "sort": { "field": "order" }, "title": null },
+                "x": { "field": "min", "type": "quantitative", "title": "Value" },
+                "x2": { "field": "max" }
+              }
+            },
+            {
+              "data": { "values": boxRows },
+              "mark": { "type": "bar", "color": "#42583c", "height": 10 },
+              "encoding": {
+                "y": { "field": "band", "type": "nominal", "sort": { "field": "order" } },
+                "x": { "field": "q1", "type": "quantitative" },
+                "x2": { "field": "q3" },
+                "tooltip": [
+                  { "field": "band" }, { "field": "min" }, { "field": "q1", "title": "Q1" },
+                  { "field": "median" }, { "field": "q3", "title": "Q3" }, { "field": "max" }
+                ]
+              }
+            },
+            {
+              "data": { "values": boxRows },
+              "mark": { "type": "tick", "color": "#ffffff", "thickness": 2, "height": 10 },
+              "encoding": {
+                "y": { "field": "band", "type": "nominal", "sort": { "field": "order" } },
+                "x": { "field": "median", "type": "quantitative" }
+              }
+            }
+          ]
+        }, {
+          selectParams: ["riBoxSelect"],
+          externalParam: "riBoxExternal",
+          keyField: "band",
+          onSelect: () => {}
+        });
+
+      }
+    },
+    compute: {
+      cellId: "raster-preview-py",
+      label: "👁 Preview",
+      busyLabel: "⌛ Rendering...",
+      inputs: [
+        { kind: "select", name: "bandIndex", label: "Band:",
+          options: (v) => Array.from({ length: v.summary?.bandCount ?? 0 }, (_, i) => String(i + 1)),
+          default: () => "1" },
+        // Not injected into the Python cell (see raster-preview-py's
+        // own #| inject: list) -- the ramp only affects how the SAME
+        // pixel values are colored client-side, it changes nothing
+        // about what Python needs to compute.
+        { kind: "select", name: "colorRamp", label: "Color ramp:",
+          options: () => Object.keys(RASTER_RAMPS),
+          default: () => "Viridis" }
+      ],
+      legend: (v, inputs) => ({
+        gradient: RASTER_RAMPS[inputs.colorRamp] || RASTER_RAMPS.Viridis,
+        minLabel: `${v.raster.min}`,
+        maxLabel: `${v.raster.max}`
+      }),
+      onResult: async (v, inputs) => {
+
+        const dashboard =
+          WebGeoDS.Dashboard.find("raster-inspector");
+
+        riChart?.destroy();
+        riChart = null;
+
+        if (!v) {
+          await dashboard.map.removeRasterImage("raster-preview-py");
+          if (riHistogramSlotEl) {
+            riHistogramSlotEl.className = "webgeods-carousel-note";
+            riHistogramSlotEl.textContent = HISTOGRAM_PLACEHOLDER;
+          }
+          return;
+        }
+
+        const ramp =
+          RASTER_RAMPS[inputs.colorRamp] || RASTER_RAMPS.Viridis;
+
+        await dashboard.map.setRasterImage("raster-preview-py", {
+          bounds: v.raster.wgs84Bounds,
+          width: v.raster.width,
+          height: v.raster.height,
+          values: new Float32Array(base64ToBytes(v.raster.data).buffer),
+          min: v.raster.min,
+          max: v.raster.max,
+          colorRamp: ramp
+        });
+
+        if (!riHistogramSlotEl) {
+          return;
+        }
+
+        const rows = v.histogram.counts.map((count, j) => {
+          const lo = v.histogram.binEdges[j];
+          const hi = v.histogram.binEdges[j + 1];
+          const full = `${lo.toLocaleString()}–${hi.toLocaleString()}`;
+          const short = `${lo.toLocaleString(undefined, { maximumFractionDigits: 0 })}–${hi.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+          return { bin: truncateLabel(short), binFull: full, count, order: j, key: `bin-${j}` };
+        });
+
+        // Only THIS slot is touched -- riBoxplotSlotEl (the all-bands
+        // comparison above it, built once per inspect) is a sibling,
+        // not a parent/child of this one, so it's unaffected by any
+        // of this.
+        const chartMount =
+          riHistogramSlotEl;
+
+        chartMount.className = "";
+        chartMount.replaceChildren();
+        void chartMount.offsetHeight;
+        const chartWidth =
+          Math.max(60, chartMount.getBoundingClientRect().width - 60);
+
+        // Horizontal bars, same reasoning as
+        // geospatial-file-inspector.qmd's own column-profile charts:
+        // bin labels read left-to-right at a normal angle, and the
+        // width reserves a fixed gutter for them instead of asking
+        // Vega-Lite for the panel's full width (its own "width" is the
+        // plot area only, the axis gutter is added on top of it).
+        riChart = await WebGeoDS.renderVegaChart(chartMount, {
+          "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+          "title": `Band ${v.band} value distribution`,
+          "width": chartWidth,
+          "height": Math.max(90, rows.length * 22),
+          "autosize": { "type": "pad" },
+          "params": [{ "name": "riExternal", "value": null }],
+          "layer": [{
+            "data": { "values": rows },
+            "params": [{ "name": "riSelect", "select": { "type": "point", "fields": ["key"] } }],
+            "mark": { "type": "bar", "color": "#42583c" },
+            "encoding": {
+              "y": { "field": "bin", "type": "nominal", "sort": { "field": "order" }, "title": null, "axis": { "labelFontSize": 9 } },
+              "x": { "field": "count", "type": "quantitative", "title": "Pixel count" },
+              "tooltip": [{ "field": "binFull", "title": "Value" }, { "field": "count" }]
+            }
+          }]
+        }, {
+          selectParams: ["riSelect"],
+          externalParam: "riExternal",
+          keyField: "key",
+          onSelect: () => {}
+        });
+
+      }
+    }
+  });
+
+  // No declarative download field fits here either (this tool has a
+  // real compute step, but downloadButton's own `getFeatures` shape is
+  // GeoJSON-only, and rasterDownloadButton needs a dedicated GeoTIFF
+  // export cell this tool doesn't have) -- kept as the same
+  // machine-readable stats download the hand-wired version already
+  // had, wired up directly like kriging-interpolator.qmd's GeoTIFF
+  // button and geospatial-file-inspector.qmd's GeoJSON button. Enabled/
+  // disabled from inspect.onResult above (not compute.onResult): the
+  // stats it downloads are ready the moment a file is inspected, not
+  // only after Preview is clicked.
+  riDownloadBtn = WebGeoDS.downloadButton({
+    getFeatures: () => WebGeoDS.Dashboard.find("raster-inspector").inspectValue?.summary,
+    getBaseName: () => WebGeoDS.Upload.baseName(WebGeoDS.Dashboard.find("raster-inspector").state.files),
+    filenameSuffix: "-stats.json",
+    defaultFilename: "raster-stats.json",
+    enabled: false,
+    tool: "raster-inspector",
+    mimeType: "application/json"
+  });
+
+  const riControlRow = document.querySelector("#ri-dashboard .webgeods-panel-row");
+  if (riControlRow) {
+    riControlRow.insertBefore(riDownloadBtn, riControlRow.lastElementChild);
   }
 
-  const MAX_BANDS_SHOWN = 6;
-  const bandLines = s.bandStats.slice(0, MAX_BANDS_SHOWN).map((b) =>
-    b.min === null
-      ? `Band ${b.band}: all NoData`
-      : `Band ${b.band}: ${b.min} to ${b.max} (mean ${b.mean})`
-  );
-  if (s.bandStats.length > MAX_BANDS_SHOWN) {
-    bandLines.push(`… and ${s.bandStats.length - MAX_BANDS_SHOWN} more band(s)`);
-  }
-
-  row("Dimensions", `${s.width} × ${s.height} px`);
-  row("Bands", String(s.bandCount));
-  row("CRS", s.crs === null || s.crs === undefined ? `Unknown ⚠️ ${s.crsWarning}` : s.crs);
-  if (s.displayCrsAssumption) {
-    row("Display assumption", `${s.displayCrsAssumption} — map only, not a fact about the file`);
-  }
-  row("Resolution", s.resolution.join(" × "));
-  row("Data type", s.dtype);
-  row("NoData", s.nodata === null || s.nodata === undefined ? "None declared" : String(s.nodata));
-  row("Bounds", s.bounds.join(", "));
-  row("Value range", bandLines.join(" · "));
-
-  return box;
-}
-```
-
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+});
+</script>
 
 <style>
-#raster-generate-example-py, #raster-inspect-py {
+#raster-generate-example-py, #raster-inspect-py, #raster-preview-py {
   height: 0;
   overflow: hidden;
   margin: 0;
