@@ -813,7 +813,12 @@ First tool in the GeoStatistics family. The green dots are your own
 sample points (brown = low, teal = high, on the same scale as the
 surface underneath); the colored surface is the prediction everywhere
 else. Want the code, or why this runs on R, not Python? Read the
-<a href="/posts/kriging-soil-sampling.html">full article</a>.
+<a href="/posts/kriging-soil-sampling.html">full article</a>. Got a
+raster with gaps instead of scattered points — a cloud-covered
+satellite band, say? The
+<a href="/tools/raster-gap-filler.html">Raster Gap Filler</a> uses the
+same variogram fitting, but fills an existing grid's own holes instead
+of predicting one from scratch.
 </div>
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

@@ -1,0 +1,747 @@
+---
+title: "Filling Raster Gaps with Cokriging"
+date: 2026-09-20
+categories: [tool, geostatistics]
+description: "A cloud-covered satellite band, a sparse survey rasterized with mostly-empty cells: fill the gaps using a second, fully-populated band as a covariate, via cokriging instead of single-variable kriging. Runs on R; Python shown as reference only."
+---
+
+The [kriging article](/posts/kriging-soil-sampling.html) on this site
+predicts a value everywhere from scattered points, using only how far
+apart those points are. But a raster with gaps is a different problem:
+you already have a dense grid, most of it valid, and a second band of
+the *same file* that's fully populated and correlated with the one
+that isn't (elevation next to a cloud-gapped spectral band, say).
+Ignoring that second band and kriging the gaps from the target's own
+neighbours alone throws away real information. Cokriging is kriging
+that uses it: fit a model of how the *two* bands vary together, not
+just how one varies with distance, then predict the missing values
+from wherever the covariate is available.
+
+Prefer to skip straight to a result? The
+[standalone tool](/tools/raster-gap-filler.html) runs the same
+computation: upload your own multi-band raster, pick the two bands,
+and it fills the gaps for you.
+
+## 1. Upload your raster
+
+A multi-band GeoTIFF (`.tif`/`.tiff`) with at least two bands: one you
+want filled (has real gaps, NoData cells), one that doesn't. That
+second band is the covariate: elevation, another spectral band,
+anything correlated with the first.
+
+```{ojs}
+//| echo: false
+mutable uploadedFiles = null
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+uploadControl = WebGeoDS.Upload.createControl({
+  label: "Upload",
+  onChange: (files) => { mutable uploadedFiles = files; },
+  kind: "raster"
+})
+```
+
+${uploadControl}
+
+```{ojs}
+//| echo: false
+mutable uploadStatus = WebGeoDS.Upload.defaultStatus
+```
+
+${uploadStatus}
+
+```{ojs}
+//| echo: false
+//| output: false
+{
+  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["r"] });
+  mutable uploadStatus = result.message;
+}
+```
+
+## 2. Why a covariate band helps
+
+If you've read the [kriging article](/posts/kriging-soil-sampling.html),
+you've already met the variogram: bin every pair of points by
+distance, average their squared difference within each bin (half of
+it, actually, which is why the axis says semivariance, not variance),
+fit a smooth curve to those bins. That curve's nugget, sill, and range
+describe how one variable varies with itself over distance. Cokriging
+needs one more piece: the **cross-variogram**, the same idea applied to
+*two* variables at once. It asks how much the target's value at one
+location tends to differ from the covariate's value at *another*
+location, as a function of the distance between them.
+
+Fitting a target's variogram, a covariate's variogram, and their
+cross-variogram together, consistently enough that the combined system
+stays mathematically valid (technically: positive definite), is a
+**linear model of coregionalization** (LMC). Once fit, predicting the
+target at a gap uses both: the target's own nearby known values, *and*
+the covariate's value right there, weighted by how strongly the two
+actually move together. Where the covariate is missing too, there's
+nothing extra to weight in. Cokriging can't fill that pixel any
+differently than plain kriging could, which is why this article (and
+the standalone tool) leaves those cells empty rather than guessing.
+
+## 3. Shared map
+
+```{ojs}
+//| echo: false
+//| output: false
+sharedMap = {
+  const map = new window.WebGeoDS.Map({ center: [12.45, 41.91], zoom: 13, height: "480px" });
+  await map.ready();
+  return map;
+}
+```
+
+```{ojs}
+//| echo: false
+sharedMapEl = sharedMap.element
+```
+
+```{ojs}
+//| echo: false
+legendEl = {
+  const p = predictResult;
+  const f = fitResult;
+  const range = p ? p.raster : (f ? f.raster : null);
+  if (!range) {
+    const wrap = document.createElement("div");
+    wrap.className = "webgeods-legend";
+    wrap.hidden = true;
+    return wrap;
+  }
+  return WebGeoDS.legend({ gradient: FILL_RAMP, minLabel: `${range.min}`, maxLabel: `${range.max}` });
+}
+```
+
+${legendEl}
+
+```{ojs}
+//| echo: false
+//| output: false
+FILL_RAMP = [
+  [0.00, 68, 1, 84],
+  [0.25, 59, 82, 139],
+  [0.50, 33, 144, 140],
+  [0.75, 94, 201, 98],
+  [1.00, 253, 231, 37]
+]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
+base64ToBytes = (base64Str) => {
+  const binary = atob(base64Str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+```
+
+```{ojs}
+//| echo: false
+mutable fitResult = null
+```
+
+```{ojs}
+//| echo: false
+mutable predictResult = null
+```
+
+## 4. Compute: fit the model in R — runnable here; Python — reference only
+
+::: {.panel-tabset}
+
+## R — runnable in this browser
+
+```{.webgeods-r #cokriging-fit-r}
+#| package: terra, sf, sp, gstat, jsonlite
+library(terra)
+library(sf)
+library(sp)
+library(gstat)
+
+r <- tryCatch(rast("/uploaded.tif"), error = function(e) NULL)
+
+if (is.null(r)) {
+  # Same synthetic 2-band raster the standalone tool's own example
+  # uses: a Gaussian-hill trend, a covariate that's a scaled, shifted,
+  # independently-noised version of the SAME trend (real correlation,
+  # not a copy), and two DIFFERENT gaps -- the target's is bigger, the
+  # covariate's is smaller and only partly inside it. That last detail
+  # matters: it's what makes "some pixels stay empty" a real,
+  # observable outcome below, not a hypothetical.
+  set.seed(42)
+  n <- 25
+  xs <- 0:(n - 1)
+  ys <- 0:(n - 1)
+  trend <- outer(ys, xs, function(y, x) 100 + 40 * exp(-((x - 12)^2 + (y - 12)^2) / 40))
+  target_m <- trend + matrix(rnorm(n * n, sd = 1.5), nrow = n)
+  covariate_m <- 0.6 * trend + 20 + matrix(rnorm(n * n, sd = 2), nrow = n)
+  target_m[9:17, 9:17] <- NA
+  covariate_m[12:14, 12:14] <- NA
+  band_target <- rast(target_m, crs = "EPSG:4326")
+  band_covariate <- rast(covariate_m, crs = "EPSG:4326")
+  ext(band_target) <- c(12.40, 12.40 + n * 0.004, 41.90, 41.90 + n * 0.004)
+  ext(band_covariate) <- ext(band_target)
+  names(band_target) <- "target"
+  names(band_covariate) <- "covariate"
+  r <- c(band_target, band_covariate)
+  target_i <- 1
+  covariate_i <- 2
+} else {
+  # No band picker in this article (that lives in the standalone
+  # tool) -- uses band 1 as the target, band 2 as the covariate.
+  if (nlyr(r) < 2) {
+    stop("Need a raster with at least 2 bands -- this file only has 1.")
+  }
+  target_i <- 1
+  covariate_i <- 2
+}
+
+# The terra -> sp bridge: gstat's own variogram()/krige()/fit.lmc()
+# take sp point objects (coordinates(df) <- ~x+y), not a terra
+# SpatRaster -- terra doesn't provide that replacement function
+# itself. Cell centers and per-band values, aligned by row, in the
+# file's OWN crs -- no reprojection, unlike the point-survey case in
+# the kriging article: a raster's pixels already sit on a grid with a
+# real resolution, not raw lon/lat survey coordinates that need a
+# working CRS before distance means anything.
+cell_xy <- crds(r, na.rm = FALSE)
+df <- data.frame(
+  x = cell_xy[, 1], y = cell_xy[, 2],
+  target = as.numeric(values(r[[target_i]])),
+  covariate = as.numeric(values(r[[covariate_i]]))
+)
+
+# Two disjoint pixel sets: data_fit (BOTH bands valid -- fitting only)
+# and data_pred (covariate valid, regardless of target -- this is
+# where prediction happens in the next cell). data_pred must contain
+# data_fit's own locations too, for the cokriging system's local
+# context at prediction time -- it does automatically here, since
+# data_fit already requires covariate valid, a strict subset of
+# data_pred's own condition. Narrowing data_pred to just the target's
+# own gaps instead would silently break that.
+data_fit <- df[!is.na(df$target) & !is.na(df$covariate), ]
+data_pred <- df[!is.na(df$covariate), ]
+
+if (nrow(data_fit) < 5) {
+  stop(paste0("Need at least 5 pixels where both bands are valid to fit a coregionalization model -- found ", nrow(data_fit), "."))
+}
+
+fit_pts <- data_fit
+coordinates(fit_pts) <- ~x + y
+
+# The target's own EMPIRICAL variogram -- method-independent (just
+# binned squared differences), so this is computed once here and reused
+# below both for the joint fit's own initial guess and for the chart's
+# scatter points.
+v_emp <- variogram(target ~ 1, fit_pts)
+init_range <- max(v_emp$dist) / 3
+init_psill <- var(data_fit$target)
+
+# Both variables registered on the SAME point object (fit_pts, same
+# rows, same order) -- registering them on mismatched location sets
+# instead forces gstat to compute a genuine zero-distance bin between
+# the two variables' own locations, which fit.method=7 (Cressie's
+# weights, gstat's own default) divides by. correct.diagonal fixes a
+# separate, related near-singular-matrix issue found the same way.
+g_fit <- gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts)
+g_fit <- gstat(g_fit, id = "covariate", formula = covariate ~ 1, data = fit_pts)
+v_cross <- variogram(g_fit)
+lmc_model <- vgm(psill = init_psill, model = "Sph", range = init_range, nugget = init_psill / 4)
+
+# fit.method=7 fits each component's own semivariogram noticeably
+# better than fit.method=1 (weights = N only) -- confirmed live,
+# comparing both against the empirical points on this exact example.
+# Safe to try first now that both variables sit on the identical point
+# set above, the actual fix for the zero-distance-bin division;
+# fit.method=1 stays as a tryCatch fallback for whatever OTHER data
+# could still make Cressie's weights singular.
+g_fit <- tryCatch(
+  fit.lmc(v_cross, g_fit, model = lmc_model, fit.method = 7, correct.diagonal = 1.01),
+  error = function(e) NULL
+)
+if (is.null(g_fit)) {
+  g_fit <- tryCatch(
+    fit.lmc(v_cross, gstat(gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts), id = "covariate", formula = covariate ~ 1, data = fit_pts), model = lmc_model, fit.method = 1, correct.diagonal = 1.01),
+    error = function(e) NULL
+  )
+}
+if (is.null(g_fit)) {
+  stop("Could not fit a coregionalization model between these two bands -- often too few co-located pixels, or the bands aren't actually correlated.")
+}
+
+# nugget/partialSill/range AND the chart's fitted curve both come from
+# the TARGET's own component of this joint fit -- not a separately-fit
+# standalone variogram. The two can differ noticeably (fit.lmc() must
+# satisfy one shared range across target, covariate AND their cross-
+# variogram at once, a real constraint a lone fit.variogram() on target
+# doesn't have), so showing the standalone version here would draw a
+# curve that isn't actually the one cokriging below uses.
+target_model <- g_fit$model[["target"]]
+nugget_val <- target_model$psill[1]
+partial_sill_val <- target_model$psill[2]
+range_val <- target_model$range[2]
+sample_mean <- mean(data_fit$target)
+sample_variance <- var(data_fit$target)
+v_line <- variogramLine(target_model, maxdist = max(v_emp$dist), n = 100)
+
+# The raw target band, gaps and all, base64-encoded the same way the
+# filled result will be in the next cell -- lets the map below show
+# the actual PROBLEM (band 1, real hole visible) before showing the
+# fix.
+raw_target <- as.numeric(values(r[[target_i]]))
+con <- rawConnection(raw(0), "wb")
+writeBin(raw_target, con, size = 4, endian = "little")
+raw_bytes <- rawConnectionValue(con)
+close(con)
+raw_b64 <- jsonlite::base64_enc(raw_bytes)
+
+to_minx_miny_maxx_maxy <- function(spat_extent) {
+  b <- as.vector(spat_extent)
+  c(as.numeric(b["xmin"]), as.numeric(b["ymin"]), as.numeric(b["xmax"]), as.numeric(b["ymax"]))
+}
+wgs84_bounds <- tryCatch({
+  poly_wgs84 <- project(as.polygons(ext(r), crs = crs(r)), "EPSG:4326")
+  to_minx_miny_maxx_maxy(ext(poly_wgs84))
+}, error = function(e) to_minx_miny_maxx_maxy(ext(r)))
+
+valid_raw <- raw_target[!is.na(raw_target)]
+
+result_out <- list(
+  summary = list(
+    targetBand = jsonlite::unbox(target_i),
+    covariateBand = jsonlite::unbox(covariate_i),
+    coFitPixels = jsonlite::unbox(nrow(data_fit)),
+    nugget = jsonlite::unbox(round(nugget_val, 4)),
+    partialSill = jsonlite::unbox(round(partial_sill_val, 4)),
+    range = jsonlite::unbox(round(range_val, 3)),
+    sampleMean = jsonlite::unbox(round(sample_mean, 4)),
+    sampleVariance = jsonlite::unbox(round(sample_variance, 4))
+  ),
+  variogram = list(
+    empirical = list(dist = round(v_emp$dist, 2), gamma = round(v_emp$gamma, 5), npairs = v_emp$np),
+    fitted = list(dist = round(v_line$dist, 2), gamma = round(v_line$gamma, 5))
+  ),
+  raster = list(
+    width = jsonlite::unbox(ncol(r)),
+    height = jsonlite::unbox(nrow(r)),
+    data = jsonlite::unbox(raw_b64),
+    wgs84Bounds = round(wgs84_bounds, 6),
+    min = jsonlite::unbox(round(min(valid_raw), 4)),
+    max = jsonlite::unbox(round(max(valid_raw), 4))
+  )
+)
+
+# r, df, data_fit, data_pred, g_fit and target_i stay in this R
+# session's global environment after this cell finishes -- the next
+# cell reuses them directly instead of re-reading the file and
+# re-fitting, same cross-cell reuse the kriging article's own two
+# cells already rely on.
+jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)
+```
+
+## Python — reference (a different technique, not this one)
+
+::: {.callout-warning}
+**This code doesn't run on this page, and it isn't the same
+algorithm.** See [why Python takes a different approach
+here](#why-python-takes-a-different-approach-here).
+:::
+
+```python
+# Reference only -- not executable in this browser tool, and NOT a
+# port of the R cell to the left. GSTools' "collocated cokriging"
+# assumes the covariate is known at every point you're predicting
+# (true here -- the covariate band has no NoData either, at any pixel
+# the target needs filling), and uses that single co-located value
+# directly instead of fitting a full cross-variogram between the two
+# variables. Simpler, and it asks less of the data, but it's a
+# genuinely different method from the fit.lmc() coregionalization
+# model the R cell above fits -- see this article's own note on why
+# that distinction matters before treating the two as interchangeable.
+```
+
+:::
+
+```{ojs}
+//| echo: false
+//| output: false
+aFit = WebGeoDS.getCellValue("cokriging-fit-r", Generators)
+{
+  if (aFit && aFit.raster) {
+    const r = aFit.raster;
+    await sharedMap.setRasterImage("cokriging-target-raw", {
+      bounds: r.wgs84Bounds,
+      width: r.width,
+      height: r.height,
+      values: new Float32Array(base64ToBytes(r.data).buffer),
+      min: r.min,
+      max: r.max,
+      colorRamp: FILL_RAMP
+    });
+    mutable fitResult = aFit;
+    // A freshly fit model invalidates any fill predicted from a
+    // PREVIOUS one -- same reasoning the kriging article's own upload
+    // handler uses when new data arrives.
+    await sharedMap.removeRasterImage("cokriging-target-filled");
+    mutable predictResult = null;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+statCardPart1 = {
+  const f = fitResult;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+  if (!f) {
+    row("Result", "—");
+    return box;
+  }
+  const s = f.summary;
+  row("Target band", s.targetBand);
+  row("Covariate band", s.covariateBand);
+  row("Pixels used to fit", s.coFitPixels.toLocaleString());
+  row("Nugget", s.nugget);
+  row("Partial sill", s.partialSill);
+  row("Range", s.range);
+  row("Sample mean", s.sampleMean);
+  row("Sample variance", s.sampleVariance);
+  return box;
+}
+```
+
+${statCardPart1}
+
+## 5. The target's own variogram
+
+This is the target band's direct variogram, the same shape as the
+[kriging article's](/posts/kriging-soil-sampling.html) own chart: half
+the average squared difference within each distance bin, with the
+fitted curve's nugget, sill, and range marked on it. It's not the whole
+story. The actual cokriging fit above also needs the covariate's own
+variogram and the cross-variogram between the two, neither shown
+separately here. But it's the piece that carries over directly from
+ordinary kriging, and the one place this article's chart can show
+something the reader already knows how to read.
+
+```{ojs}
+//| echo: false
+variogramChart = {
+  const f = fitResult;
+  const width = 640, height = 220, margin = { top: 20, right: 20, bottom: 36, left: 46 };
+
+  const svg = d3.create("svg")
+    .attr("viewBox", [0, 0, width, height])
+    .attr("width", "100%")
+    .attr("height", height);
+
+  if (!f) {
+    svg.append("text")
+      .attr("x", width / 2).attr("y", height / 2)
+      .attr("text-anchor", "middle")
+      .attr("fill", "#8a8378")
+      .text("Run the R cell above to see the variogram.");
+    return svg.node();
+  }
+
+  const s = f.summary;
+  const nugget = s.nugget;
+  // Both operands already rounded to 4dp on the R side -- re-rounding
+  // the sum catches the odd binary-float artifact (e.g. "14.9639999999999999")
+  // that adding two such numbers in JS can still produce.
+  const sill = Math.round((s.nugget + s.partialSill) * 10000) / 10000;
+  const range = s.range;
+
+  const emp = f.variogram.empirical.dist.map((d, i) => ({ dist: d, gamma: f.variogram.empirical.gamma[i], npairs: f.variogram.empirical.npairs[i] }));
+  const fit = f.variogram.fitted.dist.map((d, i) => ({ dist: d, gamma: f.variogram.fitted.gamma[i] }));
+
+  const x = d3.scaleLinear()
+    .domain([0, d3.max([...emp, ...fit, { dist: range }], (d) => d.dist)])
+    .range([margin.left, width - margin.right]);
+  const y = d3.scaleLinear()
+    .domain([0, d3.max([...emp, ...fit, { gamma: sill }], (d) => d.gamma) * 1.1])
+    .range([height - margin.bottom, margin.top]);
+
+  svg.append("g")
+    .attr("transform", `translate(0,${height - margin.bottom})`)
+    .call(d3.axisBottom(x).ticks(6))
+    .append("text")
+    .attr("x", width - margin.right).attr("y", 32)
+    .attr("fill", "#2a2117").attr("text-anchor", "end")
+    .text("Distance");
+
+  svg.append("g")
+    .attr("transform", `translate(${margin.left},0)`)
+    .call(d3.axisLeft(y).ticks(5))
+    .append("text")
+    .attr("x", -margin.left).attr("y", margin.top - 6)
+    .attr("fill", "#2a2117").attr("text-anchor", "start")
+    .text("Semivariance");
+
+  const refLine = (x1, y1, x2, y2) => {
+    svg.append("line")
+      .attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2)
+      .attr("stroke", "#8a8378").attr("stroke-dasharray", "4,3");
+  };
+  refLine(margin.left, y(nugget), width - margin.right, y(nugget));
+  refLine(margin.left, y(sill), width - margin.right, y(sill));
+  refLine(x(range), margin.top, x(range), height - margin.bottom);
+
+  svg.append("path")
+    .datum(fit)
+    .attr("fill", "none")
+    .attr("stroke", "#ab502b")
+    .attr("stroke-width", 2)
+    .attr("d", d3.line().x((d) => x(d.dist)).y((d) => y(d.gamma)));
+
+  svg.append("g")
+    .selectAll("circle")
+    .data(emp)
+    .join("circle")
+    .attr("cx", (d) => x(d.dist))
+    .attr("cy", (d) => y(d.gamma))
+    .attr("r", 5)
+    .attr("fill", "#42583c")
+    .append("title")
+    .text((d) => `distance ${d.dist}, semivariance ${d.gamma}, ${d.npairs} pairs`);
+
+  const pillLabel = (px, py, anchor, text) => {
+    const t = svg.append("text")
+      .attr("x", px).attr("y", py)
+      .attr("text-anchor", anchor)
+      .attr("dominant-baseline", "middle")
+      .attr("fill", "#5b5347").attr("font-size", 11).attr("font-weight", 600)
+      .text(text);
+    const box = t.node().getBBox();
+    svg.insert("rect", () => t.node())
+      .attr("x", box.x - 4).attr("y", box.y - 2)
+      .attr("width", box.width + 8).attr("height", box.height + 4)
+      .attr("rx", 3)
+      .attr("fill", "#fffdf8").attr("stroke", "#d8cdb8").attr("stroke-width", 1);
+  };
+
+  // d3.create() built a DETACHED svg -- getBBox() inside pillLabel()
+  // returns all zeros in that state, so it's attached off-screen for
+  // these three calls only, then detached again immediately after.
+  document.body.appendChild(svg.node());
+  svg.style("position", "absolute").style("visibility", "hidden").style("left", "-9999px");
+
+  pillLabel(margin.left + 6, y(nugget), "start", `nugget ${nugget}`);
+  pillLabel(width - margin.right - 6, y(sill), "end", `sill ${sill}`);
+  const rangeAnchor = x(range) > width - margin.right - 60 ? "end" : "start";
+  const rangeDx = rangeAnchor === "end" ? -6 : 6;
+  pillLabel(x(range) + rangeDx, height - margin.bottom - 12, rangeAnchor, `range ${range}`);
+
+  svg.node().remove();
+  svg.style("position", null).style("visibility", null).style("left", null);
+
+  return svg.node();
+}
+```
+
+${variogramChart}
+
+Once the model above looks right, predict the gaps themselves:
+
+::: {.panel-tabset}
+
+## R — runnable in this browser
+
+```{.webgeods-r #cokriging-predict-r}
+#| package: terra, sf, sp, gstat, jsonlite
+library(terra)
+library(sf)
+library(sp)
+library(gstat)
+
+if (!exists("g_fit") || !exists("data_pred") || !exists("data_fit")) {
+  stop("Run the cell in section 4 first -- this step needs its fitted model.")
+}
+
+pred_pts <- data_pred
+coordinates(pred_pts) <- ~x + y
+
+# Target on its own known locations (fit_pts, reused from the cell
+# above), covariate on ALL of data_pred -- then attach the
+# already-fitted model as a SEPARATE step. Passing model= directly
+# into this gstat() call throws "argument 'formula' is missing" (it
+# reads it as a brand-new variable, not the existing fit); this plain
+# assignment after the fact is the version that actually works.
+g_pred <- gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts)
+g_pred <- gstat(g_pred, id = "covariate", formula = covariate ~ 1, data = pred_pts)
+g_pred$model <- g_fit$model
+
+k <- predict(g_pred, newdata = pred_pts, nmax = 24, debug.level = 0)
+
+filled <- df$target
+pred_index <- which(!is.na(df$covariate))
+cokriged <- is.na(df$target[pred_index])
+filled[pred_index[cokriged]] <- as.numeric(k$target.pred[cokriged])
+
+n_filled <- sum(cokriged & !is.na(filled[pred_index]))
+n_still_na <- sum(is.na(filled))
+
+# Cross-validation on the FIT data -- same gstat.cv() diagnostic used
+# on the standalone tool. Its residual column is just "residual", not
+# "target.residual" -- found empirically (a multivariate gstat.cv()
+# result names target.pred/target.var with the id prefix, but
+# residual/observed/zscore/fold without it).
+cv <- tryCatch(gstat.cv(g_fit, nfold = 5, verbose = FALSE), error = function(e) NULL)
+rmse <- if (!is.null(cv)) sqrt(mean(cv$residual^2, na.rm = TRUE)) else NA
+
+filled_valid <- filled[!is.na(filled)]
+
+result_out <- list(
+  summary = list(
+    pixelsFilled = jsonlite::unbox(n_filled),
+    pixelsStillEmpty = jsonlite::unbox(n_still_na),
+    crossValidationRmse = if (is.na(rmse)) NULL else jsonlite::unbox(round(rmse, 4))
+  ),
+  raster = list(
+    width = jsonlite::unbox(ncol(r)),
+    height = jsonlite::unbox(nrow(r)),
+    data = jsonlite::unbox({
+      con <- rawConnection(raw(0), "wb")
+      writeBin(as.numeric(filled), con, size = 4, endian = "little")
+      b <- rawConnectionValue(con)
+      close(con)
+      jsonlite::base64_enc(b)
+    }),
+    wgs84Bounds = round(wgs84_bounds, 6),
+    min = jsonlite::unbox(round(min(filled_valid), 4)),
+    max = jsonlite::unbox(round(max(filled_valid), 4))
+  )
+)
+
+jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)
+```
+
+## Python — reference (a different technique, not this one)
+
+::: {.callout-warning}
+**Still a different method, continued.** If GSTools' collocated
+cokriging were used instead of the R cell's LMC, this is the step that
+would actually predict. Same caveat as above.
+:::
+
+```python
+# Reference only, for the same reason as the fit step above: GSTools'
+# collocated cokriging predicts directly from the fitted model and the
+# covariate's own values at the target locations, no separate
+# "prediction dataset" the way gstat's predict() needs one built by
+# hand -- a real structural difference from the R cell to the left,
+# not just a syntax one.
+```
+
+:::
+
+```{ojs}
+//| echo: false
+//| output: false
+bPredict = WebGeoDS.getCellValue("cokriging-predict-r", Generators)
+{
+  if (bPredict && bPredict.raster) {
+    const r = bPredict.raster;
+    await sharedMap.setRasterImage("cokriging-target-filled", {
+      bounds: r.wgs84Bounds,
+      width: r.width,
+      height: r.height,
+      values: new Float32Array(base64ToBytes(r.data).buffer),
+      min: r.min,
+      max: r.max,
+      colorRamp: FILL_RAMP
+    });
+    mutable predictResult = bPredict;
+  }
+}
+```
+
+```{ojs}
+//| echo: false
+statCardPart2 = {
+  const p = predictResult;
+  const box = document.createElement("div");
+  box.className = "webgeods-stat-grid";
+  if (!p) {
+    box.hidden = true;
+    return box;
+  }
+  const row = (label, value) => {
+    const dt = document.createElement("div");
+    dt.className = "webgeods-stat-label";
+    dt.textContent = label;
+    const dd = document.createElement("div");
+    dd.className = "webgeods-stat-value";
+    dd.textContent = value;
+    box.append(dt, dd);
+  };
+  const s = p.summary;
+  row("Pixels filled", s.pixelsFilled.toLocaleString());
+  if (s.crossValidationRmse !== null && s.crossValidationRmse !== undefined) {
+    row("Cross-validation RMSE", s.crossValidationRmse);
+  }
+  if (s.pixelsStillEmpty > 0) {
+    row("Still empty", `${s.pixelsStillEmpty.toLocaleString()} (no covariate data there either)`);
+  }
+  return box;
+}
+```
+
+${statCardPart2}
+
+## 6. Why Python takes a different approach here {#why-python-takes-a-different-approach-here}
+
+R's `gstat` (built on `sp`/`sf`) has no WebAssembly build of its
+closest Python equivalent, `pykrige`. That's the same gap the
+[kriging article](/posts/kriging-soil-sampling.html#why-python-is-reference-only-here)
+already documents, and it's true again here for the same reason: no
+`pykrige` wheel published for Pyodide. But cokriging specifically has
+a second, more interesting wrinkle worth being precise about instead
+of glossed over: Python's own [GSTools](https://geostat-framework.readthedocs.io/projects/gstools/en/stable/examples/05_kriging/index.html)
+library *does* offer cokriging (Simple and Intrinsic **Collocated**
+Cokriging), but that's a genuinely different technique from the
+`fit.lmc()` linear model of coregionalization the R cell above fits,
+not just a different implementation of the same idea. Collocated
+cokriging assumes the covariate is known at every location you're
+predicting, and uses that one co-located value directly, without
+fitting a full cross-variogram between the two variables the way an
+LMC does. It asks less of the data and skips a real modeling step,
+which is reasonable when its own assumption holds but not a drop-in
+substitute for what this article and the standalone tool actually
+compute. No verified reference code for it sits on this page: writing
+some without running it against a real GSTools install would risk
+teaching a technique this project hasn't actually checked.
+
+## 7. Where to next
+
+- **Just needed the map?** The
+  [standalone Raster Gap Filler](/tools/raster-gap-filler.html):
+  upload your own multi-band file, pick the two bands, done.
+- **Only have one band, no covariate?** Ordinary kriging on the raster's
+  own valid pixels still works: the standalone tool falls back to it
+  automatically when you leave the covariate on "None." See the
+  [kriging article](/posts/kriging-soil-sampling.html) for how that
+  half of the pipeline works on its own.
+
+Second tool in the GeoStatistics family.
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

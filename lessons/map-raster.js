@@ -600,6 +600,155 @@
 
 
   // ==========================================================
+  // Renders exactly two independent bands into one off-DOM <canvas> --
+  // raster-gap-filler.qmd's "target + covariate, before Fill" preview.
+  // Unlike _renderRasterRGBCanvas above, a valid color at ANY channel
+  // (not all three) is enough to show a pixel: each channel's own gaps
+  // are a real part of what this preview needs to communicate, not
+  // something that should blank out the OTHER channel's valid value
+  // there. Channel A -> red, channel B -> blue, green left at 0 (so
+  // A-only reads pure red, B-only pure blue, and where both are valid
+  // and high the mix reads magenta) -- either channel may be omitted
+  // entirely (e.g. no covariate picked), in which case it contributes
+  // nothing and never gates the other's visibility.
+  // ==========================================================
+
+  WebGeoDSMap.prototype._renderRasterBicolorCanvas = function ({
+    width,
+    height,
+    channelA,
+    channelB
+  }) {
+
+    const canvas =
+      document.createElement("canvas");
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx =
+      canvas.getContext("2d");
+
+    const imageData =
+      ctx.createImageData(width, height);
+
+    const stretch = (channel) => {
+
+      if (!channel) {
+        return () => null;
+      }
+
+      const range =
+        (channel.max - channel.min) || 1;
+
+      return (v) =>
+        Number.isFinite(v)
+          ? Math.round(Math.min(255, Math.max(0, ((v - channel.min) / range) * 255)))
+          : null;
+
+    };
+
+    const toA = stretch(channelA);
+    const toB = stretch(channelB);
+
+    const n =
+      width * height;
+
+    for (let i = 0; i < n; i++) {
+
+      const a = channelA ? toA(channelA.values[i]) : null;
+      const b = channelB ? toB(channelB.values[i]) : null;
+
+      const offset =
+        i * 4;
+
+      if (a === null && b === null) {
+
+        imageData.data[offset + 3] =
+          0;
+
+        continue;
+
+      }
+
+      imageData.data[offset] = a ?? 0;
+      imageData.data[offset + 1] = 0;
+      imageData.data[offset + 2] = b ?? 0;
+      imageData.data[offset + 3] = 255;
+
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    return canvas;
+
+  };
+
+
+  // ==========================================================
+  // Set raster bicolor image
+  //
+  // Same overlay mechanics as setRasterImage()/setRasterRGBImage()
+  // above, for two independently-stretched bands shown at once instead
+  // of a value ramp or a three-channel composite. `channelB` may be
+  // omitted (null/undefined) to show `channelA` alone, still tinted
+  // red rather than switching ramps -- raster-gap-filler.qmd falls
+  // back to its own single-ramp setRasterImage() call for that case
+  // instead, since a plain value ramp reads better for one band alone.
+  // ==========================================================
+
+  WebGeoDSMap.prototype.setRasterBicolorImage = async function (
+    sourceId,
+    {
+      bounds,
+      width,
+      height,
+      channelA,
+      channelB,
+      opacity = 0.85
+    } = {},
+    options = {}
+  ) {
+
+    await this.ready();
+
+    const maxDim =
+      WebGeoDSMap.MAX_RASTER_PREVIEW_DIM;
+
+    const previewA =
+      channelA ? this._downsampleRasterForPreview({ width, height, values: channelA.values, maxDim }) : null;
+
+    const previewB =
+      channelB ? this._downsampleRasterForPreview({ width, height, values: channelB.values, maxDim }) : null;
+
+    const outWidth =
+      (previewA || previewB).width;
+
+    const outHeight =
+      (previewA || previewB).height;
+
+    const canvas =
+      this._renderRasterBicolorCanvas({
+        width: outWidth,
+        height: outHeight,
+        channelA: previewA ? { values: previewA.values, min: channelA.min, max: channelA.max } : null,
+        channelB: previewB ? { values: previewB.values, min: channelB.min, max: channelB.max } : null
+      });
+
+    this._setImageSourceCanvas(
+      sourceId,
+      canvas,
+      bounds,
+      opacity,
+      options.layerId ?? sourceId
+    );
+
+    return this;
+
+  };
+
+
+  // ==========================================================
   // Remove raster image
   // ==========================================================
 

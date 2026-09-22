@@ -1,0 +1,1106 @@
+---
+title: "Raster Gap Filler"
+date: 2026-09-20
+categories: [tool, geostatistics]
+description: "Upload a multi-band raster and fill the gaps in one band using a second, fully-populated band as a covariate — cokriging instead of single-variable kriging. Runs entirely in your browser, powered by R."
+page-layout: full
+---
+
+Upload a raster with two or more bands — a satellite band with cloud
+gaps, a field survey rasterized with mostly-empty cells, anything with
+real holes in it — pick the band to fill (the *target*) and, if you
+have one, a second band with no gaps that's correlated with it (the
+*covariate*, elevation or another spectral band are common choices).
+This tool fits a variogram model between the two, then predicts the
+target's missing values from wherever the covariate is available —
+cokriging, not just averaging nearby pixels. Skip the covariate and it
+falls back to ordinary kriging on the target band's own known pixels.
+
+::: {.callout-tip}
+**Private by design.** Your file is processed entirely in your browser
+(R via WebAssembly) — it's never uploaded to any server, including
+ours. Nothing to configure, nothing to trust: the code never gets the
+chance to see your data.
+:::
+
+```{.webgeods-r #raster-gap-filler-example-r}
+#| package: terra
+library(terra)
+
+# Two bands, deliberately with two DIFFERENT gaps, not "one gap in the
+# target, nothing missing in the covariate" -- the covariate having a
+# gap of its own (a shorter revisit on one satellite band, a different
+# cloud mask, anything a real multi-band product commonly has) is the
+# case this tool actually needs to handle correctly, not a corner case
+# to gloss over in its own example.
+set.seed(42)
+n <- 25
+xs <- 0:(n - 1)
+ys <- 0:(n - 1)
+
+# Same Gaussian-hill shape reused across this project's raster examples
+# (raster-inspector.qmd, viewshed-calculator.qmd) -- a reader who's
+# already seen one recognizes it here too. The covariate is a scaled,
+# shifted, independently-noised version of the SAME underlying trend,
+# not a copy of the target -- real enough correlation for cokriging to
+# find, not a giveaway.
+trend <- outer(ys, xs, function(y, x) 100 + 40 * exp(-((x - 12)^2 + (y - 12)^2) / 40))
+
+target <- trend + matrix(rnorm(n * n, sd = 1.5), nrow = n)
+covariate <- 0.6 * trend + 20 + matrix(rnorm(n * n, sd = 2), nrow = n)
+
+# The target's own gap: one contiguous block (rows/cols 8-16), the
+# shape a real gap-filling problem actually looks like -- not pixels
+# scattered at random, which would be a much easier, unrealistic case.
+target[9:17, 9:17] <- NA
+
+# The covariate's own gap: smaller, and only PARTLY inside the
+# target's -- rows/cols 12-14 sit inside the target's 9-17 block, but
+# most of the target's gap still has the covariate available. This
+# gives the example three real regions at once: covariate available
+# where the target isn't (cokriging's actual job), both missing at
+# once (nothing to predict from, stays empty), and both present
+# (where the model gets fit).
+covariate[12:14, 12:14] <- NA
+
+band_target <- rast(target, crs = "EPSG:4326")
+band_covariate <- rast(covariate, crs = "EPSG:4326")
+ext(band_target) <- c(12.40, 12.40 + n * 0.004, 41.90, 41.90 + n * 0.004)
+ext(band_covariate) <- ext(band_target)
+names(band_target) <- "target"
+names(band_covariate) <- "covariate"
+
+r <- c(band_target, band_covariate)
+writeRaster(r, "/uploaded.tif", overwrite = TRUE, filetype = "GTiff")
+
+"example 2-band raster written"
+```
+
+```{.webgeods-r #raster-gap-filler-inspect-r}
+#| package: terra, jsonlite
+library(terra)
+
+path <- NULL
+for (candidate in c("/uploaded.tif")) {
+  ok <- tryCatch({ rast(candidate); TRUE }, error = function(e) FALSE)
+  if (ok) { path <- candidate; break }
+}
+
+summary_out <- NULL
+footprint <- list(type = jsonlite::unbox("FeatureCollection"), features = list())
+bands_out <- list()
+
+if (!is.null(path)) {
+  r <- rast(path)
+
+  # Per-band valid/NA counts -- the whole reason this needs its own
+  # pass before the reader picks anything: a band with a lot of NA is
+  # a plausible target, a band with none is a plausible covariate, and
+  # neither is obvious from band count/names alone.
+  band_stats <- lapply(seq_len(nlyr(r)), function(i) {
+    band <- r[[i]]
+    n_total <- ncell(band)
+    n_na <- as.numeric(global(is.na(band), "sum")[1, 1])
+    list(
+      band = jsonlite::unbox(i),
+      name = jsonlite::unbox(names(r)[i]),
+      naCount = jsonlite::unbox(n_na),
+      naFraction = jsonlite::unbox(round(n_na / n_total, 4))
+    )
+  })
+
+  # Suggested target: the band with the most NA (ties broken by lower
+  # index) -- a default, not a lock, the reader can always pick a
+  # different pair.
+  na_fractions <- sapply(band_stats, function(b) b$naFraction)
+  suggested_target <- if (any(na_fractions > 0)) which.max(na_fractions) else 1
+
+  # as.vector(ext(r)) keeps its own names (xmin/xmax/ymin/ymax) --
+  # jsonlite serializes a NAMED numeric as a JSON object ({"xmin":
+  # 12.4}), not a plain number, so each coordinate needs an explicit
+  # as.numeric() (unname() alone isn't enough once it's inside a
+  # list()) before it can sit inside a GeoJSON coordinate pair.
+  bnds <- as.vector(ext(r))
+  xmin <- as.numeric(bnds["xmin"]); xmax <- as.numeric(bnds["xmax"])
+  ymin <- as.numeric(bnds["ymin"]); ymax <- as.numeric(bnds["ymax"])
+  footprint <- list(
+    type = jsonlite::unbox("FeatureCollection"),
+    features = list(list(
+      type = jsonlite::unbox("Feature"),
+      properties = list(name = jsonlite::unbox("raster footprint")),
+      geometry = list(
+        type = jsonlite::unbox("Polygon"),
+        coordinates = list(list(
+          list(xmin, ymin), list(xmax, ymin),
+          list(xmax, ymax), list(xmin, ymax),
+          list(xmin, ymin)
+        ))
+      )
+    ))
+  )
+
+  # Same reprojection this cell's own compute/export siblings already
+  # need (a bare SpatExtent can't go through project() directly; see
+  # their own comment for why) -- the live target/covariate preview
+  # below needs it too, to place the raster correctly for a file whose
+  # native CRS isn't already WGS84.
+  to_minx_miny_maxx_maxy <- function(spat_extent) {
+    b <- as.vector(spat_extent)
+    c(as.numeric(b["xmin"]), as.numeric(b["ymin"]), as.numeric(b["xmax"]), as.numeric(b["ymax"]))
+  }
+  wgs84_bounds <- tryCatch({
+    poly_wgs84 <- project(as.polygons(ext(r), crs = crs(r)), "EPSG:4326")
+    to_minx_miny_maxx_maxy(ext(poly_wgs84))
+  }, error = function(e) to_minx_miny_maxx_maxy(ext(r)))
+
+  # Every band's own raw values, base64-encoded the same way the
+  # compute cell encodes its filled result -- lets the map preview the
+  # target/covariate bands the reader currently has picked WITHOUT a
+  # round trip through R each time they change a dropdown (cokriging
+  # itself only runs once Fill is actually pressed).
+  bands_out <- lapply(seq_len(nlyr(r)), function(i) {
+    vals <- as.numeric(values(r[[i]]))
+    valid <- vals[!is.na(vals)]
+    con <- rawConnection(raw(0), "wb")
+    writeBin(vals, con, size = 4, endian = "little")
+    raw_bytes <- rawConnectionValue(con)
+    close(con)
+    list(
+      band = jsonlite::unbox(i),
+      data = jsonlite::unbox(jsonlite::base64_enc(raw_bytes)),
+      min = if (length(valid) > 0) jsonlite::unbox(min(valid)) else NULL,
+      max = if (length(valid) > 0) jsonlite::unbox(max(valid)) else NULL
+    )
+  })
+
+  summary_out <- list(
+    width = jsonlite::unbox(ncol(r)),
+    height = jsonlite::unbox(nrow(r)),
+    bandCount = jsonlite::unbox(nlyr(r)),
+    crs = jsonlite::unbox(crs(r, describe = TRUE)$name),
+    bandStats = band_stats,
+    suggestedTarget = jsonlite::unbox(suggested_target),
+    wgs84Bounds = round(wgs84_bounds, 6)
+  )
+}
+
+list(summary = summary_out, footprint = footprint, bands = bands_out)
+```
+
+The code itself isn't shown here — it's a fixed, non-editable
+computation using `gstat`'s cokriging (linear model of
+coregionalization) underneath. Want to see the same pipeline built up
+one step at a time, why a covariate band helps, and why this runs on
+R, not Python? Read
+[Filling Raster Gaps with Cokriging](/posts/cokriging-raster-gap-filling.html).
+
+```{.webgeods-r #raster-gap-filler-compute-r}
+#| inject: [targetBand, covariateBand, variogramModel, nmax]
+#| package: sf, sp, gstat, terra, jsonlite
+library(sf)
+library(sp)
+library(gstat)
+library(terra)
+
+target_i <- as.integer(targetBand)
+covariate_i <- if (identical(covariateBand, "None")) NA_integer_ else as.integer(covariateBand)
+
+if (!is.na(covariate_i) && covariate_i == target_i) {
+  stop("Target and covariate must be different bands — pick two distinct bands, or set the covariate to \"None\".")
+}
+
+r <- rast("/uploaded.tif")
+
+# The terra -> sp bridge: gstat's own variogram()/krige()/fit.lmc()
+# take sp point objects (coordinates(df) <- ~x+y), not a terra
+# SpatRaster or SpatVector -- terra doesn't provide that replacement
+# function itself. crds()/values() give cell centers and per-band
+# values aligned by row, in the file's OWN crs (no reprojection here,
+# unlike kriging-interpolator.qmd's point-survey case: a raster's
+# pixels already sit on a grid with a real resolution, not raw lon/lat
+# survey coordinates that need a working CRS to make distance
+# meaningful).
+cell_xy <- crds(r, na.rm = FALSE)
+target_vals <- as.numeric(values(r[[target_i]]))
+df <- data.frame(x = cell_xy[, 1], y = cell_xy[, 2], target = target_vals)
+
+has_covariate <- !is.na(covariate_i)
+if (has_covariate) {
+  df$covariate <- as.numeric(values(r[[covariate_i]]))
+}
+
+fit_method_used <- NA_integer_
+
+if (!has_covariate) {
+
+  # No covariate: ordinary kriging on the target band's own known
+  # pixels, same shape as kriging-interpolator-compute-r's own
+  # variogram()/fit.variogram()/krige() sequence, just with the raster's
+  # OWN valid cells standing in for uploaded sample points.
+  fit_df <- df[!is.na(df$target), ]
+  pred_df <- df[is.na(df$target), ]
+
+  if (nrow(fit_df) < 5) {
+    stop(paste0("Need at least 5 valid pixels in the target band to fit a variogram — found ", nrow(fit_df), "."))
+  }
+
+  fit_pts <- fit_df
+  coordinates(fit_pts) <- ~x + y
+
+  v_emp <- variogram(target ~ 1, fit_pts)
+  init_range <- max(v_emp$dist) / 3
+  init_psill <- var(fit_df$target)
+  v_model <- tryCatch(
+    fit.variogram(v_emp, vgm(psill = init_psill, model = variogramModel, range = init_range, nugget = init_psill / 4)),
+    error = function(e) NULL
+  )
+  if (is.null(v_model) || isTRUE(attr(v_model, "singular")) || any(v_model$psill < 0)) {
+    stop(paste0("Could not fit a ", variogramModel, " variogram model to this band's known pixels."))
+  }
+
+  cv <- tryCatch(gstat.cv(gstat(id = "target", formula = target ~ 1, data = fit_pts, model = v_model), nfold = 5, verbose = FALSE), error = function(e) NULL)
+  rmse <- if (!is.null(cv)) sqrt(mean(cv$residual^2, na.rm = TRUE)) else NA
+
+  filled <- df$target
+
+  if (nrow(pred_df) > 0) {
+    pred_pts <- pred_df
+    coordinates(pred_pts) <- ~x + y
+    k <- krige(target ~ 1, fit_pts, pred_pts, model = v_model, nmax = as.numeric(nmax), debug.level = 0)
+    filled[is.na(df$target)] <- as.numeric(k$var1.pred)
+  }
+
+  # Same three numbers kriging-interpolator.qmd's own stats card
+  # reports, plus the fitting sample's own mean/variance -- nugget +
+  # partial sill landing far from that variance is the easiest sign a
+  # fit went wrong, without this tool asserting a pass/fail verdict
+  # itself (a fixed threshold would flag genuinely non-stationary data
+  # as "bad" just as often as an actual bad fit).
+  nugget_val <- v_model$psill[1]
+  partial_sill_val <- v_model$psill[2]
+  range_val <- v_model$range[2]
+  sample_mean <- mean(fit_df$target)
+  sample_variance <- var(fit_df$target)
+
+  v_line <- variogramLine(v_model, maxdist = max(v_emp$dist), n = 100)
+  variogram_out <- list(
+    target = list(
+      nugget = jsonlite::unbox(round(nugget_val, 4)),
+      partialSill = jsonlite::unbox(round(partial_sill_val, 4)),
+      empirical = list(dist = round(v_emp$dist, 3), gamma = round(v_emp$gamma, 5), npairs = v_emp$np),
+      fitted = list(dist = round(v_line$dist, 3), gamma = round(v_line$gamma, 5))
+    )
+  )
+
+} else {
+
+  # data_fit: pixels where BOTH bands are valid -- fitting only, never
+  # prediction. data_pred: pixels where the COVARIATE is valid,
+  # regardless of the target -- this must include data_fit's own
+  # locations too (it does automatically, since data_fit is already a
+  # subset of "covariate valid"). Do NOT narrow data_pred to just the
+  # target's own gaps -- gstat needs the already-known target pixels
+  # present in data_pred for the cokriging system's local context, or
+  # it silently breaks.
+  data_fit <- df[!is.na(df$target) & !is.na(df$covariate), ]
+  data_pred <- df[!is.na(df$covariate), ]
+
+  if (nrow(data_fit) < 5) {
+    stop(paste0("Need at least 5 pixels where both the target and covariate bands are valid to fit a coregionalization model — found ", nrow(data_fit), "."))
+  }
+
+  fit_pts <- data_fit
+  coordinates(fit_pts) <- ~x + y
+
+  v_emp <- variogram(target ~ 1, fit_pts)
+  init_range <- max(v_emp$dist) / 3
+  init_psill <- var(data_fit$target)
+
+  # Both variables registered on the SAME point object (fit_pts, same
+  # rows, same order) -- registering them on mismatched location sets
+  # instead forces gstat to compute a genuine zero-distance bin between
+  # the two variables' own locations, which fit.method=7 (Cressie's
+  # weights, gstat's own default) divides by.
+  g_fit <- gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts)
+  g_fit <- gstat(g_fit, id = "covariate", formula = covariate ~ 1, data = fit_pts)
+  v_cross <- variogram(g_fit)
+  lmc_model <- vgm(psill = init_psill, model = variogramModel, range = init_range, nugget = init_psill / 4)
+
+  # fit.method=7 fits each component's own semivariogram noticeably
+  # better than fit.method=1 (confirmed live: sum-of-squared-error
+  # against the empirical points dropped by roughly 5x on the target
+  # band alone, comparing the two on the same data) -- safe to try
+  # first now that both variables sit on the identical point set
+  # above, the actual fix for the zero-distance-bin division. Kept as
+  # a tryCatch with fit.method=1 (weights = N only) as the fallback
+  # regardless, for whatever OTHER data could still make Cressie's
+  # weights singular -- not the expected path, just insurance that
+  # doesn't cost anything when unused.
+  fit_method_used <- 7
+  g_fit <- tryCatch(
+    fit.lmc(v_cross, g_fit, model = lmc_model, fit.method = 7, correct.diagonal = 1.01),
+    error = function(e) NULL
+  )
+  if (is.null(g_fit)) {
+    fit_method_used <- 1
+    g_fit <- tryCatch(
+      fit.lmc(v_cross, gstat(gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts), id = "covariate", formula = covariate ~ 1, data = fit_pts), model = lmc_model, fit.method = 1, correct.diagonal = 1.01),
+      error = function(e) NULL
+    )
+  }
+  if (is.null(g_fit)) {
+    stop(paste0("Could not fit a coregionalization model between these two bands (often too few co-located pixels, or the bands aren't actually correlated)."))
+  }
+
+  # gstat.cv() on a multivariate (cokriging) gstat object names its
+  # result columns "target.pred"/"target.var" (id-prefixed, since more
+  # than one variable is registered) but the residual/observed/zscore
+  # columns are NOT prefixed -- just "residual", found empirically
+  # (cv$target.residual doesn't exist and silently produced NaN/null
+  # instead of erroring, since `$` on a missing data.frame column
+  # returns NULL rather than raising).
+  cv <- tryCatch(gstat.cv(g_fit, nfold = 5, verbose = FALSE), error = function(e) NULL)
+  rmse <- if (!is.null(cv)) sqrt(mean(cv$residual^2, na.rm = TRUE)) else NA
+
+  pred_pts <- data_pred
+  coordinates(pred_pts) <- ~x + y
+
+  # Target on its own known locations (fit_pts), covariate on ALL of
+  # data_pred -- then attach the already-fitted model as a SEPARATE
+  # step. Passing model= directly into this gstat() call throws
+  # "argument 'formula' is missing" (it reads it as a brand-new
+  # variable, not the existing fit); this plain assignment after the
+  # fact is the version that actually works.
+  g_pred <- gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts)
+  g_pred <- gstat(g_pred, id = "covariate", formula = covariate ~ 1, data = pred_pts)
+  g_pred$model <- g_fit$model
+
+  k <- predict(g_pred, newdata = pred_pts, nmax = as.numeric(nmax), debug.level = 0)
+
+  filled <- df$target
+  pred_index <- which(!is.na(df$covariate))
+  cokriged <- is.na(df$target[pred_index])
+  filled[pred_index[cokriged]] <- as.numeric(k$target.pred[cokriged])
+
+  # Pixels the covariate itself couldn't reach: target NA, covariate
+  # also NA. Left as NA on purpose -- no fallback pass to plain kriging
+  # here, see raster-gap-filler.qmd's own closing note for why (the
+  # reader can rerun this tool a second time on the result, with no
+  # covariate, if they want those filled too).
+
+  # Stats card numbers: the TARGET's own component of the joint fit --
+  # fit.lmc() names the three pieces of an LMC "target", "covariate"
+  # and "target.covariate" (the cross term), each a normal 2-row vgm
+  # model (Nug + the chosen shape), confirmed live rather than assumed
+  # from the docs. Reporting target's own nugget/sill/range here keeps
+  # this row meaning the same thing it means in the no-covariate
+  # branch above -- the target band's own spatial structure -- even
+  # though the fit that produced it also used the covariate.
+  target_model <- g_fit$model[["target"]]
+  covariate_model <- g_fit$model[["covariate"]]
+  cross_model <- g_fit$model[["target.covariate"]]
+
+  nugget_val <- target_model$psill[1]
+  partial_sill_val <- target_model$psill[2]
+  range_val <- target_model$range[2]
+  sample_mean <- mean(data_fit$target)
+  sample_variance <- var(data_fit$target)
+
+  # All three curves for the side panel's charts -- v_cross already
+  # holds target's, covariate's AND the cross term's empirical points
+  # in one data.frame (an `id` column, not three separate calls), and
+  # variogramLine() accepts each piece of g_fit$model exactly like a
+  # plain fit.variogram() result. Nothing here is a new computation:
+  # fit.lmc() above already produced all of it, just never read back
+  # out until now. Each series carries its OWN nugget/partialSill (the
+  # shared range lives once in summary$range, since fit.lmc() gives
+  # every component the same range by construction) so the side panel
+  # can draw a correctly-labeled reference line on all three, not just
+  # the one summary already covers.
+  max_dist <- max(v_cross$dist)
+  fitted_line <- function(model_df) {
+    vl <- variogramLine(model_df, maxdist = max_dist, n = 100)
+    list(dist = round(vl$dist, 3), gamma = round(vl$gamma, 5))
+  }
+  empirical_for <- function(id_name) {
+    sub <- v_cross[v_cross$id == id_name, ]
+    list(dist = round(sub$dist, 3), gamma = round(sub$gamma, 5), npairs = sub$np)
+  }
+  variogram_out <- list(
+    target = list(
+      nugget = jsonlite::unbox(round(nugget_val, 4)),
+      partialSill = jsonlite::unbox(round(partial_sill_val, 4)),
+      empirical = empirical_for("target"), fitted = fitted_line(target_model)
+    ),
+    covariate = list(
+      nugget = jsonlite::unbox(round(covariate_model$psill[1], 4)),
+      partialSill = jsonlite::unbox(round(covariate_model$psill[2], 4)),
+      empirical = empirical_for("covariate"), fitted = fitted_line(covariate_model)
+    ),
+    cross = list(
+      nugget = jsonlite::unbox(round(cross_model$psill[1], 4)),
+      partialSill = jsonlite::unbox(round(cross_model$psill[2], 4)),
+      empirical = empirical_for("target.covariate"), fitted = fitted_line(cross_model)
+    )
+  )
+
+}
+
+# One definition covers both branches -- any pixel that went from NA
+# to a real value, regardless of which branch (or which method inside
+# it) put it there. A per-branch count here was the actual bug: the
+# no-covariate branch is ordinary kriging, not "filled from
+# covariate", so a field literally named that read 0 there even though
+# every reachable gap really had just been filled.
+n_filled <- sum(!is.na(filled)) - sum(!is.na(df$target))
+
+n_still_na <- sum(is.na(filled))
+
+filled_band <- rast(matrix(filled, nrow = nrow(r), ncol = ncol(r), byrow = TRUE), extent = ext(r), crs = crs(r))
+names(filled_band) <- names(r)[target_i]
+
+valid_filled <- filled[!is.na(filled)]
+
+# terra::project() doesn't take a bare SpatExtent -- the documented,
+# correct way to reproject just a bounding box is to wrap it as a
+# SpatVector polygon first (as.polygons()), project THAT, then read
+# its extent back. round()/as.vector() on the extent's own named
+# xmin/xmax/ymin/ymax would keep those names, and jsonlite serializes
+# a NAMED vector as a JSON OBJECT ({"xmin": ...}) instead of a plain
+# array -- setRasterImage() (shared/map-raster.js) destructures
+# `bounds` positionally ([minx, miny, maxx, maxy] = bounds), which
+# throws "bounds is not iterable" on a plain object, not a graceful
+# failure. Each coordinate goes through an explicit as.numeric() to
+# strip its name before assembly, same fix as the footprint above.
+to_minx_miny_maxx_maxy <- function(spat_extent) {
+  b <- as.vector(spat_extent)  # named xmin/xmax/ymin/ymax, terra's own order
+  c(as.numeric(b["xmin"]), as.numeric(b["ymin"]), as.numeric(b["xmax"]), as.numeric(b["ymax"]))
+}
+wgs84_bounds <- tryCatch({
+  poly_wgs84 <- project(as.polygons(ext(r), crs = crs(r)), "EPSG:4326")
+  to_minx_miny_maxx_maxy(ext(poly_wgs84))
+}, error = function(e) to_minx_miny_maxx_maxy(ext(r)))
+
+con <- rawConnection(raw(0), "wb")
+writeBin(as.numeric(filled), con, size = 4, endian = "little")
+raw_bytes <- rawConnectionValue(con)
+close(con)
+filled_b64 <- jsonlite::base64_enc(raw_bytes)
+
+list(
+  summary = list(
+    targetBand = jsonlite::unbox(target_i),
+    covariateBand = if (has_covariate) jsonlite::unbox(covariate_i) else NULL,
+    variogramModel = jsonlite::unbox(variogramModel),
+    nmax = jsonlite::unbox(as.numeric(nmax)),
+    pixelsFilled = jsonlite::unbox(n_filled),
+    pixelsStillEmpty = jsonlite::unbox(n_still_na),
+    crossValidationRmse = if (is.na(rmse)) NULL else jsonlite::unbox(round(rmse, 4)),
+    nugget = jsonlite::unbox(round(nugget_val, 4)),
+    partialSill = jsonlite::unbox(round(partial_sill_val, 4)),
+    range = jsonlite::unbox(round(range_val, 3)),
+    sampleMean = jsonlite::unbox(round(sample_mean, 4)),
+    sampleVariance = jsonlite::unbox(round(sample_variance, 4)),
+    # Only surfaced when the Cressie-weighted fit (fit.method=7,
+    # gstat's own default -- tried first, fits noticeably better) had
+    # to fall back to the cruder N-only weighting -- the expected path
+    # stays silent, same "only mention the exceptional state" pattern
+    # "Still empty" below already uses.
+    fitMethodFallback = if (has_covariate && fit_method_used == 1) jsonlite::unbox(TRUE) else NULL
+  ),
+  raster = list(
+    width = jsonlite::unbox(ncol(r)),
+    height = jsonlite::unbox(nrow(r)),
+    data = jsonlite::unbox(filled_b64),
+    wgs84Bounds = round(wgs84_bounds, 6),
+    min = jsonlite::unbox(round(min(valid_filled), 4)),
+    max = jsonlite::unbox(round(max(valid_filled), 4))
+  ),
+  variogram = variogram_out
+)
+```
+
+```{.webgeods-r #raster-gap-filler-export-r}
+#| inject: [targetBand, covariateBand, variogramModel, nmax]
+#| package: sf, sp, gstat, terra, jsonlite
+# Recomputes the same pipeline (cheap relative to re-reading the
+# source file) and writes the filled target band as an actual GeoTIFF
+# via terra::writeRaster() -- same structure as
+# kriging-interpolator-export-r.
+library(sf)
+library(sp)
+library(gstat)
+library(terra)
+
+target_i <- as.integer(targetBand)
+covariate_i <- if (identical(covariateBand, "None")) NA_integer_ else as.integer(covariateBand)
+
+r <- rast("/uploaded.tif")
+cell_xy <- crds(r, na.rm = FALSE)
+target_vals <- as.numeric(values(r[[target_i]]))
+df <- data.frame(x = cell_xy[, 1], y = cell_xy[, 2], target = target_vals)
+
+has_covariate <- !is.na(covariate_i)
+if (has_covariate) df$covariate <- as.numeric(values(r[[covariate_i]]))
+
+if (!has_covariate) {
+
+  fit_df <- df[!is.na(df$target), ]
+  pred_df <- df[is.na(df$target), ]
+  fit_pts <- fit_df
+  coordinates(fit_pts) <- ~x + y
+  v_emp <- variogram(target ~ 1, fit_pts)
+  v_model <- fit.variogram(v_emp, vgm(psill = var(fit_df$target), model = variogramModel, range = max(v_emp$dist) / 3, nugget = var(fit_df$target) / 4))
+
+  filled <- df$target
+  if (nrow(pred_df) > 0) {
+    pred_pts <- pred_df
+    coordinates(pred_pts) <- ~x + y
+    k <- krige(target ~ 1, fit_pts, pred_pts, model = v_model, nmax = as.numeric(nmax), debug.level = 0)
+    filled[is.na(df$target)] <- as.numeric(k$var1.pred)
+  }
+
+} else {
+
+  data_fit <- df[!is.na(df$target) & !is.na(df$covariate), ]
+  data_pred <- df[!is.na(df$covariate), ]
+  fit_pts <- data_fit
+  coordinates(fit_pts) <- ~x + y
+  g_fit <- gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts)
+  g_fit <- gstat(g_fit, id = "covariate", formula = covariate ~ 1, data = fit_pts)
+  v_cross <- variogram(g_fit)
+  lmc_model <- vgm(psill = var(data_fit$target), model = variogramModel, range = max(v_cross$dist) / 3, nugget = var(data_fit$target) / 4)
+
+  # Same fit.method=7-then-1 fallback as the preview cell above -- the
+  # downloaded file should reflect whichever fit the reader actually
+  # saw on screen, not a cruder one recomputed only for export.
+  g_fit_try <- tryCatch(
+    fit.lmc(v_cross, g_fit, model = lmc_model, fit.method = 7, correct.diagonal = 1.01),
+    error = function(e) NULL
+  )
+  if (is.null(g_fit_try)) {
+    g_fit_try <- fit.lmc(v_cross, gstat(gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts), id = "covariate", formula = covariate ~ 1, data = fit_pts), model = lmc_model, fit.method = 1, correct.diagonal = 1.01)
+  }
+  g_fit <- g_fit_try
+
+  pred_pts <- data_pred
+  coordinates(pred_pts) <- ~x + y
+  g_pred <- gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts)
+  g_pred <- gstat(g_pred, id = "covariate", formula = covariate ~ 1, data = pred_pts)
+  g_pred$model <- g_fit$model
+  k <- predict(g_pred, newdata = pred_pts, nmax = as.numeric(nmax), debug.level = 0)
+
+  filled <- df$target
+  pred_index <- which(!is.na(df$covariate))
+  cokriged <- is.na(df$target[pred_index])
+  filled[pred_index[cokriged]] <- as.numeric(k$target.pred[cokriged])
+
+}
+
+filled_band <- rast(matrix(filled, nrow = nrow(r), ncol = ncol(r), byrow = TRUE), extent = ext(r), crs = crs(r))
+names(filled_band) <- names(r)[target_i]
+
+out_path <- "/tmp/raster-gap-filler.tif"
+writeRaster(filled_band, out_path, overwrite = TRUE, filetype = "GTiff")
+raw_bytes <- readBin(out_path, what = "raw", n = file.info(out_path)$size)
+jsonlite::base64_enc(raw_bytes)
+```
+
+*First run loads the R engine — expect 1-3 minutes (R's WebAssembly
+build is noticeably slower to start than this site's Python tools).
+Instant after that, and again each time you come back to this page.*
+
+<div id="rgf-dashboard"></div>
+
+<!-- Page-local, not site-wide -- same reasoning as kriging-interpolator.qmd's
+     own comment: only tools with a variogram side panel need the ~828KB
+     vega bundle. -->
+<script src="/vega.min.js"></script>
+<script src="/vega-lite.min.js"></script>
+<script src="/vega-embed.min.js"></script>
+<script src="/vega-chart.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+
+  const FILL_RAMP = [
+    [0.00, 68, 1, 84],
+    [0.25, 59, 82, 139],
+    [0.50, 33, 144, 140],
+    [0.75, 94, 201, 98],
+    [1.00, 253, 231, 37]
+  ];
+
+  const FOOTPRINT_PAINT = {
+    "fill-color": "#42583c",
+    "fill-opacity": 0.35,
+    "fill-outline-color": "#2a2117"
+  };
+
+  const base64ToBytes = (base64Str) => {
+    const binary = atob(base64Str);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  };
+
+  const base64ToFloat32 = (base64Str) =>
+    new Float32Array(base64ToBytes(base64Str).buffer);
+
+  // nugget + partialSill, both already rounded to 4dp on the R side,
+  // can still land on a binary-float artifact when added in JS (e.g.
+  // "sill 14.9639999999999999") -- found live on the cross term's own
+  // reference-line label. Re-rounding the SUM catches it regardless of
+  // which two 4dp numbers produced it.
+  const round4 = (n) => Math.round(n * 10000) / 10000;
+
+  // Raw per-band arrays from the inspect cell, keyed by band number --
+  // populated once per file (inspect.onResult below), read every time
+  // the reader changes Target/Covariate so the preview updates live
+  // with no R round trip.
+  let rgfBands = null;
+  let rgfBounds = null;
+  let rgfWidth = 0;
+  let rgfHeight = 0;
+
+  // Shows the currently-picked target (+ covariate, if any) BEFORE
+  // Fill is pressed -- otherwise the map has nothing to show but the
+  // plain footprint rectangle until the reader notices there's a Fill
+  // button. Also what redraws the map every time either select
+  // changes, and what a completed Fill result gets replaced by again
+  // if the reader picks a different pair afterward.
+  const renderBandPreview = async () => {
+
+    if (!rgfBands) return;
+
+    const targetSel = document.querySelector("#raster-gap-filler-targetBand");
+    const covariateSel = document.querySelector("#raster-gap-filler-covariateBand");
+    if (!targetSel || !covariateSel || !targetSel.value) return;
+
+    const dashboard = WebGeoDS.Dashboard.find("raster-gap-filler");
+    const target = rgfBands[Number(targetSel.value)];
+    if (!target) return;
+
+    const covariateValue = covariateSel.value;
+    const covariate = covariateValue && covariateValue !== "None" ? rgfBands[Number(covariateValue)] : null;
+
+    if (covariate) {
+
+      await dashboard.map.setRasterBicolorImage("raster-gap-filler-compute-r", {
+        bounds: rgfBounds,
+        width: rgfWidth,
+        height: rgfHeight,
+        channelA: target,
+        channelB: covariate
+      });
+
+      dashboard.legendWrapEl.replaceChildren(WebGeoDS.legend([
+        { color: "rgb(255,0,0)", label: `Target (band ${targetSel.value})` },
+        { color: "rgb(0,0,255)", label: `Covariate (band ${covariateValue})` }
+      ]));
+
+    } else {
+
+      await dashboard.map.setRasterImage("raster-gap-filler-compute-r", {
+        bounds: rgfBounds,
+        width: rgfWidth,
+        height: rgfHeight,
+        values: target.values,
+        min: target.min,
+        max: target.max,
+        colorRamp: FILL_RAMP
+      });
+
+      dashboard.legendWrapEl.replaceChildren(WebGeoDS.legend({
+        gradient: FILL_RAMP,
+        minLabel: `${target.min}`,
+        maxLabel: `${target.max}`
+      }));
+
+    }
+
+  };
+
+  let rgfChart = null;
+
+  // Reference-line layers (nugget/sill/range, dashed) shared by both
+  // chart shapes below -- pulled out once so the single-panel and
+  // per-series-panel builders don't repeat the same six-layer block.
+  const referenceLineLayers = (nugget, sill, range, maxDist, domainMin, domainMax) => {
+    const rangeNearRightEdge = range > maxDist * 0.75;
+    const rangeAlign = rangeNearRightEdge ? "right" : "left";
+    const rangeDx = rangeNearRightEdge ? -3 : 3;
+    const layers = [
+      { "data": { "values": [{}] }, "mark": { "type": "rule", "strokeDash": [4, 3], "color": "#8a8378" },
+        "encoding": { "x": { "datum": 0, "type": "quantitative" }, "x2": { "datum": maxDist }, "y": { "datum": nugget, "type": "quantitative" } } },
+      { "data": { "values": [{}] }, "mark": { "type": "text", "align": "left", "baseline": "bottom", "dx": 8, "dy": -4, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
+        "encoding": { "y": { "datum": nugget, "type": "quantitative" }, "x": { "datum": 0, "type": "quantitative" }, "text": { "value": `nugget ${nugget}` } } },
+      { "data": { "values": [{}] }, "mark": { "type": "rule", "strokeDash": [4, 3], "color": "#8a8378" },
+        "encoding": { "x": { "datum": 0, "type": "quantitative" }, "x2": { "datum": maxDist }, "y": { "datum": sill, "type": "quantitative" } } },
+      { "data": { "values": [{}] }, "mark": { "type": "text", "align": "right", "baseline": "bottom", "dx": -2, "dy": -2, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
+        "encoding": { "y": { "datum": sill, "type": "quantitative" }, "x": { "datum": maxDist, "type": "quantitative" }, "text": { "value": `sill ${sill}` } } },
+      { "data": { "values": [{}] }, "mark": { "type": "rule", "strokeDash": [4, 3], "color": "#8a8378" },
+        "encoding": { "x": { "datum": range, "type": "quantitative" }, "y": { "datum": domainMin, "type": "quantitative" }, "y2": { "datum": domainMax } } },
+      { "data": { "values": [{}] }, "mark": { "type": "text", "align": rangeAlign, "baseline": "top", "dx": rangeDx, "dy": 3, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
+        "encoding": { "x": { "datum": range, "type": "quantitative" }, "y": { "datum": domainMin, "type": "quantitative" }, "text": { "value": `range ${range}px` } } }
+    ];
+    // The domain floor only actually sits below 0 for a cross term
+    // (a legitimate negative covariance) -- target/covariate's own
+    // nugget is never negative, so this rule would just retrace the
+    // x-axis there and is skipped.
+    if (domainMin < -1e-9) {
+      layers.unshift({
+        "data": { "values": [{}] },
+        "mark": { "type": "rule", "strokeDash": [2, 2], "color": "#8a8378" },
+        "encoding": { "x": { "datum": 0, "type": "quantitative" }, "x2": { "datum": maxDist }, "y": { "datum": 0, "type": "quantitative" } }
+      });
+    }
+    return layers;
+  };
+
+  // One chart, two shapes: no covariate means only the target's own
+  // variogram exists (v.variogram.covariate absent) and this draws a
+  // single empirical+fitted+reference-line chart, the same shape
+  // kriging-interpolator.qmd's own side panel already uses. A
+  // covariate means fit.lmc() ALSO produced the covariate's own
+  // variogram and the cross-variogram between the two -- already
+  // computed inside the compute cell for the fit itself, just never
+  // read back out before now -- shown as three STACKED panels rather
+  // than overlaid: found live (screenshot review) that overlaying them
+  // on one shared scale made it impossible to tell a genuinely close
+  // fit from a poor one, since the three series rarely share a
+  // sensible common y-range. Each panel gets its own scale and its own
+  // nugget/sill/range reference lines instead. Colors echo this tool's
+  // own bicolor map preview above (red family = target, blue family =
+  // covariate) plus purple/magenta for the cross term, the same hue
+  // family that preview shows where the two overlap -- softened from
+  // that preview's own pure red/blue so the chart's points and lines
+  // stay readable against the page's cream background instead of
+  // reading as neon.
+  const renderVariogramChart = async (dashboard, v) => {
+
+    rgfChart?.destroy();
+    rgfChart = null;
+
+    if (!v || !v.variogram) return;
+
+    const isComposite = !!v.variogram.covariate;
+    const range = v.summary.range;
+
+    const seriesDefs = isComposite
+      ? [
+          { key: "target", label: `Target (band ${v.summary.targetBand})`, color: "#e60000", data: v.variogram.target },
+          { key: "covariate", label: `Covariate (band ${v.summary.covariateBand})`, color: "#0000e6", data: v.variogram.covariate },
+          { key: "cross", label: "Cross (target × covariate)", color: "#a000a0", data: v.variogram.cross }
+        ]
+      : [
+          { key: "target", label: `Target (band ${v.summary.targetBand})`, color: "#ab502b", data: v.variogram.target }
+        ];
+
+    let maxDist = range;
+    for (const s of seriesDefs) {
+      for (const arr of [s.data.empirical, s.data.fitted]) {
+        for (const d of arr.dist) { if (d > maxDist) maxDist = d; }
+      }
+    }
+    const xDomain = [0, maxDist * 1.05];
+
+    const chartWidth = Math.max(200, (dashboard.sidePanelEl.getBoundingClientRect().width || 300) - 50);
+
+    if (!isComposite) {
+
+      const s = seriesDefs[0];
+      const nugget = s.data.nugget;
+      const sill = round4(s.data.nugget + s.data.partialSill);
+      let minGamma = Math.min(0, nugget), maxGamma = Math.max(0, sill);
+      for (const arr of [s.data.empirical, s.data.fitted]) {
+        for (const g of arr.gamma) { if (g < minGamma) minGamma = g; if (g > maxGamma) maxGamma = g; }
+      }
+      const domainMin = minGamma * 1.05, domainMax = maxGamma * 1.05;
+      const empRows = s.data.empirical.dist.map((d, i) => ({ dist: d, gamma: s.data.empirical.gamma[i], npairs: s.data.empirical.npairs[i], key: `emp-${i}` }));
+      const fitRows = s.data.fitted.dist.map((d, i) => ({ dist: d, gamma: s.data.fitted.gamma[i], key: `fit-${i}` }));
+
+      rgfChart = await WebGeoDS.renderVegaChart(dashboard.sidePanelEl, {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "title": "Empirical variogram and fitted model",
+        "width": chartWidth,
+        "height": 220,
+        "autosize": { "type": "pad" },
+        "params": [{ "name": "rgfExternal", "value": null }],
+        "layer": [
+          {
+            "data": { "values": empRows },
+            "params": [{ "name": "rgfSelect_target", "select": { "type": "point", "fields": ["key"] } }],
+            "mark": { "type": "point", "filled": true, "size": 70, "color": s.color },
+            "encoding": {
+              "x": { "field": "dist", "type": "quantitative", "title": "Distance (px)", "scale": { "domain": xDomain } },
+              "y": { "field": "gamma", "type": "quantitative", "title": "Semivariance", "scale": { "domain": [domainMin, domainMax] } },
+              "tooltip": [{ "field": "dist", "title": "Distance (px)" }, { "field": "gamma", "title": "Semivariance" }, { "field": "npairs", "title": "Point pairs" }]
+            }
+          },
+          { "data": { "values": fitRows }, "mark": { "type": "line", "color": "#ab502b" },
+            "encoding": { "x": { "field": "dist", "type": "quantitative" }, "y": { "field": "gamma", "type": "quantitative" } } },
+          ...referenceLineLayers(nugget, sill, range, maxDist, domainMin, domainMax)
+        ]
+      }, {
+        selectParams: ["rgfSelect_target"],
+        externalParam: "rgfExternal",
+        keyField: "key",
+        onSelect: () => {}
+      });
+
+      return;
+
+    }
+
+    // Composite case: one vconcat panel per series, same multi-view
+    // shape spatial-classifier.qmd's own side panel already
+    // establishes (a top-level shared externalParam, each panel
+    // declaring its own point-selection param).
+    const buildPanel = (s) => {
+
+      const nugget = s.data.nugget;
+      const sill = round4(s.data.nugget + s.data.partialSill);
+      let minGamma = Math.min(0, nugget), maxGamma = Math.max(0, sill);
+      for (const arr of [s.data.empirical, s.data.fitted]) {
+        for (const g of arr.gamma) { if (g < minGamma) minGamma = g; if (g > maxGamma) maxGamma = g; }
+      }
+      const domainMin = minGamma * 1.05, domainMax = maxGamma * 1.05;
+      const empRows = s.data.empirical.dist.map((d, i) => ({ dist: d, gamma: s.data.empirical.gamma[i], npairs: s.data.empirical.npairs[i], key: `${s.key}-emp-${i}` }));
+      const fitRows = s.data.fitted.dist.map((d, i) => ({ dist: d, gamma: s.data.fitted.gamma[i], key: `${s.key}-fit-${i}` }));
+
+      return {
+        "title": s.label,
+        "width": "container",
+        "height": 140,
+        "layer": [
+          {
+            "data": { "values": empRows },
+            "params": [{ "name": `rgfSelect_${s.key}`, "select": { "type": "point", "fields": ["key"] } }],
+            "mark": { "type": "point", "filled": true, "size": 45, "color": s.color },
+            "encoding": {
+              "x": { "field": "dist", "type": "quantitative", "title": "Distance (px)", "scale": { "domain": xDomain } },
+              "y": { "field": "gamma", "type": "quantitative", "title": "Semivariance", "scale": { "domain": [domainMin, domainMax] } },
+              "tooltip": [{ "field": "dist", "title": "Distance (px)" }, { "field": "gamma", "title": "Value" }, { "field": "npairs", "title": "Point pairs" }]
+            }
+          },
+          { "data": { "values": fitRows }, "mark": { "type": "line", "color": s.color },
+            "encoding": { "x": { "field": "dist", "type": "quantitative" }, "y": { "field": "gamma", "type": "quantitative" } } },
+          ...referenceLineLayers(nugget, sill, range, maxDist, domainMin, domainMax)
+        ]
+      };
+
+    };
+
+    rgfChart = await WebGeoDS.renderVegaChart(dashboard.sidePanelEl, {
+      "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+      // "fit-x" (not "pad", the single-panel chart's own choice above)
+      // -- found live with spatial-classifier.qmd's own vconcat side
+      // panel that "pad" leaves Vega-Lite's default autosize in
+      // charge for a concatenated spec, which computes a width wider
+      // than sidePanelEl's real box and gets silently clipped by its
+      // own overflow:hidden instead of erroring.
+      "autosize": { "type": "fit-x", "contains": "padding" },
+      "params": [{ "name": "rgfExternal", "value": null }],
+      "vconcat": seriesDefs.map(buildPanel)
+    }, {
+      selectParams: seriesDefs.map((s) => `rgfSelect_${s.key}`),
+      externalParam: "rgfExternal",
+      keyField: "key",
+      onSelect: () => {}
+    });
+
+  };
+
+  new WebGeoDS.Dashboard({
+    tool: "raster-gap-filler",
+    mount: "#rgf-dashboard",
+    layout: { sidePanel: { id: "rgf-chart", flex: "1 1 280px", minWidth: "260px" } },
+    upload: { languages: ["r"], kind: "raster", label: "📁 Upload" },
+    example: {
+      cellId: "raster-gap-filler-example-r",
+      kind: "raster",
+      status: "✓ example 2-band raster loaded — pick a target and (optionally) a covariate band, then Fill."
+    },
+    emptyStats: [
+      ["Dimensions", "—"],
+      ["—", "Upload a multi-band .tif/.tiff file or load the example above"]
+    ],
+    inspect: {
+      cellId: "raster-gap-filler-inspect-r",
+      layers: [
+        { source: "raster-gap-filler-inspect-r", from: (v) => v.footprint, type: "fill", paint: () => FOOTPRINT_PAINT, fit: true }
+      ],
+      stats: (v) => {
+        const s = v.summary;
+        if (!s) {
+          return [["Dimensions", "—"], ["—", "Upload a multi-band .tif/.tiff file or load the example above"]];
+        }
+        const bandLines = s.bandStats.map((b) =>
+          `Band ${b.band} (${b.name}): ${(b.naFraction * 100).toFixed(0)}% empty`
+        );
+        return [
+          ["Dimensions", `${s.width} × ${s.height} px`],
+          ["Bands", String(s.bandCount)],
+          ["CRS", s.crs],
+          ["Per-band gaps", bandLines.join(" · ")]
+        ];
+      },
+      // Stashes every band's raw values so renderBandPreview() (below
+      // the Dashboard constructor) can draw the target/covariate
+      // preview without asking R to recompute anything -- then draws
+      // it once immediately with whichever pair _syncSelectInputs()
+      // (shared/dashboard.js, runs just before this onResult) already
+      // defaulted to.
+      onResult: async (v) => {
+
+        if (!v || !v.summary || !v.bands) {
+          rgfBands = null;
+          await WebGeoDS.Dashboard.find("raster-gap-filler").map.removeRasterImage("raster-gap-filler-compute-r");
+          return;
+        }
+
+        rgfBands = {};
+        for (const b of v.bands) {
+          rgfBands[b.band] = { values: base64ToFloat32(b.data), min: b.min, max: b.max };
+        }
+        rgfBounds = v.summary.wgs84Bounds;
+        rgfWidth = v.summary.width;
+        rgfHeight = v.summary.height;
+
+        await renderBandPreview();
+
+      }
+    },
+    compute: {
+      cellId: "raster-gap-filler-compute-r",
+      label: "▶ Fill",
+      busyLabel: "⌛ Kriging...",
+      inputs: [
+        { kind: "select", name: "targetBand", label: "Target:",
+          options: (v) => Array.from({ length: v.summary?.bandCount ?? 0 }, (_, i) => String(i + 1)),
+          default: (v) => String(v.summary?.suggestedTarget ?? 1) },
+        { kind: "select", name: "covariateBand", label: "Covariate:",
+          options: (v) => ["None", ...Array.from({ length: v.summary?.bandCount ?? 0 }, (_, i) => String(i + 1))],
+          default: (v) => {
+            const n = v.summary?.bandCount ?? 0;
+            const target = v.summary?.suggestedTarget ?? 1;
+            if (n < 2) return "None";
+            const other = Array.from({ length: n }, (_, i) => i + 1).find((b) => b !== target);
+            return other ? String(other) : "None";
+          } },
+        { kind: "select", name: "variogramModel", label: "Model:",
+          options: () => ["Sph", "Exp", "Gau"],
+          default: () => "Sph" },
+        { kind: "slider", name: "nmax", label: "Neighbourhood size", range: [10, 60], value: 24, step: 2 }
+      ],
+      legend: (v) => ({
+        gradient: FILL_RAMP,
+        minLabel: `${v.raster.min}`,
+        maxLabel: `${v.raster.max}`
+      }),
+      stats: (v) => {
+        const s = v.summary;
+        const rows = [
+          ["Target band", String(s.targetBand)],
+          ["Covariate band", s.covariateBand ? String(s.covariateBand) : "None (ordinary kriging)"],
+          ["Variogram model", s.variogramModel],
+          ["Nugget", s.nugget],
+          ["Partial sill", s.partialSill],
+          ["Range (px)", s.range],
+          // The target's own known-pixel mean/variance -- not from the
+          // fitted model, so they double as a sanity check: nugget +
+          // partial sill landing far from this variance is the
+          // clearest sign the fit is off, without this card asserting
+          // a verdict of its own (a hardcoded threshold would flag
+          // genuinely non-stationary data as often as an actual bad
+          // fit, so the two numbers are left side by side for the
+          // reader to compare rather than pre-judged here).
+          ["Sample mean", s.sampleMean],
+          ["Sample variance", s.sampleVariance],
+          ["Neighbourhood size", String(s.nmax)],
+          ["Pixels filled", s.pixelsFilled.toLocaleString()]
+        ];
+        if (s.crossValidationRmse !== null && s.crossValidationRmse !== undefined) {
+          rows.push(["Cross-validation RMSE", s.crossValidationRmse]);
+        }
+        if (s.pixelsStillEmpty > 0) {
+          rows.push(["Still empty", `${s.pixelsStillEmpty.toLocaleString()} (no covariate data there either)`]);
+        }
+        if (s.fitMethodFallback) {
+          rows.push(["⚠️ Fit method", "fell back to a cruder weighting (Cressie's own fit failed on this data)"]);
+        }
+        return rows;
+      },
+      onResult: async (v) => {
+
+        const dashboard =
+          WebGeoDS.Dashboard.find("raster-gap-filler");
+
+        if (!v) {
+          await dashboard.map.removeRasterImage("raster-gap-filler-compute-r");
+          await renderVariogramChart(dashboard, null);
+          return;
+        }
+
+        await dashboard.map.setRasterImage("raster-gap-filler-compute-r", {
+          bounds: v.raster.wgs84Bounds,
+          width: v.raster.width,
+          height: v.raster.height,
+          values: new Float32Array(base64ToBytes(v.raster.data).buffer),
+          min: v.raster.min,
+          max: v.raster.max,
+          colorRamp: FILL_RAMP
+        });
+
+        await renderVariogramChart(dashboard, v);
+
+      },
+      download: {
+        raster: {
+          label: "⬇ Download GeoTIFF",
+          prepare: (value, inputs) => {
+            if (!value) return false;
+            window.targetBand = inputs.targetBand;
+            window.covariateBand = inputs.covariateBand;
+            window.variogramModel = inputs.variogramModel;
+            window.nmax = inputs.nmax;
+          },
+          cellId: "raster-gap-filler-export-r",
+          decode: base64ToBytes,
+          getFilename: () => "gap-filled.tif"
+        }
+      }
+    }
+  });
+
+  // Hand-wired, same as raster-inspector.qmd's own Band-menu listener
+  // -- Dashboard only reads these two selects at Fill time
+  // (runCompute()'s _readInputs()), so redrawing the live preview on
+  // every change is this tool's own responsibility, not something a
+  // declarative `inputs` entry triggers by itself.
+  document.querySelector("#raster-gap-filler-targetBand")?.addEventListener("change", renderBandPreview);
+  document.querySelector("#raster-gap-filler-covariateBand")?.addEventListener("change", renderBandPreview);
+
+});
+</script>
+
+<style>
+#raster-gap-filler-example-r, #raster-gap-filler-inspect-r, #raster-gap-filler-compute-r, #raster-gap-filler-export-r {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+</style>
+
+<div class="webgeods-closing-note">
+Got sparse point samples instead of a raster with gaps? The
+<a href="/tools/kriging-interpolator.html">Kriging Interpolator</a>
+predicts a full surface from scattered measurements. Want to look at a
+raster's bands before deciding what to fill? Start with the
+<a href="/tools/raster-inspector.html">Raster Inspector</a>.
+</div>
+
+<script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

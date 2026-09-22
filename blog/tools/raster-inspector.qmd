@@ -793,7 +793,10 @@ This is the first tool in the Raster family. Read the
 <a href="/posts/raster-file-inspection.html">companion article</a> for
 the same statistics in Python and R, one cell at a time — then try the
 <a href="/tools/raster-calculator.html">Raster Calculator</a> to
-combine two of a file's bands into a computed result.
+combine two of a file's bands into a computed result, or the
+<a href="/tools/raster-gap-filler.html">Raster Gap Filler</a> if one of
+those bands has real holes (NoData cells) another band could help
+fill.
 </div>
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

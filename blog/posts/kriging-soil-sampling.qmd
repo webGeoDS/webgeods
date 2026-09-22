@@ -764,6 +764,10 @@ page.
 - **Want the simpler distance-only version first?** See
   [Buffer/Proximity](/tools/buffer-proximity.html), which uses no
   fitted model, just a fixed distance.
+- **Got a raster with gaps instead of scattered points?** [Filling
+  Raster Gaps with Cokriging](/posts/cokriging-raster-gap-filling.html)
+  builds on the same variogram fitting to patch an existing grid's own
+  holes, optionally using a second band as a covariate.
 
 First tool in the GeoStatistics family; more are planned.
 

@@ -49,6 +49,10 @@ const BILINGUAL_EXCEPTIONS = new Map([
     "kriging-soil-sampling.qmd",
     "pykrige has no WebAssembly build anywhere (not just missing from this browser's package index, unlike raster-viewshed.qmd's GDAL gap) -- Python is shown as an inert reference code block only, not an executable cell.",
   ],
+  [
+    "cokriging-raster-gap-filling.qmd",
+    "same pykrige/WebAssembly gap as kriging-soil-sampling.qmd -- and even setting that aside, Python's own cokriging option (GSTools' collocated cokriging) is a genuinely different technique from the fit.lmc() coregionalization model this article teaches, not a port of the same algorithm, so no verified reference implementation of THIS method exists to show as a real cell either way.",
+  ],
 ]);
 
 let failed = false;
