@@ -462,6 +462,40 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window.kiChart = null;
 
+  // Vega-Lite's text mark has no built-in background -- nugget/sill/
+  // range sat as bare text directly on the chart's own gridlines.
+  // Fixed the same way raster-gap-filler.qmd's own variogram panel
+  // was: measure each label's real getBBox() after the chart renders
+  // and insert a sized background rect behind it (same technique the
+  // GeoStatistics articles' own hand-rolled d3 charts already use).
+  // The one wrinkle found live building that fix: Vega-Lite's <text>
+  // elements carry their OWN transform="translate(x,y)" attribute
+  // (unlike d3's plain x/y-positioned text), and getBBox() returns
+  // coordinates from BEFORE that transform applies -- a sibling rect
+  // built from those raw numbers needs the identical transform copied
+  // onto it too, or it renders offset by roughly the transform's own
+  // translation instead of sitting behind the text.
+  const pillifyReferenceLabels = (container) => {
+    const svg = container.querySelector("svg");
+    if (!svg) return;
+    for (const t of svg.querySelectorAll("text")) {
+      if (!/^(nugget|sill|range) /.test(t.textContent || "")) continue;
+      const box = t.getBBox();
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("x", box.x - 4);
+      rect.setAttribute("y", box.y - 2);
+      rect.setAttribute("width", box.width + 8);
+      rect.setAttribute("height", box.height + 4);
+      rect.setAttribute("rx", 3);
+      rect.setAttribute("fill", "#fffdf8");
+      rect.setAttribute("stroke", "#d8cdb8");
+      rect.setAttribute("stroke-width", 1);
+      const transform = t.getAttribute("transform");
+      if (transform) rect.setAttribute("transform", transform);
+      t.parentNode.insertBefore(rect, t);
+    }
+  };
+
   new WebGeoDS.Dashboard({
     tool: "kriging-interpolator",
     mount: "#ki-dashboard",
@@ -775,8 +809,14 @@ document.addEventListener("DOMContentLoaded", () => {
               }
             },
             {
+              // baseline "bottom" + a small NEGATIVE dy, not "top"/+3
+              // -- found live (raster-gap-filler.qmd's own chart had
+              // the identical bug) that placing this label just below
+              // y=0 put it in the same band Vega-Lite draws its own
+              // x-axis tick numbers in, overlapping them. Lifting it a
+              // few px back inside the plot area clears them.
               "data": { "values": [{}] },
-              "mark": { "type": "text", "align": rangeAlign, "baseline": "top", "dx": rangeDx, "dy": 3, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
+              "mark": { "type": "text", "align": rangeAlign, "baseline": "bottom", "dx": rangeDx, "dy": -3, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
               "encoding": {
                 "x": { "datum": range, "type": "quantitative" },
                 "y": { "datum": 0, "type": "quantitative" },
@@ -790,6 +830,8 @@ document.addEventListener("DOMContentLoaded", () => {
           keyField: "key",
           onSelect: () => {}
         });
+
+        pillifyReferenceLabels(dashboard.sidePanelEl);
 
       }
     }
