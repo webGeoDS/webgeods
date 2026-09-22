@@ -53,9 +53,11 @@ graph itself.
 
 ## GeoStatistics
 
-Predicting a continuous surface from sparse point samples — fitting a
-variogram model to how similar nearby points really are, instead of
-just averaging distance-weighted neighbors. Runs on R only; Python is
-shown as reference, with the reason explained plainly.
+Predicting a continuous surface from sparse point samples, and filling
+the gaps in a surface you already have — fitting a variogram model to
+how similar nearby points really are, instead of just averaging
+distance-weighted neighbors. Runs on R only; Python is shown as
+reference, with the reason explained plainly.
 
-**[Kriging Interpolator](posts/kriging-soil-sampling.qmd)**
+**[Kriging Interpolator](posts/kriging-soil-sampling.qmd)** →
+**[Filling Raster Gaps with Cokriging](posts/cokriging-raster-gap-filling.qmd)**

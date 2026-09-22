@@ -111,6 +111,8 @@ website:
           - text: "---"
           - href: tools/kriging-interpolator.qmd
             text: Interpolate
+          - href: tools/raster-gap-filler.qmd
+            text: Fill Gaps
       - text: Articles
         menu:
           - href: articles.qmd
@@ -146,6 +148,8 @@ website:
           - text: "---"
           - href: posts/kriging-soil-sampling.qmd
             text: Interpolate
+          - href: posts/cokriging-raster-gap-filling.qmd
+            text: Fill Gaps
       - about.qmd
     # Five groups per dropdown: "Vector" (renamed 2026-09-11 from
     # "Spatial Data Quality" once Buffer joined it as this group's

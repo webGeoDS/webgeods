@@ -62,13 +62,17 @@ network has. One tool live in this family; more are planned.
 
 ## GeoStatistics Toolkit
 
-Predicting a continuous surface from sparse point samples.
-**[Kriging Interpolator](kriging-interpolator.qmd)**: upload soil
-moisture, pH, or any other numeric measurement taken at scattered
-locations, and see a full prediction surface across the whole area —
-fitting a variogram model to how similar nearby points really are,
-not just averaging distance-weighted neighbors. Runs on R (Python is
-shown only as reference in its
-[companion article](/posts/kriging-soil-sampling.html), since no
-kriging implementation exists for this browser's Python runtime).
-One tool live in this family; more are planned.
+Predicting a continuous surface from sparse point samples, and filling
+the gaps in a surface you already have.
+**[Kriging Interpolator](kriging-interpolator.qmd)** →
+**[Raster Gap Filler](raster-gap-filler.qmd)**: the first predicts a
+full surface from scattered measurements by fitting a variogram model
+to how similar nearby points really are, not just averaging distance-
+weighted neighbors; the second reuses that same fit to patch an
+existing raster's own holes, optionally using a second, fully-
+populated band as a covariate (cokriging). Both run on R (Python is
+shown only as reference in their companion articles —
+[kriging](/posts/kriging-soil-sampling.html),
+[cokriging](/posts/cokriging-raster-gap-filling.html) — since neither
+implementation exists for this browser's Python runtime). Two tools
+live in this family; more are planned.

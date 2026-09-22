@@ -68,10 +68,13 @@ pieces the network actually has.
 
 ## GeoStatistics
 
-Predicting a continuous surface from sparse point samples — fitting a
-variogram model to how similar nearby points really are, instead of
-just averaging distance-weighted neighbors.
+Predicting a continuous surface from sparse point samples, and filling
+the gaps in a surface you already have — fitting a variogram model to
+how similar nearby points really are, instead of just averaging
+distance-weighted neighbors.
 
-**Tools** — [Kriging Interpolator](/tools/kriging-interpolator.html)
+**Tools** — [Kriging Interpolator](/tools/kriging-interpolator.html) →
+[Raster Gap Filler](/tools/raster-gap-filler.html)
 
-**Articles** — [Kriging Interpolator](/posts/kriging-soil-sampling.html)
+**Articles** — [Kriging Interpolator](/posts/kriging-soil-sampling.html) →
+[Filling Raster Gaps with Cokriging](/posts/cokriging-raster-gap-filling.html)
