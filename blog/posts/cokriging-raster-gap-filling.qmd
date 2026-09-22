@@ -243,7 +243,6 @@ coordinates(fit_pts) <- ~x + y
 # below both for the joint fit's own initial guess and for the chart's
 # scatter points.
 v_emp <- variogram(target ~ 1, fit_pts)
-init_range <- max(v_emp$dist) / 3
 init_psill <- var(data_fit$target)
 
 # Both variables registered on the SAME point object (fit_pts, same
@@ -252,31 +251,39 @@ init_psill <- var(data_fit$target)
 # the two variables' own locations, which fit.method=7 (Cressie's
 # weights, gstat's own default) divides by. correct.diagonal fixes a
 # separate, related near-singular-matrix issue found the same way.
-g_fit <- gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts)
-g_fit <- gstat(g_fit, id = "covariate", formula = covariate ~ 1, data = fit_pts)
-v_cross <- variogram(g_fit)
-lmc_model <- vgm(psill = init_psill, model = "Sph", range = init_range, nugget = init_psill / 4)
+v_cross <- variogram(gstat(gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts), id = "covariate", formula = covariate ~ 1, data = fit_pts))
 
-# fit.method=7 fits each component's own semivariogram noticeably
-# better than fit.method=1 (weights = N only) -- confirmed live,
-# comparing both against the empirical points on this exact example.
-# Safe to try first now that both variables sit on the identical point
-# set above, the actual fix for the zero-distance-bin division;
-# fit.method=1 stays as a tryCatch fallback for whatever OTHER data
-# could still make Cressie's weights singular.
-g_fit <- tryCatch(
-  fit.lmc(v_cross, g_fit, model = lmc_model, fit.method = 7, correct.diagonal = 1.01),
-  error = function(e) NULL
-)
-if (is.null(g_fit)) {
-  g_fit <- tryCatch(
-    fit.lmc(v_cross, gstat(gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts), id = "covariate", formula = covariate ~ 1, data = fit_pts), model = lmc_model, fit.method = 1, correct.diagonal = 1.01),
-    error = function(e) NULL
-  )
+# fit.lmc()'s optimizer is LOCAL, not global, and a single starting
+# range is a real gamble for a joint fit: passing it the classic
+# single-variable rule of thumb (max distance / 3) trapped it in a
+# clearly worse solution on this exact data -- confirmed live, trying
+# several starting ranges: sum-of-squared-error against the target's
+# own empirical points ranged from 1878 (at max/3) down to 173 (at the
+# FULL max distance), roughly a 10x difference, with the fitted sill
+# and range moving enough to visibly change the chart below, not just
+# the decimals. So instead of committing to one guess, this tries a
+# small spread of them and keeps whichever lands closest to the
+# target's own empirical variogram -- the same fit.method=7-then-1
+# fallback runs for each one (Cressie's weights first, N-only weights
+# only if that specific starting point makes them singular).
+sse_against_target <- function(model_df) {
+  vl <- variogramLine(model_df, dist_vector = v_emp$dist)
+  sum((v_emp$gamma - vl$gamma)^2)
 }
-if (is.null(g_fit)) {
+fit_lmc_candidate <- function(init_range) {
+  lmc_model <- vgm(psill = init_psill, model = "Sph", range = init_range, nugget = init_psill / 4)
+  fresh_g <- function() gstat(gstat(NULL, id = "target", formula = target ~ 1, data = fit_pts), id = "covariate", formula = covariate ~ 1, data = fit_pts)
+  gf <- tryCatch(fit.lmc(v_cross, fresh_g(), model = lmc_model, fit.method = 7, correct.diagonal = 1.01), error = function(e) NULL)
+  if (is.null(gf)) gf <- tryCatch(fit.lmc(v_cross, fresh_g(), model = lmc_model, fit.method = 1, correct.diagonal = 1.01), error = function(e) NULL)
+  if (is.null(gf)) return(NULL)
+  list(g_fit = gf, sse = sse_against_target(gf$model[["target"]]))
+}
+
+candidates <- Filter(Negate(is.null), lapply(max(v_cross$dist) * c(1 / 6, 1 / 3, 2 / 3, 1), fit_lmc_candidate))
+if (length(candidates) == 0) {
   stop("Could not fit a coregionalization model between these two bands -- often too few co-located pixels, or the bands aren't actually correlated.")
 }
+g_fit <- candidates[[which.min(sapply(candidates, function(c) c$sse))]]$g_fit
 
 # nugget/partialSill/range AND the chart's fitted curve both come from
 # the TARGET's own component of this joint fit -- not a separately-fit
