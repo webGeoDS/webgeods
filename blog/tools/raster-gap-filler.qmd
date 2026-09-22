@@ -287,8 +287,15 @@ if (!has_covariate) {
     target = list(
       nugget = jsonlite::unbox(round(nugget_val, 4)),
       partialSill = jsonlite::unbox(round(partial_sill_val, 4)),
-      empirical = list(dist = round(v_emp$dist, 3), gamma = round(v_emp$gamma, 5), npairs = v_emp$np),
-      fitted = list(dist = round(v_line$dist, 3), gamma = round(v_line$gamma, 5))
+      # dist rounded to 6dp, not 3 -- this raster's own coordinates are
+      # degree-scale (a range around 0.01-0.05), so 3dp was coarse
+      # enough to round SEVERAL of variogramLine()'s 100 points to the
+      # identical x value while their y still rose smoothly between
+      # them -- found live: a fitted "curve" that was actually a
+      # staircase, each repeated x plotted as a vertical jump followed
+      # by a flat run to the next one.
+      empirical = list(dist = round(v_emp$dist, 6), gamma = round(v_emp$gamma, 5), npairs = v_emp$np),
+      fitted = list(dist = round(v_line$dist, 6), gamma = round(v_line$gamma, 5))
     )
   )
 
@@ -418,13 +425,18 @@ if (!has_covariate) {
   # can draw a correctly-labeled reference line on all three, not just
   # the one summary already covers.
   max_dist <- max(v_cross$dist)
+  # 6dp, not 3 -- same fix as the no-covariate branch above, for the
+  # same reason (this raster's degree-scale coordinates need finer
+  # rounding than a meter-scale one would, or variogramLine()'s 100
+  # points collapse onto a handful of duplicate x values and the
+  # "curve" plots as a staircase instead).
   fitted_line <- function(model_df) {
     vl <- variogramLine(model_df, maxdist = max_dist, n = 100)
-    list(dist = round(vl$dist, 3), gamma = round(vl$gamma, 5))
+    list(dist = round(vl$dist, 6), gamma = round(vl$gamma, 5))
   }
   empirical_for <- function(id_name) {
     sub <- v_cross[v_cross$id == id_name, ]
-    list(dist = round(sub$dist, 3), gamma = round(sub$gamma, 5), npairs = sub$np)
+    list(dist = round(sub$dist, 6), gamma = round(sub$gamma, 5), npairs = sub$np)
   }
   variogram_out <- list(
     target = list(
@@ -723,6 +735,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let rgfChart = null;
 
+  // Vega-Lite's text mark has no built-in background -- these three
+  // labels sat as bare text directly on the chart's own gridlines,
+  // legible but visually rougher than the article's own d3 chart
+  // (kriging-soil-sampling.qmd/cokriging-raster-gap-filling.qmd),
+  // which sizes a white pill to each label via a real getBBox()
+  // measurement. Same technique here, run once after the chart's own
+  // render instead of before: Vega-Lite's rendered <text> elements
+  // support getBBox() exactly like d3's do, and this chart (unlike
+  // the article's detached-until-measured one) is already attached to
+  // the visible DOM by the time this runs, so no attach/detach dance
+  // is needed.
+  const pillifyReferenceLabels = (container) => {
+    const svg = container.querySelector("svg");
+    if (!svg) return;
+    for (const t of svg.querySelectorAll("text")) {
+      if (!/^(nugget|sill|range) /.test(t.textContent || "")) continue;
+      const box = t.getBBox();
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("x", box.x - 4);
+      rect.setAttribute("y", box.y - 2);
+      rect.setAttribute("width", box.width + 8);
+      rect.setAttribute("height", box.height + 4);
+      rect.setAttribute("rx", 3);
+      rect.setAttribute("fill", "#fffdf8");
+      rect.setAttribute("stroke", "#d8cdb8");
+      rect.setAttribute("stroke-width", 1);
+      t.parentNode.insertBefore(rect, t);
+    }
+  };
+
   // Reference-line layers (nugget/sill/range, dashed) shared by both
   // chart shapes below -- pulled out once so the single-panel and
   // per-series-panel builders don't repeat the same six-layer block.
@@ -741,7 +783,14 @@ document.addEventListener("DOMContentLoaded", () => {
         "encoding": { "y": { "datum": sill, "type": "quantitative" }, "x": { "datum": maxDist, "type": "quantitative" }, "text": { "value": `sill ${sill}` } } },
       { "data": { "values": [{}] }, "mark": { "type": "rule", "strokeDash": [4, 3], "color": "#8a8378" },
         "encoding": { "x": { "datum": range, "type": "quantitative" }, "y": { "datum": domainMin, "type": "quantitative" }, "y2": { "datum": domainMax } } },
-      { "data": { "values": [{}] }, "mark": { "type": "text", "align": rangeAlign, "baseline": "top", "dx": rangeDx, "dy": 3, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
+      // baseline "bottom" + a small NEGATIVE dy, not "top"/+3 -- found
+      // live that placing this label just below domainMin (the plot's
+      // own bottom edge) put it in the same band Vega-Lite draws its
+      // own x-axis tick numbers in, overlapping them. Lifting it a few
+      // px back inside the plot area (the same "just above the axis
+      // line" spot the article's own d3 pillLabel() uses for this
+      // exact label) clears them.
+      { "data": { "values": [{}] }, "mark": { "type": "text", "align": rangeAlign, "baseline": "bottom", "dx": rangeDx, "dy": -3, "color": "#8a8378", "fontSize": 11, "fontWeight": 600 },
         "encoding": { "x": { "datum": range, "type": "quantitative" }, "y": { "datum": domainMin, "type": "quantitative" }, "text": { "value": `range ${range}px` } } }
     ];
     // The domain floor only actually sits below 0 for a cross term
@@ -849,6 +898,8 @@ document.addEventListener("DOMContentLoaded", () => {
         onSelect: () => {}
       });
 
+      pillifyReferenceLabels(dashboard.sidePanelEl);
+
       return;
 
     }
@@ -909,6 +960,8 @@ document.addEventListener("DOMContentLoaded", () => {
       keyField: "key",
       onSelect: () => {}
     });
+
+    pillifyReferenceLabels(dashboard.sidePanelEl);
 
   };
 

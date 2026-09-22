@@ -326,9 +326,15 @@ result_out <- list(
     sampleMean = jsonlite::unbox(round(sample_mean, 4)),
     sampleVariance = jsonlite::unbox(round(sample_variance, 4))
   ),
+  # dist rounded to 6dp, not 2 -- this raster's own coordinates are
+  # degree-scale (a range around 0.01-0.05), so 2dp collapsed most of
+  # variogramLine()'s 100 points onto a handful of duplicate x values
+  # while gamma kept rising between them -- found live: a fitted
+  # "curve" that plotted as a staircase (flat runs and vertical jumps)
+  # instead of the smooth line it's supposed to be.
   variogram = list(
-    empirical = list(dist = round(v_emp$dist, 2), gamma = round(v_emp$gamma, 5), npairs = v_emp$np),
-    fitted = list(dist = round(v_line$dist, 2), gamma = round(v_line$gamma, 5))
+    empirical = list(dist = round(v_emp$dist, 6), gamma = round(v_emp$gamma, 5), npairs = v_emp$np),
+    fitted = list(dist = round(v_line$dist, 6), gamma = round(v_line$gamma, 5))
   ),
   raster = list(
     width = jsonlite::unbox(ncol(r)),
