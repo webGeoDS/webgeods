@@ -145,7 +145,7 @@ counts as "not a real shape" — lower catches only thinner slivers.
 **Gap search distance** (degrees): how close two features need to be
 before a gap between them counts — larger finds gaps further apart.
 
-*First run loads the Python engine — expect 30-40 seconds. Instant
+*First run loads the Python engine — expect about a minute. Instant
 after that, and again each time you come back to this page.*
 
 :::: {.webgeods-panel}
@@ -559,7 +559,7 @@ loadExampleButton = {
       mutable uploadKind = "geojson";
       mutable uploadStatus = "⌛ Checking...";
       await runCheck();
-      mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
+      mutable uploadStatus = "✓ example data loaded and checked — adjust the thresholds and Check again to compare.";
     } finally {
       mutable uploadBusy = false;
     }

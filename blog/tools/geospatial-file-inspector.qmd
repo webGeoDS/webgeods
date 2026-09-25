@@ -234,7 +234,7 @@ with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
 base64.b64encode(buf.getvalue()).decode("ascii")
 ```
 
-*First run loads the Python engine — expect 30-40 seconds. Instant
+*First run loads the Python engine — expect about a minute. Instant
 after that, and again each time you come back to this page.*
 
 <div id="gfi-dashboard"></div>
@@ -291,7 +291,7 @@ document.addEventListener("DOMContentLoaded", () => {
     example: {
       cellId: "inspect-example-py",
       kind: "geojson",
-      status: "✓ example data loaded — ready for all the cells below."
+      status: "✓ example data loaded — browse a chart per attribute column in the side panel."
     },
     emptyStats: [
       ["Features", "0"],

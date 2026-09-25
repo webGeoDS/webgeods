@@ -67,7 +67,7 @@ Yes: a polygon can have a boundary that crosses itself, a hole that
 extends outside the outer boundary, or two holes that overlap, and it's
 not uncommon for the shape on the map to look perfectly fine. Below you
 can find out exactly what to look for, in your own file or in one of
-the four ready-made examples further down.
+the six ready-made examples further down.
 
 ## Shared map and table
 
@@ -174,8 +174,19 @@ topologyRowClassName = (row) => {
 ```{ojs}
 //| echo: false
 //| output: false
+// Shown as ✓/✗ instead of the raw "true"/"false", same as the
+// standalone validator tool's table (shared/table.js's iconColumns),
+// so a result reads the same on both pages. Display only:
+// topologyRowClassName above still sees the raw strings.
+VALIDITY_ICON_COLUMNS = ["valid", "valid_before", "valid_after"]
+```
+
+```{ojs}
+//| echo: false
+//| output: false
 pyTopologyTable = sharedMap.tableCell(["geometry-py"], null, Generators, {
   rowClassName: topologyRowClassName,
+  iconColumns: VALIDITY_ICON_COLUMNS,
   emptyMessage: "No results yet"
 })
 ```
@@ -185,6 +196,7 @@ pyTopologyTable = sharedMap.tableCell(["geometry-py"], null, Generators, {
 //| output: false
 rTopologyTable = sharedMap.tableCell(["geometry-r"], null, Generators, {
   rowClassName: topologyRowClassName,
+  iconColumns: VALIDITY_ICON_COLUMNS,
   emptyMessage: "No results yet"
 })
 ```
@@ -360,38 +372,39 @@ if "name" not in gdf.columns:
 
 POSITION_RE = re.compile(r"^(.*?)\\[([-\\d.]+)\\s+([-\\d.]+)\\]$")
 
+GEOS_CATEGORIES = [
+    "Ring Self-intersection",
+    "Self-intersection",
+    "Hole lies outside shell",
+    "Holes are nested",
+    "Interior is disconnected",
+    "Nested shells",
+    "Duplicate Rings",
+    "Too few points",
+    "Invalid Coordinate",
+    "Repeated Point",
+    "Ring is not closed",
+]
+
 def classify_reason(message):
-    for category, prefix in [
-        ("ring_self_intersection", "Ring Self-intersection"),
-        ("self_intersection", "Self-intersection"),
-        ("hole_outside_shell", "Hole lies outside shell"),
-        ("nested_holes", "Holes are nested"),
-        ("disconnected_interior", "Interior is disconnected"),
-        ("nested_shells", "Nested shells"),
-        ("duplicate_rings", "Duplicate Rings"),
-        ("too_few_points", "Too few points"),
-        ("invalid_coordinate", "Invalid Coordinate"),
-        ("repeated_point", "Repeated Point"),
-        ("ring_not_closed", "Ring is not closed"),
-    ]:
-        if message.startswith(prefix):
+    for category in GEOS_CATEGORIES:
+        if message.startswith(category):
             return category
-    return "other"
+    return "Other"
 
 def diagnose(geom):
     if geom.is_valid:
-        return True, "", "", ""
+        return True, "", ""
     message = explain_validity(geom)
     m = POSITION_RE.match(message)
     reason = m.group(1).strip() if m else message
     position = f"{m.group(2)} {m.group(3)}" if m else ""
-    return False, classify_reason(reason), reason, position
+    return False, classify_reason(reason), position
 
 diagnosis = gdf.geometry.apply(diagnose)
 gdf["valid"] = diagnosis.apply(lambda t: t[0])
 gdf["category"] = diagnosis.apply(lambda t: t[1])
-gdf["reason"] = diagnosis.apply(lambda t: t[2])
-gdf["position"] = diagnosis.apply(lambda t: t[3])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
 
 for col in gdf.columns:
     if col != "geometry":
@@ -434,29 +447,29 @@ data$reason <- st_is_valid(data, reason = TRUE)
 data$reason[data$valid] <- NA
 
 # Same classify_reason() as the main diagnose cell above -- see its
-# own comment for why this is "s2" (not a specific GEOS category) by
+# own comment for why this is "S2 (no GEOS category)" by
 # default: S2 reports which edges cross, not which named GEOS failure
 # that represents, since its own validity model has no such names.
-GEOS_CATEGORIES <- list(
-  c("ring_self_intersection", "Ring Self-intersection"),
-  c("self_intersection", "Self-intersection"),
-  c("hole_outside_shell", "Hole lies outside shell"),
-  c("nested_holes", "Holes are nested"),
-  c("disconnected_interior", "Interior is disconnected"),
-  c("nested_shells", "Nested shells"),
-  c("duplicate_rings", "Duplicate Rings"),
-  c("too_few_points", "Too few points"),
-  c("invalid_coordinate", "Invalid Coordinate"),
-  c("repeated_point", "Repeated Point"),
-  c("ring_not_closed", "Ring is not closed")
+GEOS_CATEGORIES <- c(
+  "Ring Self-intersection",
+  "Self-intersection",
+  "Hole lies outside shell",
+  "Holes are nested",
+  "Interior is disconnected",
+  "Nested shells",
+  "Duplicate Rings",
+  "Too few points",
+  "Invalid Coordinate",
+  "Repeated Point",
+  "Ring is not closed"
 )
 classify_reason <- function(message, uses_s2) {
   if (is.na(message)) return(NA_character_)
-  if (uses_s2) return("s2")
-  for (cat in GEOS_CATEGORIES) {
-    if (startsWith(message, cat[2])) return(cat[1])
+  if (uses_s2) return("S2 (no GEOS category)")
+  for (category in GEOS_CATEGORIES) {
+    if (startsWith(message, category)) return(category)
   }
-  "other"
+  "Other"
 }
 uses_s2 <- sf_use_s2()
 data$category <- vapply(data$reason, classify_reason, character(1), uses_s2 = uses_s2)
@@ -521,7 +534,7 @@ if "name" not in gdf.columns:
 
 # explain_validity() sometimes appends the failure coordinates in
 # brackets (e.g. "Self-intersection[12.5 41.9]") — split that into its
-# own "position" column instead of leaving it inside "reason".
+# own "position" column instead of leaving it inside the message.
 POSITION_RE = re.compile(r"^(.*?)\[([-\d.]+)\s+([-\d.]+)\]$")
 
 # GEOS reports one of a small, CLOSED set of validity failures --
@@ -529,41 +542,43 @@ POSITION_RE = re.compile(r"^(.*?)\[([-\d.]+)\s+([-\d.]+)\]$")
 # itself (see "Gallery of geometric errors" below), not guessed from
 # whichever examples this article happens to show. The raw message
 # always starts with one of these exact names before any bracketed
-# position.
+# position, so "category" is that name itself; with the position split
+# off, the rest of the message never says anything more, which is why
+# there's no separate "reason" column here (R's own, below, does say
+# something different).
 GEOS_CATEGORIES = [
-    ("ring_self_intersection", "Ring Self-intersection"),
-    ("self_intersection", "Self-intersection"),
-    ("hole_outside_shell", "Hole lies outside shell"),
-    ("nested_holes", "Holes are nested"),
-    ("disconnected_interior", "Interior is disconnected"),
-    ("nested_shells", "Nested shells"),
-    ("duplicate_rings", "Duplicate Rings"),
-    ("too_few_points", "Too few points"),
-    ("invalid_coordinate", "Invalid Coordinate"),
-    ("repeated_point", "Repeated Point"),
-    ("ring_not_closed", "Ring is not closed"),
+    "Ring Self-intersection",
+    "Self-intersection",
+    "Hole lies outside shell",
+    "Holes are nested",
+    "Interior is disconnected",
+    "Nested shells",
+    "Duplicate Rings",
+    "Too few points",
+    "Invalid Coordinate",
+    "Repeated Point",
+    "Ring is not closed",
 ]
 
 def classify_reason(message):
-    for category, prefix in GEOS_CATEGORIES:
-        if message.startswith(prefix):
+    for category in GEOS_CATEGORIES:
+        if message.startswith(category):
             return category
-    return "other"
+    return "Other"
 
 def diagnose(geom):
     if geom.is_valid:
-        return True, "", "", ""
+        return True, "", ""
     message = explain_validity(geom)
     m = POSITION_RE.match(message)
     reason = m.group(1).strip() if m else message
     position = f"{m.group(2)} {m.group(3)}" if m else ""
-    return False, classify_reason(reason), reason, position
+    return False, classify_reason(reason), position
 
 diagnosis = gdf.geometry.apply(diagnose)
 gdf["valid"] = diagnosis.apply(lambda t: t[0])
 gdf["category"] = diagnosis.apply(lambda t: t[1])
-gdf["reason"] = diagnosis.apply(lambda t: t[2])
-gdf["position"] = diagnosis.apply(lambda t: t[3])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
 
 # Keep every original column from the uploaded file, not just "name":
 # a missing value (None) in one of them would otherwise vanish
@@ -627,30 +642,30 @@ data$reason[data$valid] <- NA
 # S2 reports WHICH edges cross, not WHICH of GEOS's named categories
 # the crossing represents, because its own validity model has no such
 # categories (see "Valid according to whom?" above). Classified only
-# when GEOS is actually in use; left as "s2" otherwise, with the raw
-# S2 message still shown in "reason" -- forcing it into a GEOS
-# category it was never reported against would be a guess, not a
-# classification.
-GEOS_CATEGORIES <- list(
-  c("ring_self_intersection", "Ring Self-intersection"),
-  c("self_intersection", "Self-intersection"),
-  c("hole_outside_shell", "Hole lies outside shell"),
-  c("nested_holes", "Holes are nested"),
-  c("disconnected_interior", "Interior is disconnected"),
-  c("nested_shells", "Nested shells"),
-  c("duplicate_rings", "Duplicate Rings"),
-  c("too_few_points", "Too few points"),
-  c("invalid_coordinate", "Invalid Coordinate"),
-  c("repeated_point", "Repeated Point"),
-  c("ring_not_closed", "Ring is not closed")
+# when GEOS is actually in use; labeled "S2 (no GEOS category)"
+# otherwise, with the raw S2 message still shown in "reason" -- forcing
+# it into a GEOS category it was never reported against would be a
+# guess, not a classification.
+GEOS_CATEGORIES <- c(
+  "Ring Self-intersection",
+  "Self-intersection",
+  "Hole lies outside shell",
+  "Holes are nested",
+  "Interior is disconnected",
+  "Nested shells",
+  "Duplicate Rings",
+  "Too few points",
+  "Invalid Coordinate",
+  "Repeated Point",
+  "Ring is not closed"
 )
 classify_reason <- function(message, uses_s2) {
   if (is.na(message)) return(NA_character_)
-  if (uses_s2) return("s2")
-  for (cat in GEOS_CATEGORIES) {
-    if (startsWith(message, cat[2])) return(cat[1])
+  if (uses_s2) return("S2 (no GEOS category)")
+  for (category in GEOS_CATEGORIES) {
+    if (startsWith(message, category)) return(category)
   }
-  "other"
+  "Other"
 }
 uses_s2 <- sf_use_s2()
 data$category <- vapply(data$reason, classify_reason, character(1), uses_s2 = uses_s2)
@@ -811,39 +826,49 @@ alternative S2 engine: it always goes through GEOS.
 GEOS reports one of a small, closed set of validity failures, not a
 free-text description: an exact list, verified against
 [TopologyValidationError.cpp](https://github.com/libgeos/geos/blob/main/src/operation/valid/TopologyValidationError.cpp)
-in the GEOS source itself. The diagnose cells above classify every
-row into one of these, shown in the "category" column, instead of
-leaving the reader to notice on their own that "Self-intersection" and
-"Ring Self-intersection" are different failures under the same-looking
-word.
+in the GEOS source itself. The diagnose cells above match every
+message to one of these names, shown in the "category" column; a
+message that matches none of them shows up as "Other" rather than
+being forced into the closest one.
 
-| Category | What happens | Illustrated below |
-|---|---|---|
-| `self_intersection` | The boundary crosses itself | ✓ |
-| `ring_self_intersection` | The boundary touches itself at a point, without crossing | ✓ |
-| `hole_outside_shell` | An inner ring sits entirely outside the outer boundary — valid under R's own S2 default, invalid under GEOS | ✓ |
-| `nested_holes` | A hole contains its own shell — also valid under R's S2 default, invalid under GEOS | ✓ |
-| `disconnected_interior` | A hole splits the interior into pieces that don't connect | same family as the crossing cases above, not illustrated separately |
-| `nested_shells` | One polygon's shell sits entirely inside another's, in a `MultiPolygon` | not illustrated (needs two full polygons to set up) |
-| `too_few_points` | A ring collapses to fewer than the 4 points a closed ring needs | not illustrated (degenerate, rarely produced by a real file) |
-| `invalid_coordinate` | A coordinate is `NaN` or infinite | not illustrated (rarely produced by a real file) |
-| `repeated_point` | Same point twice in a row | as of GEOS 3.11+, absorbed into `too_few_points` instead — verified live, not assumed from the changelog alone |
-| `duplicate_rings` | Two rings describe the exact same boundary | exists in GEOS's own list, but every construction tried here got caught by `self_intersection` first, before this check ever ran |
-| `ring_not_closed` | A ring's first and last point don't match | not reachable through this tool: both GeoJSON and Shapefile close every ring at the file format level, before geopandas or sf ever see it |
+::: {.table-responsive}
 
-The last three rows are worth being honest about: they're real GEOS
-categories the classifier below still recognizes if they ever show up,
-but none of them turned out to be reproducible through an actual
-upload in this tool: either a newer GEOS silently folds them into a
-different category, or the file formats this tool
-reads never let that malformed a ring reach GEOS in the first place.
+| Category | What happens | Example below |
+|---|---|:-:|
+| Self-intersection | The boundary crosses itself | ✓ |
+| Ring Self-intersection | The boundary touches itself at a point, without crossing | ✓ |
+| Hole lies outside shell | A hole sits entirely outside the outer boundary\* | ✓ |
+| Holes are nested | A hole contains its own shell\* | ✓ |
+| Interior is disconnected | A hole splits the interior into pieces that don't connect | — |
+| Nested shells | One polygon's shell sits entirely inside another's, in a `MultiPolygon` | — |
+| Too few points | A ring has fewer than the 4 points a closed ring needs | — |
+| Invalid Coordinate | A coordinate is `NaN` or infinite | — |
+| Repeated Point | The same point twice in a row | — |
+| Duplicate Rings | Two rings describe the exact same boundary | — |
+| Ring is not closed | A ring's first and last point don't match | — |
 
-Each example below loads its own data into the diagnosis cell pair
-above. No repair here (except where noted), that's in the Repair
-section further down. Two rows above are marked "valid under R's own
-S2 default, invalid under GEOS", covered on its own in [Where
+:::
+
+\* Valid under R's default S2 engine, invalid under GEOS: see [Where
 R and Python actually
 disagree](#where-r-and-python-actually-disagree), past Repair.
+
+Of the rows without an example, "Interior is disconnected" belongs to
+the same family as the crossing cases below, "Nested shells" needs two
+full polygons to set up, and "Too few points" and "Invalid Coordinate"
+are rarely produced by a real file. The last three are worth being
+honest about: they're real GEOS categories the classifier still
+recognizes if they ever show up, but none of them could be reproduced
+through an actual upload here. As of GEOS 3.11+, a repeated point is
+reported as "Too few points" instead (verified live, not assumed from
+the changelog). Every duplicate-ring construction tried got caught as
+"Self-intersection" first, before that check ever ran. And both
+GeoJSON and Shapefile close every ring at the file format level,
+before geopandas or sf ever see it, so an unclosed ring never reaches
+GEOS.
+
+Each example below loads its own data into the diagnosis cell pair
+above. No repair here, that's in the Repair section further down.
 
 ### Self-intersection ("bowtie")
 
@@ -893,7 +918,8 @@ crossing at all. That's the next example.
 
 ```{ojs}
 //| echo: false
-pyHoleCode = `import geopandas as gpd
+pyHoleCode = `import re
+import geopandas as gpd
 from shapely.geometry import shape
 from shapely.validation import explain_validity
 
@@ -919,30 +945,42 @@ def export_crs(g):
         return g
     return g.to_crs(original_crs)
 
-gdf["valid"] = gdf.geometry.apply(lambda g: g.is_valid)
-gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+# Same diagnose() as the main diagnose cell above.
+POSITION_RE = re.compile(r"^(.*?)\\[([-\\d.]+)\\s+([-\\d.]+)\\]$")
 
-# Same classify_reason() as the main diagnose cell above.
+GEOS_CATEGORIES = [
+    "Ring Self-intersection",
+    "Self-intersection",
+    "Hole lies outside shell",
+    "Holes are nested",
+    "Interior is disconnected",
+    "Nested shells",
+    "Duplicate Rings",
+    "Too few points",
+    "Invalid Coordinate",
+    "Repeated Point",
+    "Ring is not closed",
+]
+
 def classify_reason(message):
-    if message is None:
-        return None
-    for category, prefix in [
-        ("ring_self_intersection", "Ring Self-intersection"),
-        ("self_intersection", "Self-intersection"),
-        ("hole_outside_shell", "Hole lies outside shell"),
-        ("nested_holes", "Holes are nested"),
-        ("disconnected_interior", "Interior is disconnected"),
-        ("nested_shells", "Nested shells"),
-        ("duplicate_rings", "Duplicate Rings"),
-        ("too_few_points", "Too few points"),
-        ("invalid_coordinate", "Invalid Coordinate"),
-        ("repeated_point", "Repeated Point"),
-        ("ring_not_closed", "Ring is not closed"),
-    ]:
-        if message.startswith(prefix):
+    for category in GEOS_CATEGORIES:
+        if message.startswith(category):
             return category
-    return "other"
-gdf["category"] = gdf["reason"].apply(classify_reason)
+    return "Other"
+
+def diagnose(geom):
+    if geom.is_valid:
+        return True, "", ""
+    message = explain_validity(geom)
+    m = POSITION_RE.match(message)
+    reason = m.group(1).strip() if m else message
+    position = f"{m.group(2)} {m.group(3)}" if m else ""
+    return False, classify_reason(reason), position
+
+diagnosis = gdf.geometry.apply(diagnose)
+gdf["valid"] = diagnosis.apply(lambda t: t[0])
+gdf["category"] = diagnosis.apply(lambda t: t[1])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
 
 {"features": gdf.__geo_interface__, "originalCrsFeatures": export_crs(gdf).__geo_interface__, "crsWarning": crs_warning}`
 rHoleCode = `library(sf)
@@ -968,29 +1006,29 @@ data$reason <- st_is_valid(data, reason = TRUE)
 data$reason[data$valid] <- NA
 
 # Same classify_reason() as the main diagnose cell above -- see its
-# own comment for why this is "s2" (not a specific GEOS category) by
+# own comment for why this is "S2 (no GEOS category)" by
 # default: S2 reports which edges cross, not which named GEOS failure
 # that represents, since its own validity model has no such names.
-GEOS_CATEGORIES <- list(
-  c("ring_self_intersection", "Ring Self-intersection"),
-  c("self_intersection", "Self-intersection"),
-  c("hole_outside_shell", "Hole lies outside shell"),
-  c("nested_holes", "Holes are nested"),
-  c("disconnected_interior", "Interior is disconnected"),
-  c("nested_shells", "Nested shells"),
-  c("duplicate_rings", "Duplicate Rings"),
-  c("too_few_points", "Too few points"),
-  c("invalid_coordinate", "Invalid Coordinate"),
-  c("repeated_point", "Repeated Point"),
-  c("ring_not_closed", "Ring is not closed")
+GEOS_CATEGORIES <- c(
+  "Ring Self-intersection",
+  "Self-intersection",
+  "Hole lies outside shell",
+  "Holes are nested",
+  "Interior is disconnected",
+  "Nested shells",
+  "Duplicate Rings",
+  "Too few points",
+  "Invalid Coordinate",
+  "Repeated Point",
+  "Ring is not closed"
 )
 classify_reason <- function(message, uses_s2) {
   if (is.na(message)) return(NA_character_)
-  if (uses_s2) return("s2")
-  for (cat in GEOS_CATEGORIES) {
-    if (startsWith(message, cat[2])) return(cat[1])
+  if (uses_s2) return("S2 (no GEOS category)")
+  for (category in GEOS_CATEGORIES) {
+    if (startsWith(message, category)) return(category)
   }
-  "other"
+  "Other"
 }
 uses_s2 <- sf_use_s2()
 data$category <- vapply(data$reason, classify_reason, character(1), uses_s2 = uses_s2)
@@ -1026,15 +1064,16 @@ lies outside shell" category actually needs. A hole that merely
 *crosses* the boundary (previous example) is a self-intersection
 instead, a different failure with a different name.
 
-Load this example and check R's own "valid" column: it says `TRUE`,
-not `FALSE` like Python's. That's not a quirk of this one case; see
+Load this example and run it in both languages: R's "valid" column
+shows ✓ where Python's shows ✗. That's not a quirk of this one case; see
 [Where R and Python actually
 disagree](#where-r-and-python-actually-disagree) near the end of the
 page for why.
 
 ```{ojs}
 //| echo: false
-pyHoleOutsideCode = `import geopandas as gpd
+pyHoleOutsideCode = `import re
+import geopandas as gpd
 from shapely.geometry import shape
 from shapely.validation import explain_validity
 
@@ -1056,30 +1095,42 @@ def export_crs(g):
         return g
     return g.to_crs(original_crs)
 
-gdf["valid"] = gdf.geometry.apply(lambda g: g.is_valid)
-gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+# Same diagnose() as the main diagnose cell above.
+POSITION_RE = re.compile(r"^(.*?)\\[([-\\d.]+)\\s+([-\\d.]+)\\]$")
 
-# Same classify_reason() as the main diagnose cell above.
+GEOS_CATEGORIES = [
+    "Ring Self-intersection",
+    "Self-intersection",
+    "Hole lies outside shell",
+    "Holes are nested",
+    "Interior is disconnected",
+    "Nested shells",
+    "Duplicate Rings",
+    "Too few points",
+    "Invalid Coordinate",
+    "Repeated Point",
+    "Ring is not closed",
+]
+
 def classify_reason(message):
-    if message is None:
-        return None
-    for category, prefix in [
-        ("ring_self_intersection", "Ring Self-intersection"),
-        ("self_intersection", "Self-intersection"),
-        ("hole_outside_shell", "Hole lies outside shell"),
-        ("nested_holes", "Holes are nested"),
-        ("disconnected_interior", "Interior is disconnected"),
-        ("nested_shells", "Nested shells"),
-        ("duplicate_rings", "Duplicate Rings"),
-        ("too_few_points", "Too few points"),
-        ("invalid_coordinate", "Invalid Coordinate"),
-        ("repeated_point", "Repeated Point"),
-        ("ring_not_closed", "Ring is not closed"),
-    ]:
-        if message.startswith(prefix):
+    for category in GEOS_CATEGORIES:
+        if message.startswith(category):
             return category
-    return "other"
-gdf["category"] = gdf["reason"].apply(classify_reason)
+    return "Other"
+
+def diagnose(geom):
+    if geom.is_valid:
+        return True, "", ""
+    message = explain_validity(geom)
+    m = POSITION_RE.match(message)
+    reason = m.group(1).strip() if m else message
+    position = f"{m.group(2)} {m.group(3)}" if m else ""
+    return False, classify_reason(reason), position
+
+diagnosis = gdf.geometry.apply(diagnose)
+gdf["valid"] = diagnosis.apply(lambda t: t[0])
+gdf["category"] = diagnosis.apply(lambda t: t[1])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
 
 {"features": gdf.__geo_interface__, "originalCrsFeatures": export_crs(gdf).__geo_interface__, "crsWarning": crs_warning}`
 rHoleOutsideCode = `library(sf)
@@ -1101,26 +1152,26 @@ data$reason <- st_is_valid(data, reason = TRUE)
 data$reason[data$valid] <- NA
 
 # Same classify_reason() as the main diagnose cell above.
-GEOS_CATEGORIES <- list(
-  c("ring_self_intersection", "Ring Self-intersection"),
-  c("self_intersection", "Self-intersection"),
-  c("hole_outside_shell", "Hole lies outside shell"),
-  c("nested_holes", "Holes are nested"),
-  c("disconnected_interior", "Interior is disconnected"),
-  c("nested_shells", "Nested shells"),
-  c("duplicate_rings", "Duplicate Rings"),
-  c("too_few_points", "Too few points"),
-  c("invalid_coordinate", "Invalid Coordinate"),
-  c("repeated_point", "Repeated Point"),
-  c("ring_not_closed", "Ring is not closed")
+GEOS_CATEGORIES <- c(
+  "Ring Self-intersection",
+  "Self-intersection",
+  "Hole lies outside shell",
+  "Holes are nested",
+  "Interior is disconnected",
+  "Nested shells",
+  "Duplicate Rings",
+  "Too few points",
+  "Invalid Coordinate",
+  "Repeated Point",
+  "Ring is not closed"
 )
 classify_reason <- function(message, uses_s2) {
   if (is.na(message)) return(NA_character_)
-  if (uses_s2) return("s2")
-  for (cat in GEOS_CATEGORIES) {
-    if (startsWith(message, cat[2])) return(cat[1])
+  if (uses_s2) return("S2 (no GEOS category)")
+  for (category in GEOS_CATEGORIES) {
+    if (startsWith(message, category)) return(category)
   }
-  "other"
+  "Other"
 }
 uses_s2 <- sf_use_s2()
 data$category <- vapply(data$reason, classify_reason, character(1), uses_s2 = uses_s2)
@@ -1156,7 +1207,8 @@ vertex: not cleanly connected, so invalid.
 
 ```{ojs}
 //| echo: false
-pyTouchCode = `import geopandas as gpd
+pyTouchCode = `import re
+import geopandas as gpd
 from shapely.geometry import shape
 from shapely.validation import explain_validity
 
@@ -1176,30 +1228,42 @@ def export_crs(g):
         return g
     return g.to_crs(original_crs)
 
-gdf["valid"] = gdf.geometry.apply(lambda g: g.is_valid)
-gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+# Same diagnose() as the main diagnose cell above.
+POSITION_RE = re.compile(r"^(.*?)\\[([-\\d.]+)\\s+([-\\d.]+)\\]$")
 
-# Same classify_reason() as the main diagnose cell above.
+GEOS_CATEGORIES = [
+    "Ring Self-intersection",
+    "Self-intersection",
+    "Hole lies outside shell",
+    "Holes are nested",
+    "Interior is disconnected",
+    "Nested shells",
+    "Duplicate Rings",
+    "Too few points",
+    "Invalid Coordinate",
+    "Repeated Point",
+    "Ring is not closed",
+]
+
 def classify_reason(message):
-    if message is None:
-        return None
-    for category, prefix in [
-        ("ring_self_intersection", "Ring Self-intersection"),
-        ("self_intersection", "Self-intersection"),
-        ("hole_outside_shell", "Hole lies outside shell"),
-        ("nested_holes", "Holes are nested"),
-        ("disconnected_interior", "Interior is disconnected"),
-        ("nested_shells", "Nested shells"),
-        ("duplicate_rings", "Duplicate Rings"),
-        ("too_few_points", "Too few points"),
-        ("invalid_coordinate", "Invalid Coordinate"),
-        ("repeated_point", "Repeated Point"),
-        ("ring_not_closed", "Ring is not closed"),
-    ]:
-        if message.startswith(prefix):
+    for category in GEOS_CATEGORIES:
+        if message.startswith(category):
             return category
-    return "other"
-gdf["category"] = gdf["reason"].apply(classify_reason)
+    return "Other"
+
+def diagnose(geom):
+    if geom.is_valid:
+        return True, "", ""
+    message = explain_validity(geom)
+    m = POSITION_RE.match(message)
+    reason = m.group(1).strip() if m else message
+    position = f"{m.group(2)} {m.group(3)}" if m else ""
+    return False, classify_reason(reason), position
+
+diagnosis = gdf.geometry.apply(diagnose)
+gdf["valid"] = diagnosis.apply(lambda t: t[0])
+gdf["category"] = diagnosis.apply(lambda t: t[1])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
 
 {"features": gdf.__geo_interface__, "originalCrsFeatures": export_crs(gdf).__geo_interface__, "crsWarning": crs_warning}`
 rTouchCode = `library(sf)
@@ -1225,29 +1289,29 @@ data$reason <- st_is_valid(data, reason = TRUE)
 data$reason[data$valid] <- NA
 
 # Same classify_reason() as the main diagnose cell above -- see its
-# own comment for why this is "s2" (not a specific GEOS category) by
+# own comment for why this is "S2 (no GEOS category)" by
 # default: S2 reports which edges cross, not which named GEOS failure
 # that represents, since its own validity model has no such names.
-GEOS_CATEGORIES <- list(
-  c("ring_self_intersection", "Ring Self-intersection"),
-  c("self_intersection", "Self-intersection"),
-  c("hole_outside_shell", "Hole lies outside shell"),
-  c("nested_holes", "Holes are nested"),
-  c("disconnected_interior", "Interior is disconnected"),
-  c("nested_shells", "Nested shells"),
-  c("duplicate_rings", "Duplicate Rings"),
-  c("too_few_points", "Too few points"),
-  c("invalid_coordinate", "Invalid Coordinate"),
-  c("repeated_point", "Repeated Point"),
-  c("ring_not_closed", "Ring is not closed")
+GEOS_CATEGORIES <- c(
+  "Ring Self-intersection",
+  "Self-intersection",
+  "Hole lies outside shell",
+  "Holes are nested",
+  "Interior is disconnected",
+  "Nested shells",
+  "Duplicate Rings",
+  "Too few points",
+  "Invalid Coordinate",
+  "Repeated Point",
+  "Ring is not closed"
 )
 classify_reason <- function(message, uses_s2) {
   if (is.na(message)) return(NA_character_)
-  if (uses_s2) return("s2")
-  for (cat in GEOS_CATEGORIES) {
-    if (startsWith(message, cat[2])) return(cat[1])
+  if (uses_s2) return("S2 (no GEOS category)")
+  for (category in GEOS_CATEGORIES) {
+    if (startsWith(message, category)) return(category)
   }
-  "other"
+  "Other"
 }
 uses_s2 <- sf_use_s2()
 data$category <- vapply(data$reason, classify_reason, character(1), uses_s2 = uses_s2)
@@ -1287,7 +1351,8 @@ the polygon?) that the model doesn't allow.
 
 ```{ojs}
 //| echo: false
-pyOverlapHolesCode = `import geopandas as gpd
+pyOverlapHolesCode = `import re
+import geopandas as gpd
 from shapely.geometry import shape
 from shapely.validation import explain_validity
 
@@ -1314,30 +1379,42 @@ def export_crs(g):
         return g
     return g.to_crs(original_crs)
 
-gdf["valid"] = gdf.geometry.apply(lambda g: g.is_valid)
-gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+# Same diagnose() as the main diagnose cell above.
+POSITION_RE = re.compile(r"^(.*?)\\[([-\\d.]+)\\s+([-\\d.]+)\\]$")
 
-# Same classify_reason() as the main diagnose cell above.
+GEOS_CATEGORIES = [
+    "Ring Self-intersection",
+    "Self-intersection",
+    "Hole lies outside shell",
+    "Holes are nested",
+    "Interior is disconnected",
+    "Nested shells",
+    "Duplicate Rings",
+    "Too few points",
+    "Invalid Coordinate",
+    "Repeated Point",
+    "Ring is not closed",
+]
+
 def classify_reason(message):
-    if message is None:
-        return None
-    for category, prefix in [
-        ("ring_self_intersection", "Ring Self-intersection"),
-        ("self_intersection", "Self-intersection"),
-        ("hole_outside_shell", "Hole lies outside shell"),
-        ("nested_holes", "Holes are nested"),
-        ("disconnected_interior", "Interior is disconnected"),
-        ("nested_shells", "Nested shells"),
-        ("duplicate_rings", "Duplicate Rings"),
-        ("too_few_points", "Too few points"),
-        ("invalid_coordinate", "Invalid Coordinate"),
-        ("repeated_point", "Repeated Point"),
-        ("ring_not_closed", "Ring is not closed"),
-    ]:
-        if message.startswith(prefix):
+    for category in GEOS_CATEGORIES:
+        if message.startswith(category):
             return category
-    return "other"
-gdf["category"] = gdf["reason"].apply(classify_reason)
+    return "Other"
+
+def diagnose(geom):
+    if geom.is_valid:
+        return True, "", ""
+    message = explain_validity(geom)
+    m = POSITION_RE.match(message)
+    reason = m.group(1).strip() if m else message
+    position = f"{m.group(2)} {m.group(3)}" if m else ""
+    return False, classify_reason(reason), position
+
+diagnosis = gdf.geometry.apply(diagnose)
+gdf["valid"] = diagnosis.apply(lambda t: t[0])
+gdf["category"] = diagnosis.apply(lambda t: t[1])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
 
 {"features": gdf.__geo_interface__, "originalCrsFeatures": export_crs(gdf).__geo_interface__, "crsWarning": crs_warning}`
 rOverlapHolesCode = `library(sf)
@@ -1363,29 +1440,29 @@ data$reason <- st_is_valid(data, reason = TRUE)
 data$reason[data$valid] <- NA
 
 # Same classify_reason() as the main diagnose cell above -- see its
-# own comment for why this is "s2" (not a specific GEOS category) by
+# own comment for why this is "S2 (no GEOS category)" by
 # default: S2 reports which edges cross, not which named GEOS failure
 # that represents, since its own validity model has no such names.
-GEOS_CATEGORIES <- list(
-  c("ring_self_intersection", "Ring Self-intersection"),
-  c("self_intersection", "Self-intersection"),
-  c("hole_outside_shell", "Hole lies outside shell"),
-  c("nested_holes", "Holes are nested"),
-  c("disconnected_interior", "Interior is disconnected"),
-  c("nested_shells", "Nested shells"),
-  c("duplicate_rings", "Duplicate Rings"),
-  c("too_few_points", "Too few points"),
-  c("invalid_coordinate", "Invalid Coordinate"),
-  c("repeated_point", "Repeated Point"),
-  c("ring_not_closed", "Ring is not closed")
+GEOS_CATEGORIES <- c(
+  "Ring Self-intersection",
+  "Self-intersection",
+  "Hole lies outside shell",
+  "Holes are nested",
+  "Interior is disconnected",
+  "Nested shells",
+  "Duplicate Rings",
+  "Too few points",
+  "Invalid Coordinate",
+  "Repeated Point",
+  "Ring is not closed"
 )
 classify_reason <- function(message, uses_s2) {
   if (is.na(message)) return(NA_character_)
-  if (uses_s2) return("s2")
-  for (cat in GEOS_CATEGORIES) {
-    if (startsWith(message, cat[2])) return(cat[1])
+  if (uses_s2) return("S2 (no GEOS category)")
+  for (category in GEOS_CATEGORIES) {
+    if (startsWith(message, category)) return(category)
   }
-  "other"
+  "Other"
 }
 uses_s2 <- sf_use_s2()
 data$category <- vapply(data$reason, classify_reason, character(1), uses_s2 = uses_s2)
@@ -1420,10 +1497,10 @@ allow this as one `Polygon`: a hole containing its own shell is
 supposed to be two separate `Polygon`s (the landmass-with-lake, and
 the island) combined into a `MultiPolygon`, not nested rings in one.
 
-Load the example and compare the "category" column between languages:
-Python reports `nested_holes`. R's default reports `s2`, and its own
-"valid" column says `TRUE`, not `FALSE`. That's not a wording
-difference; see [Where R and Python actually
+Load the example and run it in both languages: Python marks it ✗ with
+category "Holes are nested". R's default marks it ✓, valid, so it has
+no category at all. That's not a wording difference; see [Where R and
+Python actually
 disagree](#where-r-and-python-actually-disagree) near the end of the
 page for why, and why it's not shown in the Repair section below (there's
 nothing to repair under R's default, since it isn't flagged invalid
@@ -1431,7 +1508,8 @@ there to begin with).
 
 ```{ojs}
 //| echo: false
-pyNestedHolesCode = `import geopandas as gpd
+pyNestedHolesCode = `import re
+import geopandas as gpd
 from shapely.geometry import shape
 from shapely.validation import explain_validity
 
@@ -1454,30 +1532,42 @@ def export_crs(g):
         return g
     return g.to_crs(original_crs)
 
-gdf["valid"] = gdf.geometry.apply(lambda g: g.is_valid)
-gdf["reason"] = gdf.geometry.apply(lambda g: None if g.is_valid else explain_validity(g))
+# Same diagnose() as the main diagnose cell above.
+POSITION_RE = re.compile(r"^(.*?)\\[([-\\d.]+)\\s+([-\\d.]+)\\]$")
 
-# Same classify_reason() as the main diagnose cell above.
+GEOS_CATEGORIES = [
+    "Ring Self-intersection",
+    "Self-intersection",
+    "Hole lies outside shell",
+    "Holes are nested",
+    "Interior is disconnected",
+    "Nested shells",
+    "Duplicate Rings",
+    "Too few points",
+    "Invalid Coordinate",
+    "Repeated Point",
+    "Ring is not closed",
+]
+
 def classify_reason(message):
-    if message is None:
-        return None
-    for category, prefix in [
-        ("ring_self_intersection", "Ring Self-intersection"),
-        ("self_intersection", "Self-intersection"),
-        ("hole_outside_shell", "Hole lies outside shell"),
-        ("nested_holes", "Holes are nested"),
-        ("disconnected_interior", "Interior is disconnected"),
-        ("nested_shells", "Nested shells"),
-        ("duplicate_rings", "Duplicate Rings"),
-        ("too_few_points", "Too few points"),
-        ("invalid_coordinate", "Invalid Coordinate"),
-        ("repeated_point", "Repeated Point"),
-        ("ring_not_closed", "Ring is not closed"),
-    ]:
-        if message.startswith(prefix):
+    for category in GEOS_CATEGORIES:
+        if message.startswith(category):
             return category
-    return "other"
-gdf["category"] = gdf["reason"].apply(classify_reason)
+    return "Other"
+
+def diagnose(geom):
+    if geom.is_valid:
+        return True, "", ""
+    message = explain_validity(geom)
+    m = POSITION_RE.match(message)
+    reason = m.group(1).strip() if m else message
+    position = f"{m.group(2)} {m.group(3)}" if m else ""
+    return False, classify_reason(reason), position
+
+diagnosis = gdf.geometry.apply(diagnose)
+gdf["valid"] = diagnosis.apply(lambda t: t[0])
+gdf["category"] = diagnosis.apply(lambda t: t[1])
+gdf["position"] = diagnosis.apply(lambda t: t[2])
 
 {"features": gdf.__geo_interface__, "originalCrsFeatures": export_crs(gdf).__geo_interface__, "crsWarning": crs_warning}`
 rNestedHolesCode = `library(sf)
@@ -1499,26 +1589,26 @@ data$reason <- st_is_valid(data, reason = TRUE)
 data$reason[data$valid] <- NA
 
 # Same classify_reason() as the main diagnose cell above.
-GEOS_CATEGORIES <- list(
-  c("ring_self_intersection", "Ring Self-intersection"),
-  c("self_intersection", "Self-intersection"),
-  c("hole_outside_shell", "Hole lies outside shell"),
-  c("nested_holes", "Holes are nested"),
-  c("disconnected_interior", "Interior is disconnected"),
-  c("nested_shells", "Nested shells"),
-  c("duplicate_rings", "Duplicate Rings"),
-  c("too_few_points", "Too few points"),
-  c("invalid_coordinate", "Invalid Coordinate"),
-  c("repeated_point", "Repeated Point"),
-  c("ring_not_closed", "Ring is not closed")
+GEOS_CATEGORIES <- c(
+  "Ring Self-intersection",
+  "Self-intersection",
+  "Hole lies outside shell",
+  "Holes are nested",
+  "Interior is disconnected",
+  "Nested shells",
+  "Duplicate Rings",
+  "Too few points",
+  "Invalid Coordinate",
+  "Repeated Point",
+  "Ring is not closed"
 )
 classify_reason <- function(message, uses_s2) {
   if (is.na(message)) return(NA_character_)
-  if (uses_s2) return("s2")
-  for (cat in GEOS_CATEGORIES) {
-    if (startsWith(message, cat[2])) return(cat[1])
+  if (uses_s2) return("S2 (no GEOS category)")
+  for (category in GEOS_CATEGORIES) {
+    if (startsWith(message, category)) return(category)
   }
-  "other"
+  "Other"
 }
 uses_s2 <- sf_use_s2()
 data$category <- vapply(data$reason, classify_reason, character(1), uses_s2 = uses_s2)
@@ -1652,8 +1742,8 @@ diagnosis ones.
 ## Where R and Python actually disagree {#where-r-and-python-actually-disagree}
 
 Two examples in the gallery above ("A hole with no crossing at all"
-and "Holes are nested") show R's default reporting `TRUE` where
-Python reports `FALSE`. Not a wording difference like the rest of the
+and "Holes are nested") show R's default marking valid (✓) a geometry
+Python marks invalid (✗). Not a wording difference like the rest of the
 gallery: a genuine disagreement on whether the geometry is even
 invalid, worth its own explanation instead of a quick aside inside
 those two sections.

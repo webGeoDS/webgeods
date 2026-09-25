@@ -164,7 +164,7 @@ loadExampleButton = {
       mutable uploadKind = "geojson";
       mutable uploadStatus = "⌛ Inspecting...";
       await autoInspect();
-      mutable uploadStatus = "✓ example data loaded — ready for all the cells below.";
+      mutable uploadStatus = "✓ example data loaded — pick a target CRS to convert and download.";
     } finally {
       mutable uploadBusy = false;
     }
@@ -456,7 +456,7 @@ convertRow = {
 }
 ```
 
-*First run loads the Python engine — expect 30-40 seconds. Instant
+*First run loads the Python engine — expect about a minute. Instant
 after that, and again each time you come back to this page.*
 
 :::: {.webgeods-panel}

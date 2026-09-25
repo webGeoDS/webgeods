@@ -252,7 +252,7 @@ total_m = sum(lengths)
 }
 ```
 
-*First run loads the Python engine — expect 30-40 seconds. Instant
+*First run loads the Python engine — expect about a minute. Instant
 after that, and again each time you come back to this page.*
 
 <div id="nfl-dashboard"></div>
