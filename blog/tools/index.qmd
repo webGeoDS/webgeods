@@ -1,6 +1,6 @@
 ---
 title: "webGeoDs — Tools"
-description: "Free tools for spatial analysis, with no upload to a server: they run entirely in the browser via Python in WebAssembly. The [full articles](/articles.html) behind them also cover R."
+description: "Free tools for spatial analysis, with no upload to a server: they run entirely in your browser via WebAssembly. Most use Python; Viewshed and the GeoStatistics tools run in R. The [full articles](/articles.html) behind them show the code in both languages."
 listing:
   contents: .
   sort: "date desc"
@@ -42,6 +42,10 @@ in between — and runs on R (Python is shown only as reference in its
 [companion article](/posts/raster-viewshed.html), since no viewshed
 implementation is available in this browser's Python runtime).
 
+Got a raster with NoData holes to fill? That's the
+**[Raster Gap Filler](raster-gap-filler.qmd)**, listed under
+GeoStatistics below, since it fills them by kriging.
+
 ## GeoML Toolkit
 
 Machine learning on spatial data — finding groups, and predicting
@@ -68,9 +72,10 @@ the gaps in a surface you already have.
 **[Raster Gap Filler](raster-gap-filler.qmd)**: the first predicts a
 full surface from scattered measurements by fitting a variogram model
 to how similar nearby points really are, not just averaging distance-
-weighted neighbors; the second reuses that same fit to patch an
-existing raster's own holes, optionally using a second, fully-
-populated band as a covariate (cokriging). Both run on R (Python is
+weighted neighbors; the second applies the same method to an existing
+raster, fitting a variogram on its own valid pixels to fill its
+NoData holes, optionally helped by a second, correlated band as a
+covariate (cokriging). Both run on R (Python is
 shown only as reference in their companion articles —
 [kriging](/posts/kriging-soil-sampling.html),
 [cokriging](/posts/cokriging-raster-gap-filling.html) — since neither
