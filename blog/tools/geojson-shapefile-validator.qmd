@@ -234,13 +234,49 @@ from shapely.validation import explain_validity
 
 # explain_validity() sometimes appends the failure coordinates in
 # brackets (e.g. "Self-intersection[12.5 41.9]") — split that into its
-# own "position" column instead of leaving it inside "reason". R's
-# st_is_valid(reason = TRUE) never includes coordinates, so R rows
+# own "position" column instead of leaving it inside the message text.
+# R's st_is_valid(reason = TRUE) never includes coordinates, so R rows
 # simply have no position (see geometry-validity.qmd for why). Defined
 # at the top level (not inside the `if gdf is not None` block below)
 # so it's always available in the session for geometry-repair-py to
 # reuse, even on a run where nothing was actually loaded.
 POSITION_RE = re.compile(r"^(.*?)\[([-\d.]+)\s+([-\d.]+)\]$")
+
+# GEOS reports one of a small, CLOSED set of validity failures --
+# verified against TopologyValidationError.cpp in the GEOS source
+# itself, not guessed from the handful of examples this tool's own
+# gallery happens to show. explain_validity()'s raw message always
+# starts with one of these exact names before any bracketed position,
+# so "category" here IS that same canonical name (not a machine-
+# readable id underneath it): once position is split into its own
+# column, the raw message never said anything category doesn't
+# already say, so a separate "reason" column would just repeat it --
+# found live, reviewing this table, that the two columns were showing
+# the same information twice for every single row. This tool never
+# surfaces three of the eleven categories (repeated points collapse
+# into "too few points" as of GEOS 3.11+; duplicate rings and unclosed
+# rings weren't reproducible through any geometry this tool could
+# actually receive -- both GeoJSON and Shapefile close every ring at
+# the FILE FORMAT level, before geopandas ever sees it).
+GEOS_CATEGORIES = [
+    "Ring Self-intersection",
+    "Self-intersection",
+    "Hole lies outside shell",
+    "Holes are nested",
+    "Interior is disconnected",
+    "Nested shells",
+    "Duplicate Rings",
+    "Too few points",
+    "Invalid Coordinate",
+    "Repeated Point",
+    "Ring is not closed",
+]
+
+def classify_reason(message):
+    for category in GEOS_CATEGORIES:
+        if message.startswith(category):
+            return category
+    return "Other"
 
 def diagnose(geom):
     if geom.is_valid:
@@ -253,9 +289,9 @@ def diagnose(geom):
         return True, "", f"{round(p.x, 6)} {round(p.y, 6)}"
     message = explain_validity(geom)
     m = POSITION_RE.match(message)
-    if m:
-        return False, m.group(1).strip(), f"{m.group(2)} {m.group(3)}"
-    return False, message, ""
+    reason = m.group(1).strip() if m else message
+    position = f"{m.group(2)} {m.group(3)}" if m else ""
+    return False, classify_reason(reason), position
 
 def export_crs(g):
     # Reprojects `g` back to the CRS it was UPLOADED in (original_crs,
@@ -298,7 +334,7 @@ if gdf is not None:
 
     diagnosis = gdf.geometry.apply(diagnose)
     gdf["valid"] = diagnosis.apply(lambda t: t[0])
-    gdf["reason"] = diagnosis.apply(lambda t: t[1])
+    gdf["category"] = diagnosis.apply(lambda t: t[1])
     gdf["position"] = diagnosis.apply(lambda t: t[2])
 
     # Every other original column from the uploaded file is kept as-is
@@ -432,7 +468,7 @@ file.
 ```{.webgeods-python #geometry-repair-py}
 from shapely.validation import make_valid
 
-# "reason"/"position" are deliberately left as they were at diagnose
+# "category"/"position" are deliberately left as they were at diagnose
 # time, not recomputed here: they explain what WAS wrong (and where),
 # which stays true and useful even after the geometry is fixed — a
 # fresh diagnose() on the repaired geometry would just blank them out
