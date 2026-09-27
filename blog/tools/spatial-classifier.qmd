@@ -2,14 +2,15 @@
 title: "Spatial Classifier"
 date: 2026-09-11
 categories: [tool, geoml]
-description: "Turn field samples of a category (soil type, habitat, land use, anything recorded as a class at scattered points) into a map of the likely class everywhere in the area, with a Random Forest trained on location, and see where that map is confident and where it's guessing. Runs entirely in your browser, powered by Python."
+description: "Turn field samples of a category (soil type, habitat, land use, anything recorded as a class at scattered points) into a map of the likely class everywhere in the area, with a Random Forest trained on location, see where that map is confident and where it's guessing, and score it with spatial block cross-validation instead of a flattering random split. Runs entirely in your browser, powered by Python."
 page-layout: full
 ---
 
 You recorded a category at scattered points: soil type at sampling
 pits, habitat at survey plots, land use at field checks. This tool
-maps the **likely class everywhere in between**, and shows how sure it
-is about each part of that map.
+maps the **likely class everywhere in between**, shows how sure it is
+about each part of that map, and scores it on whole areas it wasn't
+trained on, not just on scattered points next to ones it was.
 
 Upload a point file with a column that labels each point's class
 (`.geojson`, or a shapefile as a single `.zip` or as
@@ -33,34 +34,42 @@ import json
 
 # Deterministic synthetic survey, the same one the companion article
 # (Predicting Spatial Classes with Random Forest) builds from the same
-# rule: 150 points on an irregular lattice, three bands whose
-# boundaries undulate across the area, and one point in nine
-# relabelled to stand in for survey error.
+# rule: 30 survey sites, 5 points recorded close together at each,
+# three bands whose boundaries undulate across the area, and one site
+# in five sitting on a local patch of a different class.
 #
-# An earlier version reused the clustering tool's own well-separated
-# groups. That suits clustering, where separation is the point, but it
-# makes classification meaningless to evaluate: two clean clusters
-# score a perfect held-out accuracy on every class, so the accuracy
-# panel had nothing to report. The label noise below is what gives the
-# confusion matrix something real to show.
+# Sampled in SITES on purpose, because that's how field surveys are
+# usually collected and it's what makes the validation choice matter.
+# An earlier version put the points on an even lattice with
+# independent label noise, one point in nine flipped on its own. On
+# that layout random and spatial-block validation scored the same
+# (measured: 5-fold CV 0.61-0.63 vs 0.57-0.67), so the Held out
+# selector had nothing to show. Here a random holdout keeps each test
+# point's site-mates in training, and the patches make those
+# site-mates informative in a way the model can't know from anywhere
+# else: measured live, 5-fold CV 0.76 random vs 0.57 in blocks.
 NEXT_CLASS = {"south": "centre", "centre": "north", "north": "south"}
+SITE_OFFSETS = [(0, 0), (1, 0.4), (-0.6, 0.9), (-0.8, -0.7), (0.5, -1)]
 
 features = []
-for i in range(150):
-    col, row = i % 15, i // 15
-    lon = 12.4450 + col * 0.0010 + ((i * 37) % 11 - 5) / 10000
-    lat = 41.8850 + row * 0.0012 + ((i * 53) % 13 - 6) / 12000
-    # Triangular wave on the column index: the band boundaries rise and
-    # fall, so no single horizontal cut separates the classes.
-    tri = abs((col * 2) % 8 - 4) - 2
-    cls = "south" if row < 3 + tri else ("centre" if row < 6 + tri else "north")
-    if i % 9 == 0:
-        cls = NEXT_CLASS[cls]
-    features.append({
-        "type": "Feature",
-        "properties": {"name": f"point {i + 1}", "class": cls},
-        "geometry": {"type": "Point", "coordinates": [lon, lat]}
-    })
+for s in range(30):
+    col, row = s % 6, s // 6
+    cx = (col + 0.5) / 6 + ((s * 37) % 11 - 5) / 110
+    cy = (row + 0.5) / 5 + ((s * 53) % 13 - 6) / 130
+    for k, (dx, dy) in enumerate(SITE_OFFSETS):
+        x, y = cx + dx * 0.02, cy + dy * 0.02
+        # Triangular wave along x: the band boundaries rise and fall,
+        # so no single horizontal cut separates the classes.
+        u, v = x * 15, y * 10
+        tri = abs((2 * u) % 8 - 4) - 2
+        cls = "south" if v < 3 + tri else ("centre" if v < 6 + tri else "north")
+        if s % 5 == 2:
+            cls = NEXT_CLASS[cls]
+        features.append({
+            "type": "Feature",
+            "properties": {"name": f"site {s + 1} point {k + 1}", "class": cls},
+            "geometry": {"type": "Point", "coordinates": [12.4450 + x * 0.0150, 41.8850 + y * 0.0120]}
+        })
 
 with open("/uploaded.geojson", "w") as f:
     json.dump({"type": "FeatureCollection", "features": features}, f)
@@ -130,12 +139,14 @@ regression? Read
 [Predicting Spatial Classes with Random Forest](/posts/spatial-classification.html).
 
 ```{.webgeods-python #spatial-classifier-compute-py}
-#| inject: [classColumn, nTrees, gridResolution]
+#| inject: [classColumn, holdout, nTrees, gridResolution]
 #| package: geopandas, scikit-learn
+import warnings
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from shapely.geometry import Polygon
+from sklearn.model_selection import KFold, StratifiedKFold, train_test_split
+from sklearn.neighbors import NearestNeighbors
+from shapely.geometry import Polygon, box
 
 # Reuses the WGS84 `gdf` already read and CRS-normalized by the
 # inspect cell above (same session -- same pattern as the clustering
@@ -192,6 +203,31 @@ if len(class_labels) < 2:
     )
 class_counts = {c: int((y == c).sum()) for c in class_labels}
 
+# Spatial blocks: a fixed 4x4 grid over the labeled points' own extent,
+# each block assigned to one of 5 folds by (bx + 2*by) % 5, a diagonal
+# pattern that spreads every fold across the whole area instead of
+# stacking it on one side. Deterministic on purpose (no random draw),
+# so the same file always gets the same blocks, and the companion
+# article's R tab gets exactly the same folds as its Python tab.
+#
+# Why blocks at all: points collected close together share local
+# conditions the model can't see any other way. Hold out random points
+# and a test point's neighbours usually stay in training, so the score
+# measures "can it copy the point next door", not "can it predict a
+# place it hasn't visited" -- the question a map is actually used for.
+# 4x4 is a default, not a rule: a block should be wider than the
+# distance over which samples resemble each other, which this tool
+# can't know for an arbitrary upload.
+BLOCKS_PER_SIDE = 4
+N_FOLDS = 5
+bminx, bminy = X.min(axis=0)
+bmaxx, bmaxy = X.max(axis=0)
+block_size = max(bmaxx - bminx, bmaxy - bminy, 1e-6) / BLOCKS_PER_SIDE
+block_x = np.minimum(((X[:, 0] - bminx) // block_size).astype(int), BLOCKS_PER_SIDE - 1)
+block_y = np.minimum(((X[:, 1] - bminy) // block_size).astype(int), BLOCKS_PER_SIDE - 1)
+block_fold = (block_x + 2 * block_y) % N_FOLDS
+use_blocks = holdout == "Spatial blocks"
+
 # A class with exactly 1 member can never be held out for testing --
 # there's no way to keep at least one example in training AND set one
 # aside. Excluding just THOSE classes from the split (rather than
@@ -211,7 +247,29 @@ can_split = len(splittable_classes) >= 2 and int(splittable_mask.sum()) >= 6
 # X/y alone would discard that identity.
 splittable_idx = np.flatnonzero(splittable_mask)
 
-if can_split:
+# In blocks mode the held-out set is one whole fold of blocks -- the
+# first one that leaves at least two classes and a handful of points to
+# train on (fold 0 on any reasonably spread file). No stratification is
+# possible here: a class can be missing from the held-out blocks
+# entirely, and then simply has no per-class score, same as a
+# singleton class in random mode.
+test_fold = None
+if use_blocks and len(y) >= 10:
+    test_fold = next(
+        (f for f in range(N_FOLDS)
+         if (block_fold == f).any()
+         and len(set(y[block_fold != f].tolist())) >= 2
+         and int((block_fold != f).sum()) >= 5),
+        None
+    )
+    can_split = test_fold is not None
+
+if can_split and use_blocks:
+    test_idx = np.flatnonzero(block_fold == test_fold)
+    train_idx = np.flatnonzero(block_fold != test_fold)
+    X_train, y_train = X[train_idx], y[train_idx]
+    X_test, y_test = X[test_idx], y[test_idx]
+elif can_split:
     train_idx, test_idx = train_test_split(
         splittable_idx, test_size=0.2, stratify=y[splittable_idx], random_state=0
     )
@@ -227,10 +285,90 @@ else:
     X_train, y_train = X, y
     X_test, y_test = None, None
 
-model = RandomForestClassifier(n_estimators=int(nTrees), random_state=0)
-model.fit(X_train, y_train)
+# Two forests, for two different jobs. eval_model never sees the
+# held-out points: it's what the test accuracy, the confusion matrix
+# and each held-out point's own prediction are measured on. The map
+# comes from `model` below, trained on EVERY point, the usual practice:
+# cross-validation scores the fitting procedure, not one particular
+# fitted forest, so leaving points out of the final map would only
+# make the map worse without making the score any truer. (An earlier
+# version drew the map from eval_model, which in blocks mode meant
+# mapping without the dashed blocks' points, exactly where it was
+# being scored.)
+eval_model = RandomForestClassifier(n_estimators=int(nTrees), random_state=0)
+eval_model.fit(X_train, y_train)
 
-accuracy = float((model.predict(X_test) == y_test).mean()) if X_test is not None else None
+model = RandomForestClassifier(n_estimators=int(nTrees), random_state=0)
+model.fit(X, y)
+
+accuracy = float((eval_model.predict(X_test) == y_test).mean()) if X_test is not None else None
+
+# One held-out set is a single draw, and a noisy one: on the built-in
+# example the held-out block fold alone scores 0.51 and the random
+# 20% scores 0.87, both further apart than the 5-fold figures (0.57
+# and 0.76) that average over every point. The comparison that actually
+# answers "how much does a random holdout flatter this map" is 5-fold
+# cross-validation under BOTH schemes, computed on every run whatever
+# the selector says: every point is tested exactly once, by a model
+# that never saw it. Costs 2 x 5 extra fits, negligible next to the
+# grid prediction for the file sizes this tool is meant for.
+def cv_accuracy(fold_ids):
+    correct, total = 0, 0
+    for f in np.unique(fold_ids):
+        train_mask, test_mask = fold_ids != f, fold_ids == f
+        if len(set(y[train_mask].tolist())) < 2:
+            continue
+        fold_model = RandomForestClassifier(n_estimators=int(nTrees), random_state=0)
+        fold_model.fit(X[train_mask], y[train_mask])
+        correct += int((fold_model.predict(X[test_mask]) == y[test_mask]).sum())
+        total += int(test_mask.sum())
+    return correct / total if total else None
+
+cv_random = cv_blocks = None
+if len(y) >= 10:
+    random_fold = np.empty(len(y), dtype=int)
+    with warnings.catch_warnings():
+        # StratifiedKFold warns (not fails) when a class has fewer than
+        # 5 members; those points still get a fold, just not evenly.
+        warnings.simplefilter("ignore")
+        try:
+            folds = StratifiedKFold(N_FOLDS, shuffle=True, random_state=0).split(X, y)
+            for f, (_, fold_test) in enumerate(folds):
+                random_fold[fold_test] = f
+        except ValueError:
+            # Every class smaller than 5: stratifying is impossible.
+            for f, (_, fold_test) in enumerate(KFold(N_FOLDS, shuffle=True, random_state=0).split(X)):
+                random_fold[fold_test] = f
+    cv_random = cv_accuracy(random_fold)
+    cv_blocks = cv_accuracy(block_fold)
+
+# How far each scheme's test points sit from the nearest point the
+# model trained on -- the thing that actually separates the two scores.
+# A score only describes predictions made about as far from the data
+# as its test points were, so the fair question is how that compares
+# with the map's own cells (distance_map, set once the grid exists
+# below). On the built-in example: random 27 m, blocks 193 m, map
+# cells about 73 m. Random folds test closer to the data than the map
+# ever predicts, so they flatter it; these blocks test further away,
+# so they're on the cautious side. Measured separately (same points,
+# UTM 33N), the block grids whose test distances best matched the
+# map's (10x10, 12x12) scored 0.61-0.65, between the two figures
+# shown; other grid sizes ranged 0.52-0.72, which is why this row
+# reports distances rather than picking a block size automatically.
+def nearest_distances(train_pts, query_pts):
+    finder = NearestNeighbors(n_neighbors=1).fit(train_pts)
+    return finder.kneighbors(query_pts)[0][:, 0]
+
+def cv_test_distance(fold_ids):
+    parts = [
+        nearest_distances(X[fold_ids != f], X[fold_ids == f])
+        for f in np.unique(fold_ids)
+        if (fold_ids != f).any()
+    ]
+    return float(np.median(np.concatenate(parts))) if parts else None
+
+distance_random = cv_test_distance(random_fold) if cv_random is not None else None
+distance_blocks = cv_test_distance(block_fold) if cv_blocks is not None else None
 
 # Per-class held-out accuracy -- feeds the second sidePanel chart
 # (accuracy by class, next to the class-distribution chart): the
@@ -243,7 +381,7 @@ accuracy = float((model.predict(X_test) == y_test).mean()) if X_test is not None
 class_accuracy = {}
 y_pred_test = None
 if X_test is not None:
-    y_pred_test = model.predict(X_test)
+    y_pred_test = eval_model.predict(X_test)
     for c in class_labels:
         test_mask = y_test == c
         n = int(test_mask.sum())
@@ -304,14 +442,15 @@ for row in range(n_rows):
         centers_y.append(gminy + (row + 0.5) * cell_size)
 centers = np.column_stack([centers_x, centers_y])
 predicted = model.predict(centers)
+distance_map = float(np.median(nearest_distances(X, centers)))
 
 # How much of the forest backs each cell's predicted class (the
 # averaged tree probability for the winning class, so 1/n_classes at
 # worst, 1.0 when every tree agrees), drawn as the fill's opacity. It
-# shows where the trees DISAGREE -- on the example, 87% of the cells
+# shows where the trees DISAGREE -- on the example, 86% of the cells
 # under UNCERTAIN_BELOW sat on a border between classes (measured
 # live). It is not a distance-from-data measure: the farthest quarter
-# of cells averaged 72% against 76% for the nearest, because a forest
+# of cells averaged 73% against 79% for the nearest, because a forest
 # extends the nearest class outward with full conviction. The closing
 # note below says so rather than letting the shading imply it.
 confidence = model.predict_proba(centers).max(axis=1)
@@ -330,6 +469,22 @@ grid_gdf = gpd.GeoDataFrame(
     {"predictedClass": predicted, "confidence": np.round(confidence, 2)}, geometry=cells, crs=calc_epsg
 )
 grid_wgs84 = grid_gdf.to_crs("EPSG:4326")
+
+# The held-out blocks as outlines, so blocks mode reads on the map as
+# what it is: whole areas the model was scored in without having seen
+# anything inside them. Every block of the held-out fold is drawn,
+# including ones with no points, to show the pattern the folds follow.
+held_out_blocks = []
+if can_split and use_blocks:
+    for bx in range(BLOCKS_PER_SIDE):
+        for by in range(BLOCKS_PER_SIDE):
+            if (bx + 2 * by) % N_FOLDS == test_fold:
+                x0, y0 = bminx + bx * block_size, bminy + by * block_size
+                held_out_blocks.append(box(x0, y0, x0 + block_size, y0 + block_size))
+held_out_blocks_wgs84 = gpd.GeoDataFrame(
+    {"fold": [int(test_fold) if test_fold is not None else 0] * len(held_out_blocks)},
+    geometry=held_out_blocks, crs=calc_epsg
+).to_crs("EPSG:4326")
 
 training_wgs84 = labeled.copy()
 training_wgs84 = training_wgs84.rename(columns={classColumn: "class"})
@@ -359,6 +514,7 @@ training_wgs84["predictedClass"] = predicted_labels
 {
     "trainingFeatures": training_wgs84[["class", "heldOut", "predictedClass", "geometry"]].__geo_interface__,
     "gridFeatures": grid_wgs84.__geo_interface__,
+    "heldOutBlockFeatures": held_out_blocks_wgs84.__geo_interface__,
     "originalCrsFeatures": export_crs(grid_wgs84).__geo_interface__,
     "summary": {
         # count/crs duplicate what inspect already reported -- kept
@@ -383,6 +539,14 @@ training_wgs84["predictedClass"] = predicted_labels
         "trainCount": int(len(X_train)),
         "testCount": int(len(X_test)) if X_test is not None else 0,
         "accuracy": accuracy,
+        "holdout": "Spatial blocks" if use_blocks else "Random points",
+        "heldOutBlockCount": len(held_out_blocks),
+        "blocksPerSide": BLOCKS_PER_SIDE,
+        "cvRandom": cv_random,
+        "cvBlocks": cv_blocks,
+        "distanceMap": distance_map,
+        "distanceRandom": distance_random,
+        "distanceBlocks": distance_blocks,
         "nTrees": int(nTrees),
         "gridResolution": int(gridResolution),
         "gridCellCount": int(len(cells)),
@@ -486,6 +650,13 @@ document.addEventListener("DOMContentLoaded", () => {
         { kind: "select", name: "classColumn", label: "Class column:",
           options: (v) => v.summary?.columns ?? [],
           default: (v) => v.summary?.columns?.includes("class") ? "class" : v.summary?.columns?.[0] },
+        // Blocks first, and the default: it's the honest estimate for a
+        // map (see the compute cell). Random points stays one click away
+        // so the gap between the two is something to see, not take on
+        // faith; the stat card reports both either way.
+        { kind: "select", name: "holdout", label: "Held out:",
+          options: () => ["Spatial blocks", "Random points"],
+          default: () => "Spatial blocks" },
         { kind: "slider", name: "nTrees", label: "Trees", range: [10, 300], value: 100, step: 10 },
         { kind: "slider", name: "gridResolution", label: "Grid resolution", range: [10, 40], value: 20, step: 5 }
       ],
@@ -509,6 +680,11 @@ document.addEventListener("DOMContentLoaded", () => {
               1, 0.6
             ]
           }) },
+        // Held-out blocks (blocks mode only; an empty collection in
+        // random mode), between the grid and the points so the dots
+        // stay clickable on top.
+        { source: "spatial-classifier-blocks-py", from: (v) => v.heldOutBlockFeatures, type: "line",
+          paint: () => ({ "line-color": "#2a2117", "line-width": 2, "line-dasharray": [2, 1.5] }) },
         { source: "spatial-classifier-training-py", from: (v) => v.trainingFeatures, type: "circle",
           paint: (v) => ({
             ...WebGeoDS.matchPaint(v.summary.classLabels, "class", {
@@ -541,10 +717,24 @@ document.addEventListener("DOMContentLoaded", () => {
         if (r.excludedCount > 0) {
           rows.push(["Excluded from training", `${r.excludedCount} (too far from the calculation UTM zone to project)`]);
         }
+        rows.push([
+          "Held out",
+          r.testCount === 0 ? "—"
+            : r.holdout === "Spatial blocks"
+              ? `${r.testCount} points in ${r.heldOutBlockCount} of ${r.blocksPerSide * r.blocksPerSide} blocks (dashed on the map)`
+              : `${r.testCount} random points`
+        ]);
         rows.push(["Train / test split", r.testCount > 0 ? `${r.trainCount} / ${r.testCount}` : `${r.trainCount} / — (too few points to hold out)`]);
         // Python's None crosses over as JS `undefined`, not `null` (a
         // known site-wide ambiguity) -- loose equality catches both.
         rows.push(["Test accuracy", r.accuracy == null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`]);
+        const pct = (x) => x == null ? "N/A" : `${(x * 100).toFixed(0)}%`;
+        rows.push(["5-fold CV accuracy", `random points ${pct(r.cvRandom)} · spatial blocks ${pct(r.cvBlocks)}`]);
+        const metres = (x) => x == null ? "N/A" : `${Math.round(x).toLocaleString()} m`;
+        rows.push([
+          "Distance to nearest sample",
+          `map cells ${metres(r.distanceMap)} · random test ${metres(r.distanceRandom)} · block test ${metres(r.distanceBlocks)} (medians)`
+        ]);
         rows.push(["Trees", r.nTrees]);
         rows.push(["Grid cells", r.gridCellCount.toLocaleString()]);
         rows.push(["Mean confidence", `${(r.meanConfidence * 100).toFixed(0)}%`]);
@@ -562,7 +752,8 @@ document.addEventListener("DOMContentLoaded", () => {
         // Documents the outline added to the training-points layer
         // above -- a style distinction, not a class, hence outline:
         // true (a hollow swatch) instead of one more filled color.
-        { color: "#2a2117", label: "held out for testing", outline: true }
+        { color: "#2a2117", label: "held out for testing", outline: true },
+        ...(v.summary.heldOutBlockCount > 0 ? [{ color: "#2a2117", label: "held-out block (dashed)", outline: true }] : [])
       ],
       // Declarative table (compute.table -- Dashboard's first use of
       // it, replacing what used to be a hand-wired tableCell() OJS
@@ -968,12 +1159,31 @@ class outward, so a solid patch with no dots in it is still a guess.
 "Uncertain cells" above counts the ones where fewer than 60% of the
 trees agree.
 <br><br>
-The thicker-outlined dots
-are the ones held out for testing (see the legend) — for one of
-those, a color that doesn't match the patch under it is exactly the
-error the test accuracy above is measuring. A thin-outlined dot was
-used to train the model, so a mismatch there says something different:
-a point the model still gets wrong even after seeing it.
+By default the test points are whole <strong>blocks</strong> of the map
+(dashed), not points scattered at random. Scattered test points
+flatter a map: their neighbours usually stay in training, so the model
+can copy the point next door instead of predicting somewhere new. The
+"5-fold CV accuracy" row scores both ways, every point tested once: on
+the built-in example, random points score about 76% and spatial
+blocks about 57%.
+<br><br>
+Which one describes the map? The row below it answers that: a score
+only holds for predictions made about as far from the data as its
+test points were. On the example, random test points sit 27 m from
+the nearest training point (a site-mate), the map's cells about 73 m,
+and block test points 193 m. So the random score flatters the map and
+the blocks score is on the cautious side, but closer: blocks sized to
+match the map's distances score about 61-65%. On your own
+file, if the block distance is far above the map's, the blocks score
+is pessimistic; if it's close, it's about right.
+<br><br>
+The map itself is drawn from a forest trained on every point; the
+held-out points are left out only of the separate forest that scores
+it. The thicker-outlined dots are those held-out ones (see the
+legend), and their predictions in the table and the matrix below come
+from that scoring forest, the one that never saw them. A dot of a
+different color from the cell under it is a point the map gets wrong
+even though it was trained on it.
 <br><br>
 The matrix reads actual class down the side, predicted class across
 the bottom, so the diagonal is what the model got right and everything

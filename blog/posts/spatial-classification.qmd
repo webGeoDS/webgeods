@@ -2,7 +2,7 @@
 title: "Predicting Spatial Classes with Random Forest"
 date: 2026-09-11
 categories: [tool, geoml, bilingual]
-description: "An interactive lab with Python, R and MapLibre: upload a labeled point file (or use the built-in example), train a Random Forest on it, turn labeled points into a full classification surface, measure on held-out points how much that surface is worth, and see a real gotcha where R silently swaps classification for regression."
+description: "An interactive lab with Python, R and MapLibre: turn labeled points into a full classification surface with a Random Forest, see why a random train/test split flatters a map and what spatial block cross-validation reports instead, and a real gotcha where R silently swaps classification for regression."
 ---
 
 A few labeled points on their own only answer questions about
@@ -16,8 +16,10 @@ same shift in usefulness a sparse rain-gauge network gets from
 interpolating a rainfall map between the gauges.
 
 Whether that surface is worth trusting is a separate question, and one
-this article measures rather than assumes: a quarter of the points is
-held out of training and used only for scoring.
+this article measures rather than assumes, two ways: holding out
+points at random, the textbook default, and holding out whole blocks
+of the map. On spatial data the two give very different answers, and
+section 4 shows why the second is the one to believe.
 
 A `.geojson`, or a shapefile (either as a single `.zip`, or as
 `.shp`/`.dbf`/`.shx` selected together): see the upload section
@@ -73,19 +75,24 @@ ${uploadStatus}
 ```
 
 No file uploaded, or your file has no column literally named
-`class`? Both cells below fall back to the same built-in survey: 150
-points across three zones (`south`, `centre`, `north`) whose
-boundaries undulate rather than running straight, plus deliberate
-label noise — one point in nine carries the wrong class, standing in
-for the labelling error a real survey has. Both tabs build it from the
-same arithmetic rule instead of a list of coordinates, so the points
-are identical and the two languages are comparable.
+`class`? Both cells below fall back to the same built-in survey: 30
+sites, 5 points recorded close together at each, across three zones
+(`south`, `centre`, `north`) whose boundaries undulate rather than
+running straight. One site in five sits on a local patch of a
+different class, the kind of small inclusion a real survey keeps
+running into: a wet hollow in a dry field, a stand of a different
+species. Both tabs build it from the same arithmetic rule instead of a
+list of coordinates, so the points are identical and the two languages
+are comparable.
 
-That noise is there on purpose. Two tidy, well-separated clusters
-would let any classifier score a perfect 100%, which teaches nothing
-except misplaced confidence. Number of trees and grid resolution are
-fixed here (100 trees, a 10-cell grid) to keep the focus off tuning;
-the [standalone tool](/tools/spatial-classifier.html) exposes both as
+Both details are there on purpose. Surveys really are collected in
+sites like this, a handful of readings wherever someone stopped. And
+the patches are what keep the scores honest: with tidy zones and
+nothing unexpected inside them, any classifier would score close to
+100%, which teaches nothing except misplaced confidence. Number of
+trees and grid resolution are fixed here (100 trees, a 10-cell grid)
+to keep the focus off tuning; the
+[standalone tool](/tools/spatial-classifier.html) exposes both as
 adjustable controls and lets you pick any column as the class.
 
 ## 3. Same spatial question, two languages
@@ -114,35 +121,43 @@ sharedMapEl = sharedMap.element
 import geopandas as gpd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold
+from sklearn.neighbors import NearestNeighbors
 from shapely.geometry import Polygon
 
 # The example survey, used only when nothing was uploaded (or the
 # upload has no `class` column). Written as a rule rather than a list
 # of coordinates, so the structure is visible instead of buried in 150
-# pairs of numbers: points on an irregular lattice, three bands whose
-# boundaries undulate across the area, and deliberate label noise.
-# Integer arithmetic only (no random numbers, no trigonometry), so the
-# R tab further down builds exactly the same points.
+# pairs of numbers: 30 survey sites, 5 points recorded close together
+# at each, three bands whose boundaries undulate across the area, and
+# one site in five sitting on a local patch of a different class.
+# Plain arithmetic only (no random numbers, no trigonometry), so the R
+# tab further down builds exactly the same points.
 FALLBACK_NEXT_CLASS = {"south": "centre", "centre": "north", "north": "south"}
+SITE_OFFSETS = [(0, 0), (1, 0.4), (-0.6, 0.9), (-0.8, -0.7), (0.5, -1)]
 
 def fallback_points():
     points = []
-    for i in range(150):
-        col, row = i % 15, i // 15
-        lon = 12.4450 + col * 0.0010 + ((i * 37) % 11 - 5) / 10000
-        lat = 41.8850 + row * 0.0012 + ((i * 53) % 13 - 6) / 12000
-        # Triangular wave on the column index: the two band boundaries
-        # rise and fall across the area instead of running straight, so
-        # no single horizontal cut separates the classes.
-        tri = abs((col * 2) % 8 - 4) - 2
-        cls = "south" if row < 3 + tri else ("centre" if row < 6 + tri else "north")
-        # One point in nine is relabelled to the next class: a stand-in
-        # for the labelling error a real survey carries. It is what
-        # keeps the held-out accuracy below a meaningless 1.00.
-        if i % 9 == 0:
-            cls = FALLBACK_NEXT_CLASS[cls]
-        points.append(((lon, lat), cls))
+    for s in range(30):
+        # Site centers on a 6 x 5 lattice, nudged off it by a fixed
+        # arithmetic jitter so they don't line up in rows.
+        col, row = s % 6, s // 6
+        cx = (col + 0.5) / 6 + ((s * 37) % 11 - 5) / 110
+        cy = (row + 0.5) / 5 + ((s * 53) % 13 - 6) / 130
+        for dx, dy in SITE_OFFSETS:
+            x, y = cx + dx * 0.02, cy + dy * 0.02
+            # Triangular wave along x: the two band boundaries rise and
+            # fall across the area instead of running straight, so no
+            # single horizontal cut separates the classes.
+            u, v = x * 15, y * 10
+            tri = abs((2 * u) % 8 - 4) - 2
+            cls = "south" if v < 3 + tri else ("centre" if v < 6 + tri else "north")
+            # A local patch: every point at this site belongs to the
+            # next class along. Unlike noise on single points, all five
+            # site-mates share it, which is what section 4 is about.
+            if s % 5 == 2:
+                cls = FALLBACK_NEXT_CLASS[cls]
+            points.append(((12.4450 + x * 0.0150, 41.8850 + y * 0.0120), cls))
     return points
 
 gdf = None
@@ -205,43 +220,78 @@ if len(y) == 0:
 
 class_labels = sorted(set(y.tolist()))
 
-# A quarter of the points is held out and never shown to the model, so
-# the accuracy below is measured on points it has not already seen.
-# stratify=y keeps each class's share the same on both sides of the
-# split: without it a rare class can end up entirely in one half.
-# Skipped when there is too little to split -- an uploaded file can
-# have a class with a single member, and holding that one out would
-# leave the class untrained. "No accuracy" is then reported as exactly
-# that, rather than as a score of 0.
-class_counts = {c: int((y == c).sum()) for c in class_labels}
-can_split = len(class_labels) >= 2 and min(class_counts.values()) >= 2 and len(y) >= 10
+# Two ways of splitting the points into 5 folds, for 5-fold
+# cross-validation: each fold is held out in turn, a forest is trained
+# on the other four, and every point ends up predicted exactly once by
+# a model that never saw it.
+#
+# Random folds: points assigned at random, stratify keeping each
+# class's share the same in every fold.
+#
+# Block folds: a 4 x 4 grid over the area, each block assigned to a
+# fold by (bx + 2 * by) % 5, a diagonal pattern that spreads every fold
+# across the whole map. Whole blocks go out together, so a held-out
+# point's close neighbours are held out with it. No random numbers
+# here, so the R tab gets exactly these same folds.
+BLOCKS_PER_SIDE = 4
+bmin = X.min(axis=0)
+block_size = max(float((X.max(axis=0) - bmin).max()), 1e-6) / BLOCKS_PER_SIDE
+block_xy = np.minimum(((X - bmin) // block_size).astype(int), BLOCKS_PER_SIDE - 1)
+block_folds = (block_xy[:, 0] + 2 * block_xy[:, 1]) % 5
 
-if can_split:
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.25, stratify=y, random_state=0
-    )
-else:
-    X_train, y_train, X_test, y_test = X, y, None, None
+class_counts = {c: int((y == c).sum()) for c in class_labels}
+# Too little to cross-validate (an uploaded file can have a class with
+# one or two members): no accuracy is then reported as exactly that,
+# rather than as a score of 0.
+can_validate = len(class_labels) >= 2 and min(class_counts.values()) >= 5 and len(y) >= 10
+
+def cross_validated(folds):
+    predicted = np.empty(len(y), dtype=object)
+    for f in np.unique(folds):
+        train, test = folds != f, folds == f
+        fold_model = RandomForestClassifier(n_estimators=100, random_state=0)
+        fold_model.fit(X[train], y[train])
+        predicted[test] = fold_model.predict(X[test])
+    accuracy = round(float((predicted == y).mean()), 3)
+    # Per class as well: one overall number can hide a model that is
+    # perfect on the largest class and useless on another.
+    by_class = {
+        c: round(float((predicted[y == c] == c).mean()), 3) for c in class_labels
+    }
+    return accuracy, by_class
+
+accuracy_random = accuracy_blocks = None
+class_accuracy_random = class_accuracy_blocks = {}
+if can_validate:
+    random_folds = np.empty(len(y), dtype=int)
+    splitter = StratifiedKFold(n_splits=5, shuffle=True, random_state=0)
+    for f, (_, test) in enumerate(splitter.split(X, y)):
+        random_folds[test] = f
+    accuracy_random, class_accuracy_random = cross_validated(random_folds)
+    accuracy_blocks, class_accuracy_blocks = cross_validated(block_folds)
+
+# How far each scheme's test points sit from the nearest point their
+# forest trained on (median, in metres). Section 4 compares these with
+# the same distance for the map's own grid cells, computed further down.
+def nearest_distances(train_pts, query_pts):
+    return NearestNeighbors(n_neighbors=1).fit(train_pts).kneighbors(query_pts)[0][:, 0]
+
+def median_test_distance(folds):
+    return float(np.median(np.concatenate([
+        nearest_distances(X[folds != f], X[folds == f]) for f in np.unique(folds)
+    ])))
+
+distance_random = round(median_test_distance(random_folds)) if can_validate else None
+distance_blocks = round(median_test_distance(block_folds)) if can_validate else None
 
 # X is (x, y) coordinates only: position is the ONLY predictor here.
 # This demonstrates how a Random Forest turns labeled points into a
 # surface, not a general land-cover classifier. Real covariates
 # (spectral bands, elevation, soil type) would change what the model
-# is actually learning.
+# is actually learning. The map itself uses a forest trained on every
+# point: the folds above were only for scoring it.
 model = RandomForestClassifier(n_estimators=100, random_state=0)
-model.fit(X_train, y_train)
-
-accuracy = None
-class_accuracy = {}
-if X_test is not None:
-    predicted_test = model.predict(X_test)
-    accuracy = round(float((predicted_test == y_test).mean()), 3)
-    # Per class as well: one overall number can hide a model that is
-    # perfect on the largest class and useless on another.
-    for c in class_labels:
-        in_class = y_test == c
-        if in_class.sum() > 0:
-            class_accuracy[c] = round(float((predicted_test[in_class] == y_test[in_class]).mean()), 3)
+model.fit(X, y)
 
 # Regular 10x10-ish square-cell grid over the full extent, at a fixed
 # resolution: keeps the focus on how the two languages disagree,
@@ -264,6 +314,7 @@ for row in range(n_rows):
         centers_y.append(gminy + (row + 0.5) * cell_size)
 centers = np.column_stack([centers_x, centers_y])
 predicted = model.predict(centers)
+distance_map = round(float(np.median(nearest_distances(X, centers))))
 
 half = cell_size / 2
 cells = [
@@ -285,10 +336,13 @@ training_wgs84 = labeled[["class", "geometry"]]
     "calculationCrs": f"EPSG:{calc_epsg}",
     "classLabels": class_labels,
     "labeledCount": int(len(labeled)),
-    "trainCount": int(len(y_train)),
-    "testCount": int(len(y_test)) if y_test is not None else 0,
-    "accuracy": accuracy,
-    "classAccuracy": class_accuracy,
+    "accuracyRandom": accuracy_random,
+    "accuracyBlocks": accuracy_blocks,
+    "classAccuracyRandom": class_accuracy_random,
+    "classAccuracyBlocks": class_accuracy_blocks,
+    "distanceRandom": distance_random,
+    "distanceBlocks": distance_blocks,
+    "distanceMap": distance_map,
     "gridCellCount": int(len(cells)),
     "crsWarning": crs_warning
 }
@@ -303,22 +357,29 @@ library(geojsonsf)
 library(randomForest)
 
 # The same example survey the Python tab builds, from the same rule:
-# 150 points on an irregular lattice, three bands with undulating
-# boundaries, one point in nine relabelled to stand in for survey
-# error. Integer arithmetic only, so both languages produce identical
-# points -- which is what makes the two tabs comparable at all.
+# 30 sites of 5 close-together points, three bands with undulating
+# boundaries, one site in five on a local patch of the next class.
+# Same arithmetic in the same order, so both languages produce
+# identical points -- which is what makes the two tabs comparable at
+# all.
 fallback_points <- function() {
-  i <- 0:149
-  col <- i %% 15
-  row <- i %/% 15
-  lon <- 12.4450 + col * 0.0010 + ((i * 37) %% 11 - 5) / 10000
-  lat <- 41.8850 + row * 0.0012 + ((i * 53) %% 13 - 6) / 12000
-  tri <- abs((col * 2) %% 8 - 4) - 2
-  cls <- ifelse(row < 3 + tri, "south", ifelse(row < 6 + tri, "centre", "north"))
+  site <- rep(0:29, each = 5)
+  k <- rep(1:5, times = 30)
+  dx <- c(0, 1, -0.6, -0.8, 0.5)[k]
+  dy <- c(0, 0.4, 0.9, -0.7, -1)[k]
+  cx <- (site %% 6 + 0.5) / 6 + ((site * 37) %% 11 - 5) / 110
+  cy <- (site %/% 6 + 0.5) / 5 + ((site * 53) %% 13 - 6) / 130
+  x <- cx + dx * 0.02
+  y <- cy + dy * 0.02
+  u <- x * 15
+  v <- y * 10
+  tri <- abs((2 * u) %% 8 - 4) - 2
+  cls <- ifelse(v < 3 + tri, "south", ifelse(v < 6 + tri, "centre", "north"))
   next_class <- c(south = "centre", centre = "north", north = "south")
-  flip <- i %% 9 == 0
-  cls[flip] <- unname(next_class[cls[flip]])
-  data.frame(lon = lon, lat = lat, class = cls, stringsAsFactors = FALSE)
+  patch <- site %% 5 == 2
+  cls[patch] <- unname(next_class[cls[patch]])
+  data.frame(lon = 12.4450 + x * 0.0150, lat = 41.8850 + y * 0.0120,
+             class = cls, stringsAsFactors = FALSE)
 }
 
 data <- NULL
@@ -373,58 +434,81 @@ labeled_proj <- labeled_proj[finite_rows, ]
 
 all_df <- data.frame(x = coords_train[, 1], y = coords_train[, 2], class = labeled_proj$class)
 
-# Both the holdout below and the forest itself draw random numbers, so
-# without a seed two runs of this cell give different answers. The
-# Python tab passes random_state=0 for the same reason.
+# Both the random folds below and the forest itself draw random
+# numbers, so without a seed two runs of this cell give different
+# answers. The Python tab passes random_state=0 for the same reason.
 set.seed(0)
 
-# A quarter of the points held out, sampled separately within each
-# class so every class keeps its share on both sides -- base R has no
-# stratified-split function, but split() + sample() is the whole idea.
-# Skipped when there is too little to split (an uploaded file can have
-# a class with a single member, and holding that one out would leave
-# the class untrained).
-class_counts <- table(all_df$class)
-can_split <- length(class_counts) >= 2 && min(class_counts) >= 2 && nrow(all_df) >= 10
-
-if (can_split) {
-  test_idx <- unlist(lapply(
-    split(seq_len(nrow(all_df)), all_df$class),
-    function(idx) sample(idx, max(1, round(0.25 * length(idx))))
-  ))
-  train_df <- all_df[-test_idx, ]
-  test_df <- all_df[test_idx, ]
-} else {
-  train_df <- all_df
-  test_df <- NULL
+# 5-fold cross-validation two ways, as in the Python tab. Random folds:
+# assigned within each class so every class keeps its share in every
+# fold (base R has no stratified-fold function, but split() + sample()
+# is the whole idea). Block folds: the same 4 x 4 grid and the same
+# (bx + 2 * by) %% 5 rule as Python, no random numbers involved, so
+# these folds are identical in both tabs.
+n <- nrow(all_df)
+random_folds <- integer(n)
+for (idx in split(seq_len(n), all_df$class)) {
+  random_folds[idx] <- sample(rep(0:4, length.out = length(idx)))
 }
+
+blocks_per_side <- 4
+bmin_x <- min(all_df$x)
+bmin_y <- min(all_df$y)
+block_size <- max(max(all_df$x) - bmin_x, max(all_df$y) - bmin_y, 1e-6) / blocks_per_side
+block_x <- pmin((all_df$x - bmin_x) %/% block_size, blocks_per_side - 1)
+block_y <- pmin((all_df$y - bmin_y) %/% block_size, blocks_per_side - 1)
+block_folds <- (block_x + 2 * block_y) %% 5
+
+class_counts <- table(all_df$class)
+can_validate <- length(class_counts) >= 2 && min(class_counts) >= 5 && n >= 10
+
+cross_validated <- function(folds) {
+  predicted <- character(n)
+  for (f in unique(folds)) {
+    test <- folds == f
+    # droplevels(): randomForest() refuses a factor level with no rows,
+    # which a block fold can leave behind by holding out every member
+    # of a class that lives in one corner of the map.
+    train_df <- droplevels(all_df[!test, ])
+    fold_model <- randomForest(class ~ x + y, data = train_df, ntree = 100)
+    predicted[test] <- as.character(predict(fold_model, newdata = all_df[test, ]))
+  }
+  truth <- as.character(all_df$class)
+  # Overall and per class: one overall number can hide a model that is
+  # perfect on the largest class and useless on another.
+  by_class <- lapply(levels(all_df$class), function(cl) {
+    jsonlite::unbox(round(mean(predicted[truth == cl] == cl), 3))
+  })
+  names(by_class) <- levels(all_df$class)
+  list(accuracy = round(mean(predicted == truth), 3), by_class = by_class)
+}
+
+cv_random <- if (can_validate) cross_validated(random_folds) else NULL
+cv_blocks <- if (can_validate) cross_validated(block_folds) else NULL
+
+# How far each scheme's test points sit from the nearest point their
+# forest trained on (median, in metres), as in the Python tab. A plain
+# loop over every pair is fine at this size; a spatial index only pays
+# off on far larger files.
+nearest_distances <- function(train_xy, query_xy) {
+  apply(query_xy, 1, function(p) sqrt(min((train_xy[, 1] - p[1])^2 + (train_xy[, 2] - p[2])^2)))
+}
+median_test_distance <- function(folds) {
+  xy <- as.matrix(all_df[, c("x", "y")])
+  median(unlist(lapply(unique(folds), function(f) {
+    nearest_distances(xy[folds != f, , drop = FALSE], xy[folds == f, , drop = FALSE])
+  })))
+}
+distance_random <- if (can_validate) round(median_test_distance(random_folds)) else NULL
+distance_blocks <- if (can_validate) round(median_test_distance(block_folds)) else NULL
 
 # Position is the ONLY predictor here (class ~ x + y): this
 # demonstrates how a Random Forest turns labeled points into a
 # surface, not a general land-cover classifier. Real covariates
 # (spectral bands, elevation, soil type) would change what the model
-# is actually learning.
-model <- randomForest(class ~ x + y, data = train_df, ntree = 100)
-
-# Accuracy on the held-out quarter, overall and per class: one overall
-# number can hide a model that is perfect on the largest class and
-# useless on another.
-accuracy <- NULL
-class_accuracy <- NULL
-if (!is.null(test_df)) {
-  predicted_test <- predict(model, newdata = test_df)
-  accuracy <- round(mean(predicted_test == test_df$class), 3)
-  per_class <- lapply(levels(all_df$class), function(cl) {
-    in_class <- test_df$class == cl
-    if (any(in_class)) {
-      jsonlite::unbox(round(mean(predicted_test[in_class] == test_df$class[in_class]), 3))
-    } else {
-      NULL
-    }
-  })
-  names(per_class) <- levels(all_df$class)
-  class_accuracy <- per_class[!vapply(per_class, is.null, logical(1))]
-}
+# is actually learning. The map uses a forest trained on every point:
+# the folds above were only for scoring it.
+model <- randomForest(class ~ x + y, data = all_df, ntree = 100)
 
 # The prediction surface: a regular grid covering the full extent, at
 # the same fixed resolution the Python tab uses, so the two results
@@ -452,6 +536,7 @@ grid <- st_make_grid(
 # asked about.
 grid_centers <- st_coordinates(st_centroid(grid))
 predicted <- predict(model, newdata = data.frame(x = grid_centers[, 1], y = grid_centers[, 2]))
+distance_map <- round(median(nearest_distances(as.matrix(all_df[, c("x", "y")]), grid_centers[, 1:2])))
 
 grid_wgs84 <- st_transform(
   st_sf(predictedClass = as.character(predicted), geometry = grid),
@@ -466,10 +551,13 @@ result <- list(
   calculationCrs = jsonlite::unbox(paste0("EPSG:", calc_epsg)),
   classLabels = sort(levels(labeled_proj$class)),
   labeledCount = jsonlite::unbox(as.integer(nrow(labeled))),
-  trainCount = jsonlite::unbox(as.integer(nrow(train_df))),
-  testCount = jsonlite::unbox(if (is.null(test_df)) 0L else as.integer(nrow(test_df))),
-  accuracy = if (is.null(accuracy)) NULL else jsonlite::unbox(accuracy),
-  classAccuracy = class_accuracy,
+  accuracyRandom = if (is.null(cv_random)) NULL else jsonlite::unbox(cv_random$accuracy),
+  accuracyBlocks = if (is.null(cv_blocks)) NULL else jsonlite::unbox(cv_blocks$accuracy),
+  classAccuracyRandom = if (is.null(cv_random)) NULL else cv_random$by_class,
+  classAccuracyBlocks = if (is.null(cv_blocks)) NULL else cv_blocks$by_class,
+  distanceRandom = if (is.null(distance_random)) NULL else jsonlite::unbox(distance_random),
+  distanceBlocks = if (is.null(distance_blocks)) NULL else jsonlite::unbox(distance_blocks),
+  distanceMap = jsonlite::unbox(distance_map),
   gridCellCount = jsonlite::unbox(as.integer(length(grid))),
   modelType = jsonlite::unbox(model$type),
   crsWarning = if (is.null(crs_warning)) NULL else jsonlite::unbox(crs_warning)
@@ -626,12 +714,14 @@ statCard = (label, s) => {
   row("Calculation CRS", s.calculationCrs);
   row("Classes", s.classLabels.join(", "));
   row("Labeled points", s.labeledCount);
-  if (s.accuracy === null || s.accuracy === undefined) {
-    // Not a score of 0: there were too few points to hold any out.
-    row("Held-out accuracy", "too few points to hold any out");
+  const byClass = (m) => Object.entries(m ?? {}).map(([k, v]) => `${k} ${v}`).join(" · ");
+  if (s.accuracyRandom === null || s.accuracyRandom === undefined) {
+    // Not a score of 0: there were too few points to cross-validate.
+    row("Cross-validated accuracy", "too few points per class to cross-validate");
   } else {
-    row("Held-out accuracy", `${s.accuracy} (${s.testCount} of ${s.labeledCount} points held out)`);
-    row("By class", Object.entries(s.classAccuracy ?? {}).map(([k, v]) => `${k} ${v}`).join(" · "));
+    row("Random folds", `${s.accuracyRandom} (${byClass(s.classAccuracyRandom)})`);
+    row("Spatial blocks", `${s.accuracyBlocks} (${byClass(s.classAccuracyBlocks)})`);
+    row("Nearest sample, median", `random test ${s.distanceRandom} m · map cells ${s.distanceMap} m · block test ${s.distanceBlocks} m`);
   }
   row("Grid cells predicted", s.gridCellCount);
 
@@ -696,45 +786,80 @@ about as much as the two languages disagree with each other.
 
 ## 4. How good is that surface?
 
-The stat cards answer that, and the answer is sobering. A quarter of
-the points is held out of training and used only for scoring, so the
-accuracy is measured on points the model has never seen — and on the
-built-in survey it lands around **0.63**, against 0.33 for guessing at
-random among three classes.
+Both cells score the model with 5-fold cross-validation: the points
+are split into five groups, each group is held out in turn while a
+forest trains on the other four, and in the end every point has been
+predicted once by a model that never saw it. The only difference
+between the two rows of each stat card is *how* the points are split
+into groups.
 
-The per-class row matters more than the overall one. The outer `north`
-band scores about 0.87, while `centre` — the middle band, squeezed
-between the other two and undulating across the area — gets between a
-third and a half of its held-out points right, depending on which
-quarter was held out. One overall number would have hidden that
-completely: the model has essentially learned two of the three classes.
-That's the case for reporting accuracy per class whenever the classes
-aren't interchangeable, which spatially they rarely are.
+**Random folds** scatter the held-out points across the whole map.
+On the built-in survey that scores about **0.76–0.81**, in either
+language, against 0.33 for guessing among three classes. It looks
+like a usable map.
 
-Two cautions before reading much into any of these numbers.
+**Spatial blocks** cut the area into a 4 × 4 grid and hold out whole
+blocks at a time. Same points, same forest, same number of trees:
+about **0.54–0.59**. Twenty points lower, in every one of the five
+seeds tried per language.
 
-**The number itself moves.** Across five seeds the accuracy spanned
-roughly 0.53–0.68 in Python and 0.63–0.74 in R: overlapping ranges, so
-five runs are nowhere near enough to claim one implementation beats the
-other. The two tabs also hold out *different* points, because their
-random number generators differ — another reason a gap between the two
-accuracies says nothing about scikit-learn versus randomForest.
+Nothing about the model changed between the two rows, only the
+question being asked. A random fold almost never holds out a whole
+site: four of a test point's five site-mates, a few metres away, are
+still in training, and the forest can simply copy them. Even a point
+on one of the patches comes out right, because its site-mates on the
+same patch were seen. Hold out a whole block and the patch goes out
+with it: now the model has to predict it from the sites around it,
+which say something else.
 
-**And it flatters the model.** This is the specifically spatial catch.
-Nearby points are correlated, so a randomly chosen test point almost
-always has a training point a few metres away, and the model can lean
-on that neighbour instead of generalising. A random holdout on spatial
-data is therefore optimistic: 0.63 is closer to an upper bound than to
-an honest estimate. The standard answer is spatial cross-validation,
-which holds out whole *blocks* of area rather than scattered points, so
-the test data sits somewhere the model genuinely hasn't seen. That is a
-subject of its own; what matters here is knowing the number is
-generous, not conservative.
+So which number describes the map? Neither exactly, and the stat
+cards' last row says why. A cross-validated score only holds for
+predictions made about as far from the data as its test points were.
+Random test points sit a median **27 m** from the nearest training
+point: a site-mate. Block test points sit about **193 m** away. The
+map's own grid cells, the places it is actually asked about, sit
+about **73 m** from the nearest sample, in between. The random score
+answers an easier question than the map faces, the blocks score a
+harder one.
 
-The two cautions are the same fact seen twice. The surface is supported
-where the points are and guessing where they thin out, and a score
-computed from points sitting right next to the training data measures
-the supported part while telling you nothing about the rest.
+In a separate run (in Python, on the same points, not on this page),
+the block grids whose test distances came closest to the map's,
+10 × 10 and 12 × 12 (blocks about 100–120 m across instead of 300),
+scored **0.61–0.65**. That's roughly the honest figure for this map:
+the random score overstates it by 10 to 20 points, the 4 × 4 blocks
+understate it by up to about 10. Other grid sizes in the same run
+landed anywhere from 0.52 to 0.72, so a fixed grid is a crude way to
+match distances; dedicated methods for spatial validation
+(nearest-neighbour distance matching, NNDM and its variants) do it
+with more care. The 4 × 4 blocks are the safer number to quote, not
+the exact one.
+
+The per-class numbers show where the gap comes from. Under random
+folds `centre`, the narrow middle band squeezed between the other two,
+looks nearly as well learned as the rest, around 0.7. Under blocks it
+drops to about **0.35**, barely above chance: with its own
+neighbourhood removed, the forest can't tell the thin middle band
+from the wide ones on either side. One overall number, from either
+scheme, would have hidden that the model has essentially learned two
+of the three classes.
+
+Both numbers move from run to run, too. The block folds are fixed
+(the same arithmetic rule in both tabs, so they're identical), but the
+forest itself draws random numbers, and the random folds are drawn by
+each language's own generator, so Python and R hold out *different*
+points there. The ranges above overlap between languages, and five
+seeds each are nowhere near enough to rank scikit-learn against
+randomForest. What doesn't move is the gap: random folds beat blocks
+by a wide margin every time, in both.
+
+One more thing the folds don't do: change the map. Every forest
+trained inside the cross-validation is thrown away once it has been
+scored. The map comes from a separate forest trained on all 150
+points, the usual practice, since cross-validation scores the *way*
+the model is fitted rather than one particular fitted forest. The
+choice of scheme would start changing the map only if it were used to
+choose something, a smoothing setting say, and random folds would
+then reward the forest that copies its neighbours most faithfully.
 
 ## 5. A silent switch: classification vs. regression
 
@@ -762,7 +887,7 @@ wrong fail very differently:
 The R cell above already does this correctly (`factor(as.character(...))`
 before the fit): `modelType` in its stat card reads `classification`.
 Here's the realistic failure case: the exact same points, with `class`
-read in as `0`/`1` instead of `"north"`/`"south"` (exactly what
+read in as `0`/`1`/`2` instead of `"south"`/`"centre"`/`"north"` (exactly what
 happens if a class column arrives as a numeric status code), and that
 one `factor()` step skipped, run live:
 
@@ -771,16 +896,17 @@ one `factor()` step skipped, run live:
 library(randomForest)
 
 # The same survey as the cell above, built from the same rule.
-i <- 0:149
-col <- i %% 15
-row <- i %/% 15
-lon <- 12.4450 + col * 0.0010 + ((i * 37) %% 11 - 5) / 10000
-lat <- 41.8850 + row * 0.0012 + ((i * 53) %% 13 - 6) / 12000
-tri <- abs((col * 2) %% 8 - 4) - 2
-cls <- ifelse(row < 3 + tri, "south", ifelse(row < 6 + tri, "centre", "north"))
+site <- rep(0:29, each = 5)
+k <- rep(1:5, times = 30)
+x <- (site %% 6 + 0.5) / 6 + ((site * 37) %% 11 - 5) / 110 + c(0, 1, -0.6, -0.8, 0.5)[k] * 0.02
+y <- (site %/% 6 + 0.5) / 5 + ((site * 53) %% 13 - 6) / 130 + c(0, 0.4, 0.9, -0.7, -1)[k] * 0.02
+tri <- abs((2 * (x * 15)) %% 8 - 4) - 2
+cls <- ifelse(y * 10 < 3 + tri, "south", ifelse(y * 10 < 6 + tri, "centre", "north"))
 next_class <- c(south = "centre", centre = "north", north = "south")
-flip <- i %% 9 == 0
-cls[flip] <- unname(next_class[cls[flip]])
+patch <- site %% 5 == 2
+cls[patch] <- unname(next_class[cls[patch]])
+lon <- 12.4450 + x * 0.0150
+lat <- 41.8850 + y * 0.0120
 
 # The one difference: `class` arrives as a NUMERIC status code
 # (0 = south, 1 = centre, 2 = north) and is NOT wrapped in factor(),
@@ -840,9 +966,10 @@ noFactorCard = {
 ${noFactorCard}
 
 `model$type` reads `regression`, and `predict()` on a point whose true
-class was `0` ("north") returns a number like `0.1` or `-0.05`, not
-the class `0` itself, a *regression estimate* that happens to land
-near it. Nothing in the output says a switch happened; the only way to
+class was `0` (`south`) returns something like `0.044`, not the class
+`0` itself: a *regression estimate*, an average of the training
+codes, that happens to land near it. On a point near a boundary it
+would land somewhere in between, a `0.7` that is no class at all. Nothing in the output says a switch happened; the only way to
 notice is checking `model$type` yourself, which is exactly what
 production code should do.
 
@@ -862,7 +989,8 @@ class you instantiate *is* the decision, made once, up front.
   [standalone Spatial Classifier](/tools/spatial-classifier.html) runs
   the same computation on an uploaded point file (or its own example),
   with any column as the class, adjustable tree count and grid
-  resolution, and a downloadable classification surface.
+  resolution, the same random-vs-blocks comparison with the held-out
+  blocks drawn on the map, and a downloadable classification surface.
 - **Wondering why the coordinate system needed picking at all?** →
   [Coordinate Reference Systems](crs-mismatch.qmd) covers the
   geographic/projected distinction this article leaned on in section 1.
