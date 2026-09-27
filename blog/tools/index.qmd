@@ -51,9 +51,10 @@ GeoStatistics below, since it fills them by kriging.
 Machine learning on spatial data — finding groups, and predicting
 labels. **[Cluster](spatial-clustering-explorer.qmd)** →
 **[Classify](spatial-classifier.qmd)**: find which points form dense
-groups with DBSCAN, or train a Random Forest on a labeled column and
-predict a full classification surface across the whole area — both
-colored on the map, both downloadable. Two tools live in this family;
+groups with DBSCAN, or map a category recorded at sample points (soil
+type, habitat, land use) across the whole area with a Random Forest,
+shaded by how confident it is — both colored on the map, both
+downloadable. Two tools live in this family;
 more are planned.
 
 ## Network Toolkit

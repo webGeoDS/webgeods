@@ -2,17 +2,24 @@
 title: "Spatial Classifier"
 date: 2026-09-11
 categories: [tool, geoml]
-description: "Upload a labeled point dataset and train a Random Forest classifier on it — pick which column holds the class, then see a full classification surface predicted across the whole area, not just an accuracy number. Runs entirely in your browser, powered by Python."
+description: "Turn field samples of a category (soil type, habitat, land use, anything recorded as a class at scattered points) into a map of the likely class everywhere in the area, with a Random Forest trained on location, and see where that map is confident and where it's guessing. Runs entirely in your browser, powered by Python."
 page-layout: full
 ---
 
-Upload a point file with a column that labels each point's class —
-`.geojson`, or a shapefile as a single `.zip` or as
-`.shp`/`.dbf`/`.shx` selected together — pick that column, set a
-number of trees, and train a Random Forest on the points' locations.
-The model is then applied to a regular grid across the whole area, so
-the result is a full classification surface, not just an accuracy
-score on data you already labeled yourself.
+You recorded a category at scattered points: soil type at sampling
+pits, habitat at survey plots, land use at field checks. This tool
+maps the **likely class everywhere in between**, and shows how sure it
+is about each part of that map.
+
+Upload a point file with a column that labels each point's class
+(`.geojson`, or a shapefile as a single `.zip` or as
+`.shp`/`.dbf`/`.shx` selected together), pick that column, and a
+Random Forest learns which class tends to occur where. The model uses
+**only each point's position**, not the file's other columns: it
+answers "given what was found nearby, what's probably here?" It's the
+categorical counterpart of the
+[Kriging Interpolator](/tools/kriging-interpolator.html), which does
+the same for a numeric value like pH or moisture.
 
 ::: {.callout-tip}
 **Private by design.** Your file is processed entirely in your
@@ -298,6 +305,18 @@ for row in range(n_rows):
 centers = np.column_stack([centers_x, centers_y])
 predicted = model.predict(centers)
 
+# How much of the forest backs each cell's predicted class (the
+# averaged tree probability for the winning class, so 1/n_classes at
+# worst, 1.0 when every tree agrees), drawn as the fill's opacity. It
+# shows where the trees DISAGREE -- on the example, 87% of the cells
+# under UNCERTAIN_BELOW sat on a border between classes (measured
+# live). It is not a distance-from-data measure: the farthest quarter
+# of cells averaged 72% against 76% for the nearest, because a forest
+# extends the nearest class outward with full conviction. The closing
+# note below says so rather than letting the shading imply it.
+confidence = model.predict_proba(centers).max(axis=1)
+UNCERTAIN_BELOW = 0.6
+
 half = cell_size / 2
 cells = [
     Polygon([
@@ -308,7 +327,7 @@ cells = [
     for cx, cy in centers
 ]
 grid_gdf = gpd.GeoDataFrame(
-    {"predictedClass": predicted}, geometry=cells, crs=calc_epsg
+    {"predictedClass": predicted, "confidence": np.round(confidence, 2)}, geometry=cells, crs=calc_epsg
 )
 grid_wgs84 = grid_gdf.to_crs("EPSG:4326")
 
@@ -366,7 +385,10 @@ training_wgs84["predictedClass"] = predicted_labels
         "accuracy": accuracy,
         "nTrees": int(nTrees),
         "gridResolution": int(gridResolution),
-        "gridCellCount": int(len(cells))
+        "gridCellCount": int(len(cells)),
+        "meanConfidence": float(confidence.mean()),
+        "uncertainCellCount": int((confidence < UNCERTAIN_BELOW).sum()),
+        "uncertainBelow": UNCERTAIN_BELOW
     }
 }
 ```
@@ -472,8 +494,20 @@ document.addEventListener("DOMContentLoaded", () => {
         // the filled grid, same z-order the original hand-wired
         // version relied on (setGeoJSON call order == layer order).
         { source: "spatial-classifier-grid-py", from: (v) => v.gridFeatures, type: "fill",
-          paint: (v) => WebGeoDS.matchPaint(v.summary.classLabels, "predictedClass", {
-            palette: WebGeoDS.DEFAULT_PALETTE, fill: true, strokeWidth: 1.5
+          paint: (v) => ({
+            ...WebGeoDS.matchPaint(v.summary.classLabels, "predictedClass", {
+              palette: WebGeoDS.DEFAULT_PALETTE, fill: true, strokeWidth: 1.5
+            }),
+            // Opacity carries the forest's confidence (see the compute
+            // cell): nearly transparent at the lowest possible value,
+            // 1/n_classes (the trees split evenly), up to solid where
+            // every tree agrees. Colour still says WHICH class; how
+            // much of it shows says how far to trust it.
+            "fill-opacity": [
+              "interpolate", ["linear"], ["get", "confidence"],
+              1 / v.summary.classLabels.length, 0.08,
+              1, 0.6
+            ]
           }) },
         { source: "spatial-classifier-training-py", from: (v) => v.trainingFeatures, type: "circle",
           paint: (v) => ({
@@ -513,6 +547,11 @@ document.addEventListener("DOMContentLoaded", () => {
         rows.push(["Test accuracy", r.accuracy == null ? "N/A" : `${(r.accuracy * 100).toFixed(1)}%`]);
         rows.push(["Trees", r.nTrees]);
         rows.push(["Grid cells", r.gridCellCount.toLocaleString()]);
+        rows.push(["Mean confidence", `${(r.meanConfidence * 100).toFixed(0)}%`]);
+        rows.push([
+          "Uncertain cells",
+          `${r.uncertainCellCount.toLocaleString()} (${(r.uncertainCellCount / r.gridCellCount * 100).toFixed(0)}%) under ${(r.uncertainBelow * 100).toFixed(0)}% agreement`
+        ]);
         return rows;
       },
       legend: (v) => [
@@ -919,7 +958,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
 <div class="webgeods-closing-note" style="margin-top: 4px;">
 The filled grid is the model's prediction; the dots on top are your
-own labeled points, colored the same way. The thicker-outlined dots
+own labeled points, colored the same way. How solid a cell looks is
+how much of the forest agrees on its class: solid where nearly every
+tree votes the same way, faded where they split. On the example, most
+faded cells sit on the borders between classes, where nearby samples
+disagree. What the shading can't flag is distance: a forest can be
+just as confident far from every sample, simply carrying the nearest
+class outward, so a solid patch with no dots in it is still a guess.
+"Uncertain cells" above counts the ones where fewer than 60% of the
+trees agree.
+<br><br>
+The thicker-outlined dots
 are the ones held out for testing (see the legend) — for one of
 those, a color that doesn't match the patch under it is exactly the
 error the test accuracy above is measuring. A thin-outlined dot was
