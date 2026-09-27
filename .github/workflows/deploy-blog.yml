@@ -20,6 +20,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history, not the default single commit:
+          # post-render-fixups.mjs sets each sitemap <lastmod> from the
+          # page's last git commit, which a shallow clone can't tell
+          # apart (every file would get the same date).
+          fetch-depth: 0
 
       - name: Setup Quarto
         uses: quarto-dev/quarto-actions/setup@v2

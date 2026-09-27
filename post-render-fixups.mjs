@@ -3,7 +3,7 @@
 //
 // Small, independent post-render patches for things Quarto's own
 // output gets wrong or leaves undone, run AFTER `quarto render blog`.
-// Three fixes today:
+// Four fixes today:
 //
 //   1. Search index text leaking hidden code/comments (see
 //      fixSearchIndex()'s own comment for the full story).
@@ -22,6 +22,9 @@
 //      fixSitemap()'s own comment) -- found 2026-09-05 while checking
 //      Search Console's near-empty coverage against the live site's
 //      own robots.txt/sitemap.xml/canonical tags.
+//   4. sitemap.xml's <lastmod> being the render time for every page,
+//      replaced with each page's last git commit date (see
+//      fixSitemapLastmod()'s own comment) -- found 2026-09-27.
 //
 // Quarto's own search-index builder works off each .qmd's raw
 // markdown source (confirmed by inspecting .quarto/idx/*.qmd.json:
@@ -50,6 +53,7 @@
 // Quarto's internals in place.
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 const SITE_DIR = "blog/_site";
@@ -310,6 +314,72 @@ function fixSitemap() {
   console.log("post-render-fixups: sitemap -- rewrote " + fixedCount + " index.html entries to their clean directory URL in " + SITEMAP_XML);
 }
 
+// Quarto stamps every sitemap <lastmod> with the RENDER time, so each
+// full render (every deploy) claimed all pages had just changed --
+// found 2026-09-27 on the live sitemap: 32/32 entries on the same
+// date. Google stops trusting a lastmod that never discriminates.
+// Rewritten here to the date of the last git commit touching the
+// page's own .qmd source. A listing page (`listing: contents: <dir>`)
+// also changes whenever an item it lists does (new tool, edited
+// title/description), so it takes the latest commit across its own
+// .qmd AND every .qmd in the listed directory.
+//
+// Needs full git history: in a shallow clone (actions/checkout's
+// default fetch-depth: 1) the single grafted commit "introduces" every
+// file, so every page would get the same date again -- the exact bug
+// this fixes. deploy-blog.yml sets fetch-depth: 0; if the history is
+// shallow anyway, this warns and leaves Quarto's values untouched
+// rather than publishing wrong dates that look right.
+function gitLastCommitDate(pathspecs) {
+  const out = execFileSync("git", ["log", "-1", "--format=%cI", "--", ...pathspecs], { encoding: "utf8" }).trim();
+  return out ? new Date(out).toISOString() : null;
+}
+
+function listingPathspecs(qmdPath) {
+  const raw = readFileSync(qmdPath, "utf8");
+  const frontMatter = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "";
+  const contents = frontMatter.match(/^listing:\s*\n(?:[ \t]+.*\n)*?[ \t]+contents:\s*"?([^"\n]+?)"?\s*$/m)?.[1];
+  if (!contents) return [];
+  const dir = path.posix.join(path.dirname(qmdPath).split(path.sep).join("/"), contents);
+  return [dir + "/*.qmd"];
+}
+
+function fixSitemapLastmod() {
+  const shallow = execFileSync("git", ["rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim();
+  if (shallow === "true") {
+    console.warn("post-render-fixups: sitemap lastmod -- SKIPPED, shallow git clone (set fetch-depth: 0); Quarto's render-time values left as-is");
+    return;
+  }
+
+  const xml = readFileSync(SITEMAP_XML, "utf8");
+  let fixedCount = 0;
+  const unresolved = [];
+
+  const fixed = xml.replace(/<url>([\s\S]*?)<\/url>/g, (block, inner) => {
+    const loc = inner.match(/<loc>https?:\/\/[^/]+\/([^<]*)<\/loc>/)?.[1];
+    if (loc === undefined || !/<lastmod>/.test(inner)) return block;
+    const rel = (loc === "" || loc.endsWith("/")) ? loc + "index.qmd" : loc.replace(/\.html$/, ".qmd");
+    const qmdPath = path.posix.join(SRC_DIR, rel);
+    if (!existsSync(qmdPath)) {
+      unresolved.push(loc || "/");
+      return block;
+    }
+    const date = gitLastCommitDate([qmdPath, ...listingPathspecs(qmdPath)]);
+    if (!date) {
+      // Never committed (a local-only draft): no history to use.
+      unresolved.push(loc || "/");
+      return block;
+    }
+    fixedCount++;
+    return block.replace(/<lastmod>[^<]*<\/lastmod>/, "<lastmod>" + date + "</lastmod>");
+  });
+
+  writeFileSync(SITEMAP_XML, fixed);
+  console.log("post-render-fixups: sitemap lastmod -- set " + fixedCount + " entries from git history" +
+    (unresolved.length ? "; left unchanged (no committed .qmd): " + unresolved.join(", ") : ""));
+}
+
 fixSearchIndex();
 fixLogoAlt();
 fixSitemap();
+fixSitemapLastmod();
