@@ -292,8 +292,22 @@ format:
 
                   const col = document.createElement("li");
                   col.className = "dropdown-mega-col";
-                  col.innerHTML = `<h6 class="dropdown-header">${label}</h6>`;
+                  // The header is a button so that, in the collapsed
+                  // (hamburger) navbar, each group opens and closes on
+                  // its own -- see the group-toggle block below. Label
+                  // set via textContent, not innerHTML.
+                  const listId = `${id}-group-${groupIdx}`;
+                  const header = document.createElement("h6");
+                  header.className = "dropdown-header";
+                  const groupToggle = document.createElement("button");
+                  groupToggle.type = "button";
+                  groupToggle.className = "dropdown-mega-group-toggle";
+                  groupToggle.setAttribute("aria-controls", listId);
+                  groupToggle.textContent = label;
+                  header.appendChild(groupToggle);
+                  col.appendChild(header);
                   const list = document.createElement("ul");
+                  list.id = listId;
                   list.className = "list-unstyled mb-0";
                   groupItems.forEach((li) => list.appendChild(li));
                   col.appendChild(list);
@@ -319,6 +333,51 @@ format:
                     toggle.classList.add("active");
                   }
                 });
+
+                // Collapsible groups, collapsed navbar only (< 992px,
+                // Bootstrap's "lg", the navbar is navbar-expand-lg).
+                // Stacked, one dropdown is 15 links + 5 headers, taller
+                // than a phone's screen: on a 375x667 phone the last
+                // groups sat in a scroll box inside the fixed navbar
+                // with nothing hinting there was more below (found in
+                // a live navbar audit, 2026-09-28). Groups start closed,
+                // except the one holding the current page, so the menu
+                // opens as five short rows. On a wide navbar every group
+                // is always visible (styles.css) and the header buttons
+                // are disabled: not clickable, not in the tab order.
+                const narrow = window.matchMedia("(max-width: 991.98px)");
+                const cols = [...menu.querySelectorAll(".dropdown-mega-col")];
+                const setOpen = (col, open) => {
+                  col.classList.toggle("is-open", open);
+                  col.querySelector(".dropdown-mega-group-toggle").setAttribute("aria-expanded", String(open));
+                };
+                cols.forEach((col) => {
+                  setOpen(col, !!col.querySelector(".dropdown-item.active"));
+                  col.querySelector(".dropdown-mega-group-toggle").addEventListener("click", (e) => {
+                    // Bootstrap closes an open dropdown on ANY click
+                    // inside it (autoClose: true), via a document-level
+                    // listener: stopped here so opening a group doesn't
+                    // shut the whole menu.
+                    e.stopPropagation();
+                    // One group open at a time (accordion): with two
+                    // open, a 375x667 phone was back to scrolling inside
+                    // the navbar. One open keeps the menu at five
+                    // headers plus the longest group, which fits.
+                    const opening = !col.classList.contains("is-open");
+                    cols.forEach((other) => setOpen(other, false));
+                    setOpen(col, opening);
+                  });
+                });
+                const applyMode = () => {
+                  cols.forEach((col) => {
+                    const button = col.querySelector(".dropdown-mega-group-toggle");
+                    button.disabled = !narrow.matches;
+                    if (!narrow.matches) button.removeAttribute("aria-expanded");
+                    else button.setAttribute("aria-expanded", String(col.classList.contains("is-open")));
+                  });
+                };
+                applyMode();
+                narrow.addEventListener("change", applyMode);
 
                 // Keeps the open menu inside the viewport on a wide
                 // (non-collapsed) navbar: styles.css caps its width, but

@@ -143,6 +143,23 @@
   border-right: 1px solid rgba(0, 0, 0, 0.08);
 }
 
+/* Group header button (see _quarto.yml's navbar script): on a wide
+   navbar it's disabled and must look exactly like the plain header it
+   replaced -- same font, case and color, no button chrome, no dimming
+   from :disabled. Its interactive look is added below, collapsed
+   navbar only. */
+.dropdown-mega-group-toggle {
+  all: unset;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: default;
+}
+
 @media (max-width: 991.98px) {
   /* Below Quarto's own navbar-collapse breakpoint the menu renders
      inline in the collapsed panel, and the page itself scrolls -- so
@@ -165,6 +182,54 @@
   .dropdown-mega-col {
     border-right: none;
     padding: 0;
+  }
+  /* Collapsible groups: each header opens/closes its own list; closed
+     by default except the group holding the current page (see the
+     navbar script). A full-width row, 44px tall, as a touch target. */
+  .dropdown-mega-col > .dropdown-header {
+    padding: 0;
+  }
+  .dropdown-mega-group-toggle {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+    padding: 0 var(--bs-dropdown-item-padding-x, 1rem);
+  }
+  .dropdown-mega-group-toggle:focus-visible {
+    outline: 2px solid var(--terracotta);
+    outline-offset: -2px;
+  }
+  .dropdown-mega-group-toggle::after {
+    content: "";
+    width: 0.45em;
+    height: 0.45em;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+    margin-right: 0.25rem;
+  }
+  .dropdown-mega-col.is-open .dropdown-mega-group-toggle::after {
+    transform: rotate(-135deg);
+  }
+  .dropdown-mega-col:not(.is-open) > ul {
+    display: none;
+  }
+  /* Links indented past their group header, so the list reads as that
+     group's contents rather than as the next row of headers. */
+  .dropdown-mega-col .dropdown-item {
+    padding-left: calc(var(--bs-dropdown-item-padding-x, 1rem) + 1rem);
+  }
+  .dropdown-mega-col + .dropdown-mega-col {
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dropdown-mega-group-toggle::after {
+    transition: none;
   }
 }
 
