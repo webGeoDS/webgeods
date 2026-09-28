@@ -232,25 +232,60 @@ format:
             // "this menu does not support sub-menus") -- so each
             // group's label (see _quarto.yml's navbar) is inserted
             // here instead, right where its own "---" divider already
-            // marks its place. Labels are matched to dividers by
-            // POSITION (first divider -> first label, second ->
-            // second, ...) -- this doesn't assume both dropdowns carry
-            // the same number of groups, in case they ever diverge
-            // again in the future: forEach below only ever iterates
-            // the dividers actually present in each dropdown.
+            // marks its place, AND the flat list is regrouped into one
+            // <li class="dropdown-mega-col"> per group so CSS can lay
+            // groups out as side-by-side columns (see styles.css's
+            // .dropdown-mega rules). Needed once a 5th group
+            // (GeoStatistics) pushed the old single flat column taller
+            // than the viewport, with the Bootstrap dropdown offering
+            // no scroll of its own -- GeoStatistics was simply cut off
+            // below the fold with no way to reach it.
+            // Groups are matched to dividers by POSITION (first
+            // divider -> first label, second -> second, ...) -- this
+            // doesn't assume both dropdowns carry the same number of
+            // groups, in case they ever diverge again in the future:
+            // the loop below only ever iterates the dividers actually
+            // present in each dropdown.
             document.addEventListener("DOMContentLoaded", () => {
               const GROUP_LABELS = ["Vector", "Raster", "GeoML", "Network", "GeoStatistics"];
               ["nav-menu-tools", "nav-menu-articles"].forEach((id) => {
                 const toggle = document.getElementById(id);
-                const dividers = toggle?.nextElementSibling?.querySelectorAll(".dropdown-divider");
-                if (!dividers) return;
-                dividers.forEach((divider, i) => {
-                  const label = GROUP_LABELS[i];
-                  if (!label) return;
-                  const li = document.createElement("li");
-                  li.innerHTML = `<h6 class="dropdown-header">${label}</h6>`;
-                  divider.closest("li").after(li);
+                const menu = toggle?.nextElementSibling;
+                if (!menu) return;
+                const items = Array.from(menu.children);
+                const dividerIdx = [];
+                items.forEach((li, i) => {
+                  if (li.querySelector(".dropdown-divider")) dividerIdx.push(i);
                 });
+                if (dividerIdx.length === 0) return;
+
+                const fragment = document.createDocumentFragment();
+                // Items before the first divider ("All tools" / "All
+                // articles") stay as a full-width row above the columns.
+                items.slice(0, dividerIdx[0]).forEach((li) => {
+                  li.classList.add("dropdown-mega-full");
+                  fragment.appendChild(li);
+                });
+
+                dividerIdx.forEach((startIdx, groupIdx) => {
+                  const endIdx = dividerIdx[groupIdx + 1] ?? items.length;
+                  const groupItems = items.slice(startIdx + 1, endIdx); // skip the divider itself
+                  const label = GROUP_LABELS[groupIdx];
+                  if (!label || groupItems.length === 0) return;
+
+                  const col = document.createElement("li");
+                  col.className = "dropdown-mega-col";
+                  col.innerHTML = `<h6 class="dropdown-header">${label}</h6>`;
+                  const list = document.createElement("ul");
+                  list.className = "list-unstyled mb-0";
+                  groupItems.forEach((li) => list.appendChild(li));
+                  col.appendChild(list);
+                  fragment.appendChild(col);
+                });
+
+                menu.innerHTML = "";
+                menu.appendChild(fragment);
+                menu.classList.add("dropdown-mega");
               });
             });
           </script>

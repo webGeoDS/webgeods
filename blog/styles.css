@@ -75,6 +75,63 @@
   color: var(--terracotta) !important;
 }
 
+/* Tools/Articles navbar dropdowns: laid out as a megamenu (groups
+   side by side) instead of one long flat list -- see _quarto.yml's
+   include-after-body script, which regroups the <li> items into
+   .dropdown-mega-col containers at render time. Needed once a 5th
+   group (GeoStatistics) made the flat list taller than the viewport,
+   with no scroll available inside a Bootstrap dropdown. */
+/* Needs BOTH ".dropdown-menu" and ".show", not just ".dropdown-mega":
+   - ".dropdown-menu.show" (Bootstrap's own open-state rule) outranks
+     a single-class selector (two classes beat one), so a plain
+     ".dropdown-mega { display: flex }" is silently overridden the
+     moment the dropdown opens -- caught by measuring the open menu's
+     bounding box in a Playwright check (still ~220px wide, one tall
+     column) after this rule looked right in isolation.
+   - Without also requiring ".show", "display: flex" applies
+     unconditionally to every ".dropdown-mega" element, Tools' AND
+     Articles' menu alike, regardless of which one Bootstrap actually
+     opened (its own display:none default is what keeps the closed
+     one invisible) -- both then render on top of each other. Caught
+     visually: opening "Tools" showed its columns interleaved with a
+     second, unopened "All articles" / Vector column pair. */
+.dropdown-menu.dropdown-mega.show {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: max-content;
+}
+.dropdown-mega-full {
+  flex: 0 0 100%;
+}
+.dropdown-mega-col {
+  flex: 1 0 auto;
+  min-width: 9rem;
+  padding: 0 0.5rem;
+}
+.dropdown-mega-col:not(:last-child) {
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 767.98px) {
+  /* Below Quarto's own navbar-collapse breakpoint the menu renders
+     inline in the collapsed panel, and the page itself scrolls -- so
+     stack the groups back into a single column instead of forcing a
+     wide flex row into a narrow viewport.
+     Same selector (all three classes) as the base rule above, not
+     just ".dropdown-mega": confirmed on a real 390px viewport that a
+     lower-specificity override here loses to ".dropdown-menu
+     .dropdown-mega.show" and the columns stayed side by side,
+     overflowing off the right edge of the screen. */
+  .dropdown-menu.dropdown-mega.show {
+    display: block;
+    min-width: 0;
+  }
+  .dropdown-mega-col {
+    border-right: none;
+    padding: 0;
+  }
+}
+
 /* Quarto's title-block description (any page with a `description:`
    in its front matter, e.g. the homepage's one-line pitch under
    "webGeoDs"): ships with zero spacing of its own -- it sits flush
