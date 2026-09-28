@@ -690,13 +690,17 @@ document.addEventListener("DOMContentLoaded", () => {
             ...WebGeoDS.matchPaint(v.summary.classLabels, "class", {
               palette: WebGeoDS.DEFAULT_PALETTE, strokeWidth: 1.5
             }),
-            // Held-out (test) points get a thicker outline, ALWAYS --
-            // not only once one is selected. Without this, nothing on
-            // the map says which ~20% of the dots the confusion matrix
-            // and "Test accuracy" above are even about, before or
-            // after a click; heldOut is already on every feature (see
-            // the compute cell above).
-            "circle-stroke-width": ["case", ["==", ["get", "heldOut"], true], 3, 1.5]
+            // Random mode: held-out (test) points get a thicker outline,
+            // ALWAYS, not only once one is selected -- otherwise nothing
+            // on the map says which ~20% of the dots the confusion
+            // matrix and "Test accuracy" above are about. Blocks mode
+            // doesn't need it: the dashed blocks already mark them
+            // exactly (every point inside one is held out, none outside
+            // is), and a second marker for the same thing made the
+            // legend show two look-alike entries for one idea.
+            "circle-stroke-width": v.summary.heldOutBlockCount > 0
+              ? 1.5
+              : ["case", ["==", ["get", "heldOut"], true], 3, 1.5]
           }),
           // Map -> chart half of the cross-link (chart -> map is the
           // chart's own onSelect below) -- declared right next to the
@@ -752,8 +756,11 @@ document.addEventListener("DOMContentLoaded", () => {
         // Documents the outline added to the training-points layer
         // above -- a style distinction, not a class, hence outline:
         // true (a hollow swatch) instead of one more filled color.
-        { color: "#2a2117", label: "held out for testing", outline: true },
-        ...(v.summary.heldOutBlockCount > 0 ? [{ color: "#2a2117", label: "held-out block (dashed)", outline: true }] : [])
+        // One entry for "held out", drawn the way the map draws it in
+        // the current mode: a dashed block, or a thick-ringed dot.
+        v.summary.heldOutBlockCount > 0
+          ? { color: "#2a2117", label: "held out for testing (points inside)", outline: "dashed" }
+          : { color: "#2a2117", label: "held out for testing", outline: true, shape: "circle" }
       ],
       // Declarative table (compute.table -- Dashboard's first use of
       // it, replacing what used to be a hand-wired tableCell() OJS
@@ -852,10 +859,13 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
           }
           rawMap.setPaintProperty(highlightLayer.id, "circle-stroke-color", "#2a2117");
+          // Same rule as the training layer's own paint: the ring only
+          // marks held-out points in random mode; in blocks mode the
+          // dashed blocks already do.
           rawMap.setPaintProperty(
             highlightLayer.id,
             "circle-stroke-width",
-            ["case", ["==", ["get", "heldOut"], true], 3, 0]
+            v.summary.heldOutBlockCount > 0 ? 0 : ["case", ["==", ["get", "heldOut"], true], 3, 0]
           );
         };
 
@@ -1179,8 +1189,10 @@ is pessimistic; if it's close, it's about right.
 <br><br>
 The map itself is drawn from a forest trained on every point; the
 held-out points are left out only of the separate forest that scores
-it. The thicker-outlined dots are those held-out ones (see the
-legend), and their predictions in the table and the matrix below come
+it. The held-out points are the ones inside the dashed blocks, or,
+with "Random points", the dots with a thicker outline (the legend
+shows whichever applies), and their predictions in the table and the
+matrix below come
 from that scoring forest, the one that never saw them. A dot of a
 different color from the cell under it is a point the map gets wrong
 even though it was trained on it.
@@ -1190,7 +1202,7 @@ the bottom, so the diagonal is what the model got right and everything
 off it is where the mistakes went. Click any cell to put those points
 on the map and the table: unlike the bar chart above it, which selects
 every point of a class, a cell selects only the <em>held-out</em>
-points behind that cell (the same thicker-outlined dots) — an
+points behind that cell — an
 off-diagonal click is therefore the shortest way to see exactly which
 points were misclassified, and
 where they are.

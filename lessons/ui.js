@@ -172,7 +172,7 @@
 
     }
 
-    for (const { color, label, outline } of items) {
+    for (const { color, label, outline, shape } of items) {
 
       const swatch =
         document.createElement("div");
@@ -180,20 +180,38 @@
       swatch.className =
         "webgeods-legend-bar";
 
+      // shape: "circle" -- a round swatch the bar's own height across,
+      // for an entry describing how POINTS are drawn: a square next to
+      // a style that only ever appears on circles reads as a different
+      // kind of feature (found on the Spatial Classifier's legend,
+      // where a square stood for "thick-outlined dots").
+      const isCircle =
+        shape === "circle";
+
       swatch.style.flex =
-        `0 0 ${swatchWidth}px`;
+        isCircle ? "0 0 14px" : `0 0 ${swatchWidth}px`;
+
+      if (isCircle) {
+
+        swatch.style.borderRadius =
+          "50%";
+
+      }
 
       // outline: true renders a hollow box (border only) instead of a
       // filled one, for a legend entry describing a STYLE distinction
       // (e.g. "this outline marks held-out points") rather than a
       // category color -- filling it would misread as one more class.
+      // outline: "dashed" is the same with a dashed border, matching a
+      // map layer drawn with line-dasharray, so two hollow entries for
+      // two different styles don't end up with identical swatches.
       if (outline) {
 
         swatch.style.background =
           "transparent";
 
         swatch.style.border =
-          `2px solid ${color}`;
+          `2px ${outline === "dashed" ? "dashed" : "solid"} ${color}`;
 
       } else {
 
