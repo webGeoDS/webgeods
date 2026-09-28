@@ -267,11 +267,28 @@ format:
                   fragment.appendChild(li);
                 });
 
+                // Link texts that appear more than once in this menu
+                // ("Inspect" under both Vector and Raster): sighted users
+                // tell them apart by the column header, a screen reader
+                // just hears "Inspect" twice -- those get an aria-label
+                // naming their group too.
+                const textCounts = {};
+                menu.querySelectorAll("a.dropdown-item").forEach((a) => {
+                  const t = a.textContent.trim();
+                  textCounts[t] = (textCounts[t] || 0) + 1;
+                });
+
                 dividerIdx.forEach((startIdx, groupIdx) => {
                   const endIdx = dividerIdx[groupIdx + 1] ?? items.length;
                   const groupItems = items.slice(startIdx + 1, endIdx); // skip the divider itself
                   const label = GROUP_LABELS[groupIdx];
                   if (!label || groupItems.length === 0) return;
+
+                  groupItems.forEach((li) => {
+                    const a = li.querySelector("a.dropdown-item");
+                    const t = a?.textContent.trim();
+                    if (t && textCounts[t] > 1) a.setAttribute("aria-label", `${t} (${label})`);
+                  });
 
                   const col = document.createElement("li");
                   col.className = "dropdown-mega-col";
@@ -286,6 +303,37 @@ format:
                 menu.innerHTML = "";
                 menu.appendChild(fragment);
                 menu.classList.add("dropdown-mega");
+
+                // Current page: Quarto only marks top-level links as
+                // active, so on a tool or article page nothing in the
+                // navbar said where you were. Marks the matching item
+                // and its dropdown's own toggle. Paths are compared
+                // without "index.html"/".html", so "/tools/" and
+                // "/tools/index.html" count as the same page.
+                const norm = (p) => p.replace(/index\.html$/, "").replace(/\.html$/, "");
+                const here = norm(location.pathname);
+                menu.querySelectorAll("a.dropdown-item").forEach((a) => {
+                  if (norm(new URL(a.href, location.href).pathname) === here) {
+                    a.classList.add("active");
+                    a.setAttribute("aria-current", "page");
+                    toggle.classList.add("active");
+                  }
+                });
+
+                // Keeps the open menu inside the viewport on a wide
+                // (non-collapsed) navbar: styles.css caps its width, but
+                // it still opens aligned to its own toggle's left edge,
+                // and the Articles toggle sits far enough right that the
+                // menu crossed the screen edge at laptop widths. Shifted
+                // left by exactly the overflow, measured once it's
+                // visible; reset on every open so a resize between opens
+                // can't leave a stale offset behind.
+                toggle.addEventListener("shown.bs.dropdown", () => {
+                  menu.style.left = "";
+                  if (window.innerWidth < 992) return; // collapsed panel: menu is inline
+                  const overflow = menu.getBoundingClientRect().right - (window.innerWidth - 16);
+                  if (overflow > 0) menu.style.left = `${-overflow}px`;
+                });
               });
             });
           </script>

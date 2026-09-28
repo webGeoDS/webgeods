@@ -2,15 +2,16 @@
 title: "Filling Raster Gaps with Cokriging"
 date: 2026-09-20
 categories: [tool, geostatistics]
-description: "A cloud-covered satellite band, a sparse survey rasterized with mostly-empty cells: fill the gaps using a second, fully-populated band as a covariate, via cokriging instead of single-variable kriging. Runs on R; Python shown as reference only."
+description: "A cloud-covered satellite band, a sparse survey rasterized with mostly-empty cells: fill the gaps using a second, correlated band as a covariate, via cokriging instead of single-variable kriging. Runs on R; Python shown as reference only."
 ---
 
 The [kriging article](/posts/kriging-soil-sampling.html) on this site
 predicts a value everywhere from scattered points, using only how far
 apart those points are. But a raster with gaps is a different problem:
 you already have a dense grid, most of it valid, and a second band of
-the *same file* that's fully populated and correlated with the one
-that isn't (elevation next to a cloud-gapped spectral band, say).
+the *same file* that's correlated with it and valid where it isn't,
+at least in part (elevation next to a cloud-gapped spectral band,
+say).
 Ignoring that second band and kriging the gaps from the target's own
 neighbours alone throws away real information. Cokriging is kriging
 that uses it: fit a model of how the *two* bands vary together, not

@@ -75,6 +75,28 @@
   color: var(--terracotta) !important;
 }
 
+/* The current page inside a Tools/Articles dropdown (marked by the
+   navbar script in _quarto.yml, which also marks its parent toggle
+   with .nav-link.active above). Bootstrap's own .dropdown-item.active
+   is a solid primary-color bar with white text, far louder than the
+   top-level indicator; matched to it instead: accent text, semibold. */
+.navbar .dropdown-item.active,
+.navbar .dropdown-item.active:hover,
+.navbar .dropdown-item.active:focus {
+  background: transparent;
+  color: var(--terracotta);
+  font-weight: 600;
+}
+
+/* Hamburger button: 34x34px by default, under the 44px minimum touch
+   target (Apple HIG, WCAG 2.5.5). Padding rather than a fixed size, so
+   the icon itself stays where Quarto puts it. */
+.navbar .navbar-toggler {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.35rem 0.5rem;
+}
+
 /* Tools/Articles navbar dropdowns: laid out as a megamenu (groups
    side by side) instead of one long flat list -- see _quarto.yml's
    include-after-body script, which regroups the <li> items into
@@ -98,7 +120,16 @@
 .dropdown-menu.dropdown-mega.show {
   display: flex;
   flex-wrap: wrap;
-  min-width: max-content;
+  /* As wide as its columns need, but never wider than the viewport:
+     "min-width: max-content" alone (the original rule) forbade
+     wrapping, so at 992-1165px (laptops, tablets in landscape) the
+     menu ran off the right edge and cut the last column (GeoStatistics)
+     in half -- found in a live navbar audit, 2026-09-28. Past this cap
+     the columns wrap onto a second row instead; the navbar script in
+     _quarto.yml also shifts the menu left when it would still cross the
+     right edge. */
+  width: max-content;
+  max-width: calc(100vw - 2rem);
 }
 .dropdown-mega-full {
   flex: 0 0 100%;
@@ -112,11 +143,15 @@
   border-right: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-@media (max-width: 767.98px) {
+@media (max-width: 991.98px) {
   /* Below Quarto's own navbar-collapse breakpoint the menu renders
      inline in the collapsed panel, and the page itself scrolls -- so
      stack the groups back into a single column instead of forcing a
-     wide flex row into a narrow viewport.
+     wide flex row into a narrow viewport. That breakpoint is Bootstrap's
+     "lg" (992px, the navbar is navbar-expand-lg), not 768: with 767.98
+     here, 768-991px viewports (tablets) got the collapsed hamburger
+     panel AND side-by-side columns 835-880px wide, overflowing the
+     screen -- found in the same 2026-09-28 audit.
      Same selector (all three classes) as the base rule above, not
      just ".dropdown-mega": confirmed on a real 390px viewport that a
      lower-specificity override here loses to ".dropdown-menu
@@ -124,6 +159,7 @@
      overflowing off the right edge of the screen. */
   .dropdown-menu.dropdown-mega.show {
     display: block;
+    width: auto;
     min-width: 0;
   }
   .dropdown-mega-col {

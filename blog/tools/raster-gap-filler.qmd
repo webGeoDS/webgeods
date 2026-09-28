@@ -2,15 +2,16 @@
 title: "Raster Gap Filler"
 date: 2026-09-20
 categories: [tool, geostatistics]
-description: "Upload a multi-band raster and fill the gaps in one band using a second, fully-populated band as a covariate — cokriging instead of single-variable kriging. Runs entirely in your browser, powered by R."
+description: "Upload a multi-band raster and fill the gaps in one band using a second, correlated band as a covariate — cokriging instead of single-variable kriging. Runs entirely in your browser, powered by R."
 page-layout: full
 ---
 
 Upload a raster with two or more bands — a satellite band with cloud
 gaps, a field survey rasterized with mostly-empty cells, anything with
 real holes in it — pick the band to fill (the *target*) and, if you
-have one, a second band with no gaps that's correlated with it (the
-*covariate*, elevation or another spectral band are common choices).
+have one, a second band that's correlated with it (the *covariate*,
+elevation or another spectral band are common choices). The covariate
+can have gaps of its own: pixels missing in both bands stay empty.
 This tool fits a variogram model between the two, then predicts the
 target's missing values from wherever the covariate is available —
 cokriging, not just averaging nearby pixels. Skip the covariate and it
