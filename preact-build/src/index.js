@@ -26,6 +26,7 @@ import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
 import { VegaChart } from "./components/VegaChart.js";
 import { ForceGraph } from "./components/ForceGraph.js";
+import { ToolDashboard } from "./components/ToolDashboard.js";
 import { ControlPanel, SelectInput, SliderInput, ComputeButton } from "./components/ControlPanel.js";
 import { StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT } from "./components/Layout.js";
 import { useCellRunner, findCell } from "./hooks/useCellRunner.js";
@@ -76,7 +77,7 @@ window.WebGeoDS.Preact = {
   // console; pages themselves import them directly.
   lib: {
     h, render, hooks,
-    DomNode, MapView, DataTable, featureRows, featureKey, VegaChart, ForceGraph,
+    DomNode, MapView, DataTable, featureRows, featureKey, VegaChart, ForceGraph, ToolDashboard,
     ControlPanel, SelectInput, SliderInput, ComputeButton,
     StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT,
     useCellRunner, findCell, useToolData, useCellValue, useResizeTick

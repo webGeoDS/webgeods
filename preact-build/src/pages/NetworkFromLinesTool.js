@@ -1,164 +1,90 @@
 // Network from Lines tool (blog/tools/network-from-lines.qmd): the
 // interactive layer around the page's hidden Python cells, which build a
 // graph from a line layer (nodes at the snapped endpoints, one edge per
-// line). Replaces the WebGeoDS.Dashboard config + onResult it had before;
-// the cells, prose and URL are unchanged.
+// line). A ToolDashboard config; the cells, prose and URL are unchanged.
 //
-// One `selection` state drives map, diagram and chart:
-//   null
-//   { kind: "node", id, component }   a node clicked on the map or diagram
-//   { kind: "component", component }  a bar: every node of that component
-// A node lights up on map and diagram and its component's bar lights up
-// in the chart; a bar lights up every node of the component. The same
-// click again clears it.
-import { useEffect, useMemo, useState } from "preact/hooks";
-import { useToolData } from "../hooks/useToolData.js";
-import { MapView } from "../components/MapView.js";
-import { ForceGraph } from "../components/ForceGraph.js";
-import { VegaChart } from "../components/VegaChart.js";
-import { ControlPanel, SliderInput, ComputeButton } from "../components/ControlPanel.js";
-import { StatCard, Legend, MapWithSidePanel, DEFAULT_MAP_HEIGHT } from "../components/Layout.js";
+// Selection: a node ({ node }) from the map or the diagram, or a whole
+// component ({ component }) from its bar. A node lights up on map and
+// diagram and its component's bar lights up in the chart.
+import { ToolDashboard } from "../components/ToolDashboard.js";
 
-const TOOL = "network-from-lines";
-const CELLS = {
-  example: "network-example-py",
-  inspect: "network-inspect-py",
-  compute: "network-build-py"
-};
-const SRC = {
-  input: "network-input-py",
-  edges: "network-edges-py",
-  nodes: "network-nodes-py",
-  selection: "network-selection"
-};
-const EMPTY_STATS = [["—", "Upload a file or load the example above"]];
-
-const sameSelection = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const paletteColor = (i) => window.WebGeoDS.DEFAULT_PALETTE[i % window.WebGeoDS.DEFAULT_PALETTE.length];
 const componentColor = (feature) => paletteColor(feature.properties.component ?? 0);
 
-export function NetworkFromLinesTool() {
+const CONFIG = {
+  tool: "network-from-lines",
+  cells: {
+    example: "network-example-py",
+    inspect: "network-inspect-py",
+    compute: "network-build-py"
+  },
+  exampleStatus: "✓ example data loaded — try Build Graph, then raise the snap tolerance.",
+  inputs: [
+    { kind: "slider", name: "snapTolerance", label: "Snap tolerance (m)", min: 0, max: 20, step: 1, value: 0 }
+  ],
+  computeLabel: "▶ Build graph",
+  busyLabel: "⌛ Building...",
+  map: { center: [12.46, 41.906], zoom: 14 },
+  fit: { inspect: (v) => v.features, result: (v) => v.edges },
 
-  const tool = useToolData({
-    tool: TOOL,
-    cells: CELLS,
-    initialInputs: { snapTolerance: 0 },
-    exampleStatus: "✓ example data loaded — try Build Graph, then raise the snap tolerance.",
-    computeLabel: "⌛ Building...",
-    download: {
-      // Nodes and edges in one file, tagged so they're one filter apart
-      // in QGIS or similar.
-      getFeatures: (result) => ({
-        type: "FeatureCollection",
-        features: [
-          ...result.nodes.features.map((f) => ({ ...f, properties: { ...f.properties, kind: "node" } })),
-          ...result.edges.features.map((f) => ({ ...f, properties: { ...f.properties, kind: "edge" } }))
-        ]
-      }),
-      filenameSuffix: "-graph.geojson",
-      defaultFilename: "network-graph.geojson"
-    }
-  });
-  const { inspect, result, inputs, setInput, busy } = tool;
+  selectable: { id: "network-nodes-py", from: ({ result }) => result?.nodes ?? null, layer: "network-selection" },
 
-  const [selection, setSelection] = useState(null);
-  const [fitTo, setFitTo] = useState(null);
-  const select = (next) => setSelection((current) => (sameSelection(current, next) ? null : next));
+  layers: ({ inspect, result }) => [
+    { id: "network-input-py", type: "line", data: inspect?.features ?? null },
+    ...(result ? [
+      {
+        id: "network-edges-py", type: "line", data: result.edges,
+        paint: window.WebGeoDS.matchPaint(result.componentIds, "component", { line: true, lineWidth: 3 })
+      },
+      {
+        id: "network-nodes-py", type: "circle", data: result.nodes,
+        paint: window.WebGeoDS.matchPaint(result.componentIds, "component", { radius: 5 }),
+        selectBy: (feature) => ({ node: Number(feature.properties.node) })
+      }
+    ] : [])
+  ],
 
-  // New data clears the selection; the map zooms to the lines on inspect
-  // and to the built graph after Build graph.
-  useEffect(() => setSelection(null), [inspect, result]);
-  useEffect(() => setFitTo(inspect?.features ?? null), [inspect]);
-  useEffect(() => { if (result) setFitTo(result.edges); }, [result]);
+  side: {
+    id: "nfl-diagram",
+    panels: [
+      // The topology takes the free height, the chart sits under it.
+      {
+        kind: "diagram", idField: "node", color: componentColor,
+        nodes: ({ result }) => result?.nodes, links: ({ result }) => result?.edges
+      },
+      {
+        kind: "chart", height: 160,
+        spec: ({ result }) => (result ? componentChartSpec(result.componentSizes) : null),
+        selectParams: ["componentSelect"], externalParam: "componentExternal", keyField: "component",
+        toKey: (selection, nodes) => (nodes.length ? String(nodes[0].properties.component) : null),
+        fromKey: (key) => ({ component: Number(key) })
+      }
+    ]
+  },
 
-  const selectNode = (id, component) => select({ kind: "node", id: Number(id), component });
+  stats: {
+    empty: [["—", "Upload a file or load the example above"]],
+    inspect: inspectStats,
+    result: (result) => graphStats(result.summary)
+  },
+  legend: ({ result }) => result?.componentIds.map((id, i) => ({ color: paletteColor(i), label: `Component ${id + 1}` })),
 
-  // ---- what the selection covers --------------------------------------
+  download: {
+    // Nodes and edges in one file, tagged so they're one filter apart
+    // in QGIS or similar.
+    getFeatures: (result) => ({
+      type: "FeatureCollection",
+      features: [
+        ...result.nodes.features.map((f) => ({ ...f, properties: { ...f.properties, kind: "node" } })),
+        ...result.edges.features.map((f) => ({ ...f, properties: { ...f.properties, kind: "edge" } }))
+      ]
+    }),
+    filenameSuffix: "-graph.geojson",
+    defaultFilename: "network-graph.geojson"
+  }
+};
 
-  const selectedNodes = useMemo(() => {
-    if (!selection || !result) return [];
-    return result.nodes.features.filter((f) =>
-      selection.kind === "node" ? f.properties.node === selection.id : f.properties.component === selection.component
-    );
-  }, [selection, result]);
-
-  const selectedIds = useMemo(() => selectedNodes.map((f) => f.properties.node), [selectedNodes]);
-  const chartKey = selection ? String(selection.component) : null;
-
-  // ---- map layers, bottom to top ----------------------------------------
-
-  const layers = useMemo(() => {
-    const list = [{ id: SRC.input, type: "line", data: inspect?.features ?? null }];
-    if (result) {
-      list.push(
-        {
-          id: SRC.edges, type: "line", data: result.edges,
-          paint: window.WebGeoDS.matchPaint(result.componentIds, "component", { line: true, lineWidth: 3 })
-        },
-        {
-          id: SRC.nodes, type: "circle", data: result.nodes,
-          paint: window.WebGeoDS.matchPaint(result.componentIds, "component", { radius: 5 }),
-          onClick: (feature) => selectNode(feature.properties.node, feature.properties.component)
-        }
-      );
-    }
-    list.push({
-      id: SRC.selection, type: "circle",
-      data: { type: "FeatureCollection", features: selectedNodes },
-      paint: { "circle-color": "#ffeb3b", "circle-radius": 8, "circle-stroke-color": "#2a2117", "circle-stroke-width": 1.5 }
-    });
-    return list;
-  }, [inspect, result, selectedNodes]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ---- stats, legend, chart -----------------------------------------------
-
-  const stats = result ? graphStats(result.summary) : inspect ? inspectStats(inspect) : EMPTY_STATS;
-  const legend = result
-    ? result.componentIds.map((id, i) => ({ color: paletteColor(i), label: `Component ${id + 1}` }))
-    : null;
-  const chartSpec = useMemo(() => (result ? componentChartSpec(result.componentSizes) : null), [result]);
-
-  return (
-    <div class="webgeods-dashboard">
-      <ControlPanel {...tool.panelProps}>
-        <SliderInput id={`${TOOL}-snapTolerance`} label="Snap tolerance (m)" min={0} max={20} step={1}
-          value={inputs.snapTolerance} onChange={setInput("snapTolerance")} disabled={busy} />
-        <ComputeButton label="▶ Build graph" disabled={!tool.canCompute} onClick={tool.compute} />
-      </ControlPanel>
-
-      <StatCard rows={stats} />
-
-      <MapWithSidePanel
-        sideId="nfl-diagram"
-        height={DEFAULT_MAP_HEIGHT}
-        map={<MapView tool={TOOL} height={DEFAULT_MAP_HEIGHT} center={[12.46, 41.906]} zoom={14}
-          layers={layers} fitTo={fitTo} flushTop />}
-        side={result && (
-          // The topology diagram takes the free height; the component-size
-          // chart sits under it at a fixed 160px.
-          <div style="display: flex; flex-direction: column; gap: 8px; height: 100%;">
-            <div style="flex: 1 1 auto; min-height: 0;">
-              <ForceGraph nodes={result.nodes} links={result.edges}
-                nodeColor={componentColor} linkColor={componentColor}
-                selectedIds={selectedIds}
-                onNodeClick={(id, feature) => selectNode(id, feature.properties.component)} />
-            </div>
-            <div style="flex: 0 0 160px; min-height: 0;">
-              <VegaChart spec={chartSpec} selectParams={["componentSelect"]}
-                externalParam="componentExternal" keyField="component"
-                style={{ height: "100%" }}
-                selected={chartKey}
-                onSelect={(component) => setSelection(component == null ? null : { kind: "component", component: Number(component) })} />
-            </div>
-          </div>
-        )}
-      />
-
-      <Legend items={legend} />
-    </div>
-  );
-
-}
+export const NetworkFromLinesTool = () => <ToolDashboard config={CONFIG} />;
 
 function inspectStats(value) {
   const s = value.summary;
