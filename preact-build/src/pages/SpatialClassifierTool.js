@@ -12,7 +12,7 @@
 // Selecting the same thing again clears it; any selection zooms to its
 // points (the behavior of the shared table engine this replaces).
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { useCellRunner } from "../hooks/useCellRunner.js";
+import { useToolData } from "../hooks/useToolData.js";
 import { MapView } from "../components/MapView.js";
 import { DataTable, featureRows, featureKey } from "../components/DataTable.js";
 import { VegaChart } from "../components/VegaChart.js";
@@ -49,64 +49,34 @@ const sameSelection = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 export function SpatialClassifierTool({ tablesTarget = "#sc-tables" }) {
 
-  const runner = useCellRunner();
-  const [inspect, setInspect] = useState(null);   // inspect cell value
-  const [result, setResult] = useState(null);     // compute cell value
-  const [files, setFiles] = useState(null);
-  const [uploadKind, setUploadKind] = useState(null);
-  const [selection, setSelectionRaw] = useState(null);
+  const tool = useToolData({
+    tool: TOOL,
+    cells: CELLS,
+    initialInputs: { classColumn: "", holdout: HOLDOUT_OPTIONS[0], nTrees: 100, gridResolution: 20 },
+    // Default class column: "class" if the file has one, else the first.
+    inputsFromInspect: (value, inputs) => {
+      const columns = value?.summary?.columns ?? [];
+      return { ...inputs, classColumn: columns.includes("class") ? "class" : (columns[0] ?? "") };
+    },
+    exampleStatus: EXAMPLE_STATUS,
+    computeLabel: "⌛ Training...",
+    download: {
+      getFeatures: (result) => result.originalCrsFeatures,
+      filenameSuffix: "-classified-surface.geojson",
+      defaultFilename: "classified-surface.geojson",
+      shapefile: { filenameSuffix: "-classified-surface.zip", defaultFilename: "classified-surface-shapefile.zip" }
+    }
+  });
+  const { inspect, result, inputs, setInput, busy } = tool;
+
+  const [selection, setSelection] = useState(null);
   const [fitTo, setFitTo] = useState(null);
-  const [inputs, setInputs] = useState({
-    classColumn: "", holdout: HOLDOUT_OPTIONS[0], nTrees: 100, gridResolution: 20
-  });
+  const select = (next) => setSelection((current) => (sameSelection(current, next) ? null : next));
 
-  const select = (next) => setSelectionRaw((current) => (sameSelection(current, next) ? null : next));
-  const setInput = (name) => (value) => setInputs((current) => ({ ...current, [name]: value }));
-
-  // ---- running the cells ---------------------------------------------
-
-  const runInspect = async () => {
-    const value = await runner.runCell(CELLS.inspect);
-    const columns = value?.summary?.columns ?? [];
-    setInspect(value);
-    setResult(null);
-    setSelectionRaw(null);
-    setFitTo(value?.features ?? null);
-    setInputs((current) => ({ ...current, classColumn: columns.includes("class") ? "class" : (columns[0] ?? "") }));
-  };
-
-  const loadExample = () => runner.queue("⌛ Loading example...", async () => {
-    await runner.runCell(CELLS.example);
-    setUploadKind("geojson");
-    await runInspect();
-    return EXAMPLE_STATUS;
-  });
-
-  const handleFiles = (fileList) => runner.queue("⌛ Loading...", async () => {
-    const loaded = await window.WebGeoDS.Upload.load(fileList, { languages: ["python"] });
-    setFiles(fileList);
-    if (!loaded.ok) return loaded.message;
-    setUploadKind(loaded.kind);
-    await runInspect();
-    return loaded.message;
-  });
-
-  const compute = () => runner.queue("⌛ Training...", async () => {
-    const value = await runner.runCell(CELLS.compute, inputs);
-    setResult(value);
-    setSelectionRaw(null);
-    window.WebGeoDS.track?.("validation_completed", { tool: TOOL });
-    return "✓ Done.";
-  });
-
-  const reset = () => runner.queue("Resetting...", async () => {
-    setInspect(null);
-    setResult(null);
-    setFiles(null);
-    setUploadKind(null);
-    setSelectionRaw(null);
-    return window.WebGeoDS.Upload.defaultStatus;
-  });
+  // New data (inspect, compute, reset) invalidates the selection; new
+  // inspect data is also what the map zooms to.
+  useEffect(() => setSelection(null), [inspect, result]);
+  useEffect(() => setFitTo(inspect?.features ?? null), [inspect]);
 
   // ---- what the selection covers ---------------------------------------
 
@@ -238,41 +208,20 @@ export function SpatialClassifierTool({ tablesTarget = "#sc-tables" }) {
   const selectedKeys = selectedPoints.map((f) => featureKey(SRC.points, f, points.features.indexOf(f)));
 
   const columns = inspect?.summary?.columns ?? [];
-  const canCompute = !!inspect && !runner.busy;
 
   return (
     <div class="webgeods-dashboard">
-      <ControlPanel
-        upload={{ label: "📁 Upload", kind: "vector", onFiles: handleFiles }}
-        example={{ onClick: loadExample }}
-        download={{
-          enabled: !!result,
-          getFeatures: () => result?.originalCrsFeatures ?? null,
-          getBaseName: () => window.WebGeoDS.Upload.baseName(files),
-          filenameSuffix: "-classified-surface.geojson",
-          defaultFilename: "classified-surface.geojson",
-          tool: TOOL,
-          uploadKind,
-          shapefile: {
-            cellId: CELLS.exportShp,
-            filenameSuffix: "-classified-surface.zip",
-            defaultFilename: "classified-surface-shapefile.zip"
-          }
-        }}
-        onReset={reset}
-        status={runner.status}
-        busy={runner.busy}
-      >
+      <ControlPanel {...tool.panelProps}>
         <SelectInput id={`${TOOL}-classColumn`} label="Class column:" options={columns}
-          value={inputs.classColumn} onChange={setInput("classColumn")} disabled={runner.busy} />
+          value={inputs.classColumn} onChange={setInput("classColumn")} disabled={busy} />
         {/* Blocks first and default: the cautious estimate for a map. */}
         <SelectInput id={`${TOOL}-holdout`} label="Held out:" options={HOLDOUT_OPTIONS}
-          value={inputs.holdout} onChange={setInput("holdout")} disabled={runner.busy} />
+          value={inputs.holdout} onChange={setInput("holdout")} disabled={busy} />
         <SliderInput id={`${TOOL}-nTrees`} label="Trees" min={10} max={300} step={10}
-          value={inputs.nTrees} onChange={setInput("nTrees")} disabled={runner.busy} />
+          value={inputs.nTrees} onChange={setInput("nTrees")} disabled={busy} />
         <SliderInput id={`${TOOL}-gridResolution`} label="Grid resolution" min={10} max={40} step={5}
-          value={inputs.gridResolution} onChange={setInput("gridResolution")} disabled={runner.busy} />
-        <ComputeButton disabled={!canCompute} onClick={compute} />
+          value={inputs.gridResolution} onChange={setInput("gridResolution")} disabled={busy} />
+        <ComputeButton disabled={!tool.canCompute} onClick={tool.compute} />
       </ControlPanel>
 
       <StatCard rows={stats} />
@@ -288,7 +237,7 @@ export function SpatialClassifierTool({ tablesTarget = "#sc-tables" }) {
             externalParam="classExternal"
             keyField="key"
             selected={chartKeyFor(selection)}
-            onSelect={(key) => setSelectionRaw(selectionFromChartKey(key))}
+            onSelect={(key) => setSelection(selectionFromChartKey(key))}
           />
         )}
       />
