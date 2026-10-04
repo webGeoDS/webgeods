@@ -31,6 +31,22 @@ export async function findCell(id) {
 
 }
 
+// "⌛ Training..." -> "Training", for the failure message.
+function actionName(label) {
+  return label.replace(/^[^\p{L}]+/u, "").replace(/\.+$/, "") || label;
+}
+
+// A Python error arrives as its whole traceback (Pyodide's internal
+// frames first): in a one-line status bar only its last line, the
+// exception and its message, says anything to the reader. The full
+// traceback still goes to the console above.
+function readableError(err) {
+  const message = String(err?.message ?? err);
+  if (!/Traceback \(most recent call last\)/.test(message)) return message;
+  const lines = message.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines[lines.length - 1];
+}
+
 export function useCellRunner(initialStatus) {
 
   const chain = useRef(Promise.resolve());
@@ -50,7 +66,7 @@ export function useCellRunner(initialStatus) {
         if (typeof done === "string") setStatus(done);
       } catch (err) {
         console.error(`WebGeoDS.Preact: ${label} failed`, err);
-        setStatus(`⚠️ ${label} failed: ${err.message}`);
+        setStatus(`⚠️ ${actionName(label)} failed: ${readableError(err)}`);
       } finally {
         setBusy(false);
       }

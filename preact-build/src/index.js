@@ -17,6 +17,7 @@
 import { h, render } from "preact";
 import * as hooks from "preact/hooks";
 import { SelfTest } from "./pages/SelfTest.js";
+import { SpatialClassifierTool } from "./pages/SpatialClassifierTool.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
@@ -30,7 +31,8 @@ import { useResizeTick } from "./hooks/useResizeTick.js";
 const PAGES = {
   // Used only by verify-bundle.mjs: exercises state, effects and a
   // portal, the three things every real page component relies on.
-  "self-test": SelfTest
+  "self-test": SelfTest,
+  "spatial-classifier-tool": SpatialClassifierTool
 };
 
 function mount(name, target, props = {}) {
