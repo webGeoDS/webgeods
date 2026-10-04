@@ -239,12 +239,17 @@
 
     }
 
+    // Only drives the highlight: `selectedKey` above tracks what the
+    // chart's OWN point selection last reported, to skip repeated
+    // signal events for it, and must not be overwritten from outside.
+    // It used to be, and then a real click on the bar a map/diagram
+    // selection had just highlighted (e.g. a node's component, to see
+    // the whole component) looked like a repeat and was dropped: the
+    // click did nothing (found 2026-10-04 migrating Network from Lines,
+    // present in the Dashboard version too).
     function setSelected(key) {
 
-      selectedKey =
-        key ?? null;
-
-      view.signal(externalParam, selectedKey);
+      view.signal(externalParam, key ?? null);
       view.runAsync();
 
     }

@@ -24,36 +24,8 @@ map.
 
 ## 1. Upload your data
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python", "r"] });
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 No file uploaded? Both cells below fall back to the same eight-line
 example: a closed block (four segments forming one connected loop), a
@@ -64,20 +36,8 @@ mistake in it: it's what section 3 below is about.
 
 ## 2. Same lines, two languages
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.49, 41.905], zoom: 13, height: "420px" });
-  await map.ready();
-  return map;
-}
-```
-
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+::: {#lab-map style="min-height: 440px;"}
+:::
 
 ::: {.panel-tabset}
 
@@ -411,210 +371,11 @@ jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FAL
 
 :::
 
-```{ojs}
-//| echo: false
-mutable pySummary = null
-```
+::: {#lab-crs}
+:::
 
-```{ojs}
-//| echo: false
-mutable rSummary = null
-```
-
-```{ojs}
-//| echo: false
-mutable crsWarning = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-LINE_MAP_PAINT = ({
-  "line-color": "#3d5a73",
-  "line-width": 3
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// `instance` (the live WebGeoDS.renderForceGraph() handle) is a plain
-// mutated property, not a second `mutable` -- reading/writing it below
-// never triggers OJS's own reactivity, unlike a `mutable diagram0m`
-// would have (found the hard way: referencing a mutable's current
-// value from inside resetNetworkArticle made THAT cell, and the reset
-// button built from it, rebuild every time a diagram was (re)drawn).
-graphPanel = (label) => {
-  const wrap = document.createElement("div");
-  wrap.style.flex = "1";
-  wrap.style.minWidth = "260px";
-
-  const heading = document.createElement("div");
-  heading.className = "webgeods-label";
-  heading.textContent = label;
-  wrap.appendChild(heading);
-
-  const box = document.createElement("div");
-  box.style.cssText = "height: 220px; border: 1px solid #d8cdb8; border-radius: 4px;";
-  wrap.appendChild(box);
-
-  return { wrap, box, instance: null };
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-graph0m = graphPanel("Graph at 0m")
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-graph5m = graphPanel("Graph at 5m")
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-graphsRow = {
-  const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.flexWrap = "wrap";
-  row.style.gap = "16px";
-  row.append(graph0m.wrap, graph5m.wrap);
-  return row;
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Same palette the standalone tool colors its own graph with
-// (WebGeoDS.DEFAULT_PALETTE, shared/ui.js) -- one color per connected
-// component, so "how many colors" is a direct visual answer to "how
-// many pieces."
-componentColor = (f) => WebGeoDS.DEFAULT_PALETTE[(f.properties.component ?? 0) % WebGeoDS.DEFAULT_PALETTE.length]
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Draws the map + both diagrams from WHICHEVER language's result comes
-// in first -- called from both the Python and the R effect cells
-// below, so a reader who runs only one language (in either order)
-// still sees the map and the graphs, not a silently empty page.
-// Harmless if both run: the second call just redraws the same picture
-// the first one already drew, since Python and R compute the
-// identical graph.
-drawNetwork = async (result) => {
-  mutable crsWarning = result.crsWarning;
-  await sharedMap.setGeoJSON("network-from-lines-map", result.features, { paint: LINE_MAP_PAINT });
-  await sharedMap.fitToData(result.features);
-
-  graph0m.instance?.destroy();
-  graph0m.instance = WebGeoDS.renderForceGraph(
-    graph0m.box,
-    { nodes: result.at0m.nodeFeatures, links: result.at0m.edgeFeatures },
-    { nodeColor: componentColor, linkColor: componentColor }
-  );
-  graph5m.instance?.destroy();
-  graph5m.instance = WebGeoDS.renderForceGraph(
-    graph5m.box,
-    { nodes: result.at5m.nodeFeatures, links: result.at5m.edgeFeatures },
-    { nodeColor: componentColor, linkColor: componentColor }
-  );
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyResult = WebGeoDS.getCellValue("network-from-lines-py", Generators)
-{
-  if (pyResult) {
-    mutable pySummary = pyResult;
-    await drawNetwork(pyResult);
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rResult = WebGeoDS.getCellValue("network-from-lines-r", Generators)
-{
-  if (rResult) {
-    mutable rSummary = rResult;
-    await drawNetwork(rResult);
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-crsWarningEl = {
-  const div = document.createElement("div");
-  div.className = "webgeods-panel-status";
-  if (crsWarning) div.textContent = `⚠️ ${crsWarning}`;
-  return div;
-}
-```
-
-${crsWarningEl}
-
-```{ojs}
-//| echo: false
-statCard = (label, s) => {
-  const wrap = document.createElement("div");
-  wrap.style.flex = "1";
-  wrap.style.minWidth = "260px";
-
-  const heading = document.createElement("div");
-  heading.className = "webgeods-label";
-  heading.textContent = label;
-  wrap.appendChild(heading);
-
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  wrap.appendChild(box);
-
-  const row = (rowLabel, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = rowLabel;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-
-  if (!s) {
-    row("Calculation CRS", "—");
-    return wrap;
-  }
-
-  row("Calculation CRS", s.calculationCrs);
-  row("At 0m — nodes / edges / components", `${s.at0m.nodes} / ${s.at0m.edges} / ${s.at0m.components}`);
-  row("At 5m — nodes / edges / components", `${s.at5m.nodes} / ${s.at5m.edges} / ${s.at5m.components}`);
-
-  return wrap;
-}
-```
-
-```{ojs}
-//| echo: false
-statCardsRow = {
-  const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.flexWrap = "wrap";
-  row.style.gap = "16px";
-  row.append(statCard("Python", pySummary), statCard("R", rSummary));
-  return row;
-}
-```
-
-${statCardsRow}
+::: {#lab-stats}
+:::
 
 The map above shows *where* the lines are; the two diagrams below show
 *how they're connected*: same graph the counts above describe, laid
@@ -623,31 +384,11 @@ Drawn from whichever language you ran (if you run both, the second one
 just redraws the same picture, since Python and R agree on the graph,
 so there's nothing a second drawing would show differently).
 
-${graphsRow}
+::: {#lab-graphs style="min-height: 250px;"}
+:::
 
-```{ojs}
-//| echo: false
-resetNetworkArticle = async () => {
-  if (sharedMap.getGeoJSON("network-from-lines-map")) {
-    await sharedMap.setGeoJSON("network-from-lines-map", { type: "FeatureCollection", features: [] });
-  }
-  graph0m.instance?.destroy();
-  graph0m.instance = null;
-  graph5m.instance?.destroy();
-  graph5m.instance = null;
-  mutable pySummary = null;
-  mutable rSummary = null;
-  mutable crsWarning = null;
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-resetMapButton = WebGeoDS.resetButton(resetNetworkArticle, "🔄 Reset map and cards")
-```
-
-${resetMapButton}
+::: {#lab-reset}
+:::
 
 ## 3. Same lines, two different answers
 
@@ -683,5 +424,17 @@ real analytical decision, not a technicality to skip past.
 - **Wondering why the coordinate system needed picking at all?** →
   [Coordinate Reference Systems](crs-mismatch.qmd) covers the
   geographic/projected distinction this article leaned on in section 2.
+
+<!-- The interactive parts of this page (upload, map, stat cards, the two
+     graph diagrams, reset) are one Preact component,
+     preact-build/src/pages/NetworkFromLinesLab.js, rendered into the empty
+     #lab-* slots above. It reads the Python/R cells' results; the cells
+     themselves are unchanged. -->
+<div id="lab-root"></div>
+<script src="/webgeods-preact.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () =>
+  WebGeoDS.Preact.mount("network-from-lines-lab", "#lab-root"));
+</script>
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

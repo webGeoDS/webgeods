@@ -19,10 +19,13 @@ import * as hooks from "preact/hooks";
 import { SelfTest } from "./pages/SelfTest.js";
 import { SpatialClassifierTool } from "./pages/SpatialClassifierTool.js";
 import { SpatialClassificationLab } from "./pages/SpatialClassificationLab.js";
+import { NetworkFromLinesTool } from "./pages/NetworkFromLinesTool.js";
+import { NetworkFromLinesLab } from "./pages/NetworkFromLinesLab.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
 import { VegaChart } from "./components/VegaChart.js";
+import { ForceGraph } from "./components/ForceGraph.js";
 import { ControlPanel, SelectInput, SliderInput, ComputeButton } from "./components/ControlPanel.js";
 import { StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT } from "./components/Layout.js";
 import { useCellRunner, findCell } from "./hooks/useCellRunner.js";
@@ -35,7 +38,9 @@ const PAGES = {
   // portal, the three things every real page component relies on.
   "self-test": SelfTest,
   "spatial-classifier-tool": SpatialClassifierTool,
-  "spatial-classification-lab": SpatialClassificationLab
+  "spatial-classification-lab": SpatialClassificationLab,
+  "network-from-lines-tool": NetworkFromLinesTool,
+  "network-from-lines-lab": NetworkFromLinesLab
 };
 
 function mount(name, target, props = {}) {
@@ -71,7 +76,7 @@ window.WebGeoDS.Preact = {
   // console; pages themselves import them directly.
   lib: {
     h, render, hooks,
-    DomNode, MapView, DataTable, featureRows, featureKey, VegaChart,
+    DomNode, MapView, DataTable, featureRows, featureKey, VegaChart, ForceGraph,
     ControlPanel, SelectInput, SliderInput, ComputeButton,
     StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT,
     useCellRunner, findCell, useToolData, useCellValue, useResizeTick

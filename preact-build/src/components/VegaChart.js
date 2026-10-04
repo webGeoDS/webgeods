@@ -8,7 +8,7 @@
 import { useEffect, useRef } from "preact/hooks";
 import { useResizeTick } from "../hooks/useResizeTick.js";
 
-export function VegaChart({ spec, selectParams, externalParam, keyField, selected, onSelect }) {
+export function VegaChart({ spec, selectParams, externalParam, keyField, selected, onSelect, style }) {
 
   const container = useRef(null);
   const chart = useRef(null);
@@ -56,6 +56,7 @@ export function VegaChart({ spec, selectParams, externalParam, keyField, selecte
   // A spec with `width: "container"` then measures a 0px-wide box and
   // draws 0px-wide bars (found by the component test: the bar was
   // there, 0 pixels wide, so clicks landed on the panel behind it).
-  return <div ref={container} style={{ width: "100%" }} />;
+  // style: e.g. { height: "100%" } for a spec with height "container".
+  return <div ref={container} style={{ width: "100%", ...style }} />;
 
 }
