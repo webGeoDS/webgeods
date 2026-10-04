@@ -729,3 +729,17 @@ input[type="range"] {
   background-color: var(--surface-muted);
   font-size: 15px;
 }
+
+/* Inline code inside prose may wrap anywhere: a long unbroken snippet
+   (an error message such as `non-numeric argument to binary operator`,
+   a file path) otherwise sets the line's minimum width and pushes the
+   whole page wider than a phone screen. Found 2026-10-04 on
+   posts/spatial-classification.html: 418px wide on a 390px viewport.
+   The theme gives inline code `white-space: pre` (no wrapping at all,
+   not even at spaces), so pre-wrap is what actually lets it break;
+   overflow-wrap covers a single unbroken token. Code blocks (pre >
+   code) keep their own horizontal scroll. */
+:not(pre) > code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
