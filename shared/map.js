@@ -76,92 +76,130 @@
   let mapLibrePromise = null;
 
 
-  // Loads the vendored UMD script via a plain <script> tag (not
-  // import()): the UMD build isn't an ES module, it just sets
-  // `window.maplibregl` once it finishes executing.
+  // Loads the vendored UMD build and runs it so it sets
+  // `window.maplibregl`. A UMD wrapper does that only when no global
+  // AMD loader is present: it checks `typeof define === "function" &&
+  // define.amd` first and, if found, registers itself as an AMD module
+  // instead, leaving `window.maplibregl` undefined.
   //
-  // Retries with a FRESH <script> element (not a wait on the same
-  // one): on a very large embed-resources page (many hundred KB of
-  // inlined JS), `onload` has been observed firing on the FIRST
-  // appended script while `window.maplibregl` never becomes visible
-  // — confirmed not a network/content problem (the file is delivered
-  // correctly and in full every time) and confirmed NOT a matter of
-  // waiting longer either (polling the same load for up to 8s still
-  // failed in most repeated runs). What actually and reliably works,
-  // verified directly: a SECOND, brand-new <script src="..."> for the
-  // exact same URL, appended right after the first one's `onload`
-  // fires, resolves correctly every time. Root cause not fully
-  // understood (a Chromium quirk specific to appending a script while
-  // the page is still busy parsing/compiling a very large amount of
-  // its own inline JS, most likely) — this works around the symptom
-  // rather than the cause.
-  const MAX_SCRIPT_ATTEMPTS = 8;
+  // Every page with Quarto's OJS runtime has exactly that problem: OJS
+  // exposes a global `define` (with `define.amd`) while it starts up and
+  // removes it afterwards. Measured 2026-10-04 (globals recorded at each
+  // script's `load` event, then a 5ms timeline of `define.amd`): the
+  // script was appended at 1788ms with no `define`, OJS created it at
+  // 1844ms while the file was still downloading, the script ran at
+  // 2327ms and got captured; only a later attempt, after `define` was
+  // gone, worked. With a plain <script src>, the moment the code RUNS
+  // can't be controlled, so the old retry loop re-downloaded the whole
+  // file (207 KB gz, cache-busted) 5-7 times per page load on 24 pages.
+  // (Its comment blamed "an unexplained Chromium quirk": wrong.)
+  //
+  // So the file is fetched once as text, and executed as an inline
+  // script, which runs synchronously when appended: checking that no AMD
+  // loader is present and running the code happen in the same tick, with
+  // nothing able to slip in between. OJS's own `define` is never touched,
+  // only waited out. Fetching is same-origin on every page (blog/ uses
+  // "/", lessons/ a sibling relative path, see ASSET_BASE above), the
+  // same way alidade_smooth.json is already fetched.
+  const AMD_WAIT_MS = 15000;
+  const AMD_POLL_MS = 25;
+  const MAX_RUN_ATTEMPTS = 5;
 
-  function loadMapLibreScript(attempt = 1) {
+  let mapLibreSourcePromise = null;
 
-    if (window.maplibregl) {
-      return Promise.resolve(window.maplibregl);
+  function amdLoaderPresent() {
+    return typeof window.define === "function" && !!window.define.amd;
+  }
+
+  function waitForNoAmdLoader() {
+
+    if (!amdLoaderPresent()) {
+      return Promise.resolve(true);
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
 
-      // Retries beyond the first get a short delay before appending
-      // the next <script>, instead of doing it synchronously inside
-      // the previous one's onload: verified empirically (Playwright,
-      // a page with several code cells competing for the main thread
-      // right after load) that a page busy enough with other work can
-      // burn through all MAX_SCRIPT_ATTEMPTS immediately, back-to-back,
-      // faster than the browser can actually finish executing any one
-      // of them — giving the event loop a moment between attempts
-      // measurably reduced the failure rate in that same repeated test.
-      const append =
-        attempt === 1
-          ? (fn) => fn()
-          : (fn) => setTimeout(fn, 150 * (attempt - 1));
+      const started = Date.now();
+
+      const timer = setInterval(() => {
+
+        if (!amdLoaderPresent()) {
+          clearInterval(timer);
+          resolve(true);
+        } else if (Date.now() - started > AMD_WAIT_MS) {
+          clearInterval(timer);
+          resolve(false);
+        }
+
+      }, AMD_POLL_MS);
+
+    });
+
+  }
+
+  function fetchMapLibreSource() {
+
+    if (!mapLibreSourcePromise) {
+
+      mapLibreSourcePromise = fetch(MAPLIBRE_JS_URL)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`WebGeoDS.Map: failed to load ${MAPLIBRE_JS_URL} (HTTP ${response.status}).`);
+          }
+          return response.text();
+        })
+        .catch((error) => {
+          // Allow a later call to try the download again.
+          mapLibreSourcePromise = null;
+          throw error;
+        });
+
+    }
+
+    return mapLibreSourcePromise;
+
+  }
+
+  async function loadMapLibreScript() {
+
+    if (window.maplibregl) {
+      return window.maplibregl;
+    }
+
+    // Download starts right away, in parallel with any wait below.
+    const source =
+      await fetchMapLibreSource();
+
+    for (let attempt = 1; attempt <= MAX_RUN_ATTEMPTS; attempt++) {
+
+      if (window.maplibregl) {
+        return window.maplibregl;
+      }
+
+      // Re-running the same text costs nothing to download; a capture
+      // can only happen if the wait below timed out with the loader
+      // still present (not observed), hence the bounded loop.
+      await waitForNoAmdLoader();
 
       const script =
         document.createElement("script");
 
-      // A cache-busting query string on retries only (not the first
-      // attempt, to keep the common case's normal caching behavior):
-      // verified empirically that retrying with the IDENTICAL url
-      // does NOT reliably fix anything (the browser likely serves the
-      // exact same cached response/compiled state) — only a genuinely
-      // fresh, differently-keyed request does.
-      script.src =
-        attempt === 1
-          ? MAPLIBRE_JS_URL
-          : `${MAPLIBRE_JS_URL}?retry=${attempt}`;
+      // sourceURL keeps the file's own name in devtools stack traces.
+      script.textContent =
+        `${source}
+//# sourceURL=${MAPLIBRE_JS_URL}`;
 
-      script.onload =
-        () => {
+      document.head.appendChild(script);
 
-          if (window.maplibregl) {
+      if (window.maplibregl) {
+        return window.maplibregl;
+      }
 
-            resolve(window.maplibregl);
+    }
 
-          } else if (attempt < MAX_SCRIPT_ATTEMPTS) {
-
-            resolve(loadMapLibreScript(attempt + 1));
-
-          } else {
-
-            reject(
-              new Error(`WebGeoDS.Map: ${MAPLIBRE_JS_URL} loaded ${attempt} time(s) but window.maplibregl never became available.`)
-            );
-
-          }
-
-        };
-
-      script.onerror =
-        () => reject(
-          new Error(`WebGeoDS.Map: failed to load ${MAPLIBRE_JS_URL}.`)
-        );
-
-      append(() => document.head.appendChild(script));
-
-    });
+    throw new Error(
+      `WebGeoDS.Map: ${MAPLIBRE_JS_URL} ran ${MAX_RUN_ATTEMPTS} time(s) but window.maplibregl never became available (a global AMD loader kept capturing it).`
+    );
 
   }
 
