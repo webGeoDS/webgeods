@@ -17,7 +17,7 @@ import { MapView } from "../components/MapView.js";
 import { DataTable, featureRows, featureKey } from "../components/DataTable.js";
 import { VegaChart } from "../components/VegaChart.js";
 import { ControlPanel, SelectInput, SliderInput, ComputeButton } from "../components/ControlPanel.js";
-import { StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT } from "../components/Layout.js";
+import { StatCard, Legend, MapWithSidePanel, Tabs, DEFAULT_MAP_HEIGHT } from "../components/Layout.js";
 import { classifierChartSpec, chartKeyFor, selectionFromChartKey } from "./spatialClassifierChart.js";
 
 const TOOL = "spatial-classifier";
@@ -47,7 +47,7 @@ const INSPECT_POINT_PAINT = {
 
 const sameSelection = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-export function SpatialClassifierTool({ tablesTarget = "#sc-tables" }) {
+export function SpatialClassifierTool() {
 
   const tool = useToolData({
     tool: TOOL,
@@ -244,7 +244,7 @@ export function SpatialClassifierTool({ tablesTarget = "#sc-tables" }) {
 
       <Legend items={legend} />
 
-      <Portal target={tablesTarget}>
+      {/* Tables right under the map and legend, before the notes. */}
         <Tabs tabs={[
           {
             label: "Training points",
@@ -259,7 +259,6 @@ export function SpatialClassifierTool({ tablesTarget = "#sc-tables" }) {
             content: <DataTable columns={gridTable.columns} rows={gridTable.rows} />
           }
         ]} />
-      </Portal>
     </div>
   );
 

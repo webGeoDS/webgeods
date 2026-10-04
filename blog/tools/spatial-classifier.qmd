@@ -661,9 +661,6 @@ points were misclassified, and
 where they are.
 </div>
 
-<!-- Training points / Classification areas tables: rendered here by
-     the same component (a portal), below the notes as before. -->
-<div id="sc-tables"></div>
 
 <style>
 #spatial-classifier-example-py, #spatial-classifier-inspect-py,
