@@ -15,7 +15,17 @@
 // CodeCell, Upload, Table, renderVegaChart...) is the existing shared/
 // JavaScript, read from window.WebGeoDS at runtime, not bundled here.
 import { h, render } from "preact";
+import * as hooks from "preact/hooks";
 import { SelfTest } from "./pages/SelfTest.js";
+import { DomNode } from "./components/DomNode.js";
+import { MapView } from "./components/MapView.js";
+import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
+import { VegaChart } from "./components/VegaChart.js";
+import { ControlPanel, SelectInput, SliderInput, ComputeButton } from "./components/ControlPanel.js";
+import { StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT } from "./components/Layout.js";
+import { useCellRunner, findCell } from "./hooks/useCellRunner.js";
+import { useCellValue } from "./hooks/useCellValue.js";
+import { useResizeTick } from "./hooks/useResizeTick.js";
 
 const PAGES = {
   // Used only by verify-bundle.mjs: exercises state, effects and a
@@ -51,5 +61,14 @@ window.WebGeoDS = window.WebGeoDS || {};
 
 window.WebGeoDS.Preact = {
   mount,
-  pages: Object.keys(PAGES)
+  pages: Object.keys(PAGES),
+  // The building blocks, for component tests and for debugging from the
+  // console; pages themselves import them directly.
+  lib: {
+    h, render, hooks,
+    DomNode, MapView, DataTable, featureRows, featureKey, VegaChart,
+    ControlPanel, SelectInput, SliderInput, ComputeButton,
+    StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT,
+    useCellRunner, findCell, useCellValue, useResizeTick
+  }
 };
