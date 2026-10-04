@@ -274,7 +274,6 @@ if (!is.null(mismatch_warning) && isTRUE(is_geographic) && !looks_geographic) {
 # from length alone and can silently flatten a real one-item array
 # into a bare scalar.
 result <- list(
-  features = jsonlite::fromJSON(sf_geojson(map_data), simplifyVector = FALSE),
   summary = list(
     crs = jsonlite::unbox(original_crs$input),
     isGeographic = jsonlite::unbox(is_geographic),
@@ -284,7 +283,14 @@ result <- list(
     mapCrsNote = if (is.null(map_crs_note)) NULL else jsonlite::unbox(map_crs_note)
   )
 )
-jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+out <- jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+
+# The GeoJSON is attached AFTER the round trip, not inside it: once
+# parsed, toJSON() would turn every scalar in it ("type": "Feature")
+# into a one-element array, which MapLibre rejects -- the map stayed
+# empty whenever only this R cell had run.
+out$features <- jsonlite::fromJSON(sf_geojson(map_data), simplifyVector = FALSE)
+out
 ```
 
 :::

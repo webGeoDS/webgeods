@@ -460,7 +460,6 @@ map_data <- if (isTRUE(st_crs(data) == st_crs(4326))) data else st_transform(dat
 ub <- function(x) if (is.null(x)) NULL else jsonlite::unbox(x)
 
 result <- list(
-  mapFeatures = jsonlite::fromJSON(sf_geojson(map_data), simplifyVector = FALSE),
   summary = list(
     total = ub(nrow(data)),
     geometryTypes = geometry_types,
@@ -478,7 +477,14 @@ result <- list(
 # vectors (geometry_types, bounds, attribute_names) don't serialize
 # to plain JSON arrays on their own the way a jsonlite-parsed list
 # does.
-jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+out <- jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+
+# The GeoJSON is attached AFTER the round trip, not inside it: once
+# parsed, toJSON() would turn every scalar in it ("type": "Feature")
+# into a one-element array, which MapLibre rejects -- the map stayed
+# empty whenever only this R cell had run.
+out$mapFeatures <- jsonlite::fromJSON(sf_geojson(map_data), simplifyVector = FALSE)
+out
 ```
 
 :::
@@ -602,8 +608,6 @@ bnd <- st_bbox(data)
 map_data <- st_transform(data, 4326)
 
 result <- list(
-  features = jsonlite::fromJSON(sf_geojson(data), simplifyVector = FALSE),
-  mapFeatures = jsonlite::fromJSON(sf_geojson(map_data), simplifyVector = FALSE),
   summary = list(
     total = jsonlite::unbox(nrow(data)), geometryTypes = geometry_types,
     crs = jsonlite::unbox(st_crs(data)$input),
@@ -612,7 +616,11 @@ result <- list(
     duplicates = jsonlite::unbox(sum(data$duplicate))
   )
 )
-jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)`
+# GeoJSON attached after the round trip, which would turn its scalars into arrays.
+out <- jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+out$features <- jsonlite::fromJSON(sf_geojson(data), simplifyVector = FALSE)
+out$mapFeatures <- jsonlite::fromJSON(sf_geojson(map_data), simplifyVector = FALSE)
+out`
 ```
 
 ```{ojs}

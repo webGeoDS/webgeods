@@ -366,7 +366,10 @@ result <- list(
   at0m = build_graph(0),
   at5m = build_graph(5)
 )
-jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
+# auto_unbox: without it this round trip turns every single value into a
+# one-element array -- "type": ["FeatureCollection"] -- which MapLibre
+# rejects, leaving the map empty whenever only this R cell had run.
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null", auto_unbox = TRUE), simplifyVector = FALSE)
 ```
 
 :::
