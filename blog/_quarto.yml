@@ -35,6 +35,9 @@ project:
     - "vega-lite.min.js"
     - "vega-embed.min.js"
     - "vega-chart.js"
+    # Preact bundle (built by preact-build/, see its README): loaded only
+    # by pages migrated off OJS cells, page-locally like the Vega scripts.
+    - "webgeods-preact.js"
     - "styles.css"
     - "alidade_smooth.json"
     - "webgeods-logo.svg"

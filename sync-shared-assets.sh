@@ -38,6 +38,7 @@ FILES=(
   maplibre-gl.css
   fonts.css
   codemirror-bundle.js
+  webgeods-preact.js
 )
 
 for target in "${TARGET_DIRS[@]}"; do
