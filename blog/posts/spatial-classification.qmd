@@ -43,36 +43,8 @@ points spanning multiple UTM zones or very large areas.
 
 ## 2. Upload your points
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles);
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 No file uploaded, or your file has no column literally named
 `class`? Both cells below fall back to the same built-in survey: 30
@@ -97,20 +69,8 @@ adjustable controls and lets you pick any column as the class.
 
 ## 3. Same spatial question, two languages
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.45, 41.89], zoom: 11, height: "420px" });
-  await map.ready();
-  return map;
-}
-```
-
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+::: {#lab-map style="min-height: 440px;"}
+:::
 
 ::: {.panel-tabset}
 
@@ -575,200 +535,14 @@ out
 
 :::
 
-```{ojs}
-//| echo: false
-mutable pySummary = null
-```
+::: {#lab-crs}
+:::
 
-```{ojs}
-//| echo: false
-mutable rSummary = null
-```
+::: {#lab-stats}
+:::
 
-```{ojs}
-//| echo: false
-mutable crsWarning = null
-```
-
-```{ojs}
-//| echo: false
-// Same palette/roles as the Spatial Classifier tool -- reused here
-// rather than invented fresh, so a reader who's seen the tool
-// recognizes the same visual language.
-CLASS_PALETTE = ["#ab502b", "#42583c", "#3d5a73", "#c48a2e", "#8b2f24"]
-```
-
-```{ojs}
-//| echo: false
-// Each language draws onto its own map sources, so running only one
-// of them still produces a visible surface. The two grids cover the
-// same extent at the same resolution, so where both have run the
-// fills overlap -- which is the point: any cell the two languages
-// classified differently shows up as a color that doesn't match.
-classPaint = (classLabels, field, opts = {}) => {
-  const expr = ["match", ["get", field]];
-  classLabels.forEach((label, i) => {
-    expr.push(label, CLASS_PALETTE[i % CLASS_PALETTE.length]);
-  });
-  expr.push("#766851");
-  if (opts.fill) {
-    return { "fill-color": expr, "fill-opacity": 0.45, "fill-outline-color": "rgba(0,0,0,0)" };
-  }
-  return {
-    "circle-color": expr,
-    "circle-radius": 6,
-    "circle-stroke-width": 1.5,
-    "circle-stroke-color": "#2a2117"
-  };
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyResult = WebGeoDS.getCellValue("spatial-classification-py", Generators)
-{
-  if (pyResult) {
-    await sharedMap.setGeoJSON("spatial-classification-grid", pyResult.gridFeatures, {
-      paint: classPaint(pyResult.classLabels, "predictedClass", { fill: true })
-    });
-    await sharedMap.setGeoJSON("spatial-classification-training", pyResult.trainingFeatures, {
-      paint: classPaint(pyResult.classLabels, "class")
-    });
-    await sharedMap.fitToData(pyResult.gridFeatures);
-    mutable pySummary = pyResult;
-    mutable crsWarning = pyResult.crsWarning;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rResult = WebGeoDS.getCellValue("spatial-classification-r", Generators)
-{
-  if (rResult) {
-    // R's own map sources, separate from Python's, so running only one
-    // language still draws a surface (and running both leaves both
-    // visible) -- same per-language source convention as
-    // geometry-validity.qmd and topology-errors.qmd.
-    await sharedMap.setGeoJSON("spatial-classification-grid-r", rResult.gridFeatures, {
-      paint: classPaint(rResult.classLabels, "predictedClass", { fill: true })
-    });
-    await sharedMap.setGeoJSON("spatial-classification-training-r", rResult.trainingFeatures, {
-      paint: classPaint(rResult.classLabels, "class")
-    });
-    await sharedMap.fitToData(rResult.gridFeatures);
-    mutable rSummary = rResult;
-    mutable crsWarning = rResult.crsWarning;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-crsWarningEl = {
-  const div = document.createElement("div");
-  div.className = "webgeods-panel-status";
-  if (crsWarning) div.textContent = `⚠️ ${crsWarning}`;
-  return div;
-}
-```
-
-${crsWarningEl}
-
-```{ojs}
-//| echo: false
-// Same "two cards side by side, seeing them agree IS the point"
-// reasoning as this site's CRS Mismatch and Spatial Clustering
-// articles.
-statCard = (label, s) => {
-  const wrap = document.createElement("div");
-  wrap.style.flex = "1";
-  wrap.style.minWidth = "260px";
-
-  const heading = document.createElement("div");
-  heading.className = "webgeods-label";
-  heading.textContent = label;
-  wrap.appendChild(heading);
-
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  wrap.appendChild(box);
-
-  const row = (rowLabel, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = rowLabel;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-
-  if (!s) {
-    row("Calculation CRS", "—");
-    return wrap;
-  }
-
-  row("Calculation CRS", s.calculationCrs);
-  row("Classes", s.classLabels.join(", "));
-  row("Labeled points", s.labeledCount);
-  const byClass = (m) => Object.entries(m ?? {}).map(([k, v]) => `${k} ${v}`).join(" · ");
-  if (s.accuracyRandom === null || s.accuracyRandom === undefined) {
-    // Not a score of 0: there were too few points to cross-validate.
-    row("Cross-validated accuracy", "too few points per class to cross-validate");
-  } else {
-    row("Random folds", `${s.accuracyRandom} (${byClass(s.classAccuracyRandom)})`);
-    row("Spatial blocks", `${s.accuracyBlocks} (${byClass(s.classAccuracyBlocks)})`);
-    row("Nearest sample, median", `random test ${s.distanceRandom} m · map cells ${s.distanceMap} m · block test ${s.distanceBlocks} m`);
-  }
-  row("Grid cells predicted", s.gridCellCount);
-
-  return wrap;
-}
-```
-
-```{ojs}
-//| echo: false
-statCardsRow = {
-  const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.flexWrap = "wrap";
-  row.style.gap = "16px";
-  row.append(statCard("Python", pySummary), statCard("R", rSummary));
-  return row;
-}
-```
-
-${statCardsRow}
-
-```{ojs}
-//| echo: false
-resetClassification = async () => {
-  for (const id of [
-    "spatial-classification-grid",
-    "spatial-classification-training",
-    "spatial-classification-grid-r",
-    "spatial-classification-training-r"
-  ]) {
-    if (sharedMap.getGeoJSON(id)) {
-      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
-    }
-  }
-  mutable pySummary = null;
-  mutable rSummary = null;
-  mutable crsWarning = null;
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-resetMapButton = WebGeoDS.resetButton(resetClassification, "🔄 Reset map and cards")
-```
-
-${resetMapButton}
+::: {#lab-reset}
+:::
 
 The filled grid is the predicted surface; the dots on top are the
 labeled training points, colored the same way. Each language draws
@@ -925,45 +699,8 @@ result <- list(
 jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
 ```
 
-```{ojs}
-//| echo: false
-mutable noFactorResult = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-noFactorRaw = WebGeoDS.getCellValue("spatial-classification-r-nofactor", Generators)
-{
-  if (noFactorRaw) mutable noFactorResult = noFactorRaw;
-}
-```
-
-```{ojs}
-//| echo: false
-noFactorCard = {
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-  if (!noFactorResult) {
-    row("model$type", "—");
-    return box;
-  }
-  row("model$type", noFactorResult.modelType);
-  row(`predict() on a point labeled ${noFactorResult.sampleTrueClass}`, noFactorResult.samplePrediction.toFixed(3));
-  return box;
-}
-```
-
-${noFactorCard}
+::: {#lab-nofactor}
+:::
 
 `model$type` reads `regression`, and `predict()` on a point whose true
 class was `0` (`south`) returns something like `0.044`, not the class
@@ -998,5 +735,17 @@ class you instantiate *is* the decision, made once, up front.
   predicting labels?** →
   [Finding Spatial Clusters with DBSCAN](spatial-clustering.qmd) is
   this family's entry point, unsupervised rather than supervised.
+
+<!-- The interactive parts of this page (upload, map, stat cards, reset,
+     the regression-switch card) are one Preact component,
+     preact-build/src/pages/SpatialClassificationLab.js, rendered into the
+     empty #lab-* slots above. It reads the Python/R cells' results; the
+     cells themselves are unchanged. -->
+<div id="lab-root"></div>
+<script src="/webgeods-preact.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () =>
+  WebGeoDS.Preact.mount("spatial-classification-lab", "#lab-root"));
+</script>
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

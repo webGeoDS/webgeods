@@ -17,7 +17,10 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 const EMPTY = { type: "FeatureCollection", features: [] };
 
-export function MapView({ tool, height, layers = [], fitTo, onReady, flushTop = false }) {
+// tool: set on tool pages only. It goes through WebGeoDS.createSharedMap,
+// which also records the "tool_loaded" event; an article passes no tool
+// and gets a plain WebGeoDS.Map.
+export function MapView({ tool, height, center, zoom, layers = [], fitTo, onReady, flushTop = false }) {
 
   const slot = useRef(null);
   const mapRef = useRef(null);
@@ -37,7 +40,16 @@ export function MapView({ tool, height, layers = [], fitTo, onReady, flushTop = 
 
     let cancelled = false;
 
-    window.WebGeoDS.createSharedMap({ tool, height }).then((map) => {
+    const view = { ...(center ? { center } : {}), ...(zoom !== undefined ? { zoom } : {}) };
+    const created = tool
+      ? window.WebGeoDS.createSharedMap({ tool, height, ...view })
+      : (async () => {
+        const map = new window.WebGeoDS.Map({ height, ...view });
+        await map.ready();
+        return map;
+      })();
+
+    created.then((map) => {
       if (cancelled) {
         map.destroy();
         return;

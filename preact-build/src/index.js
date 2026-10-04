@@ -18,6 +18,7 @@ import { h, render } from "preact";
 import * as hooks from "preact/hooks";
 import { SelfTest } from "./pages/SelfTest.js";
 import { SpatialClassifierTool } from "./pages/SpatialClassifierTool.js";
+import { SpatialClassificationLab } from "./pages/SpatialClassificationLab.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
@@ -32,7 +33,8 @@ const PAGES = {
   // Used only by verify-bundle.mjs: exercises state, effects and a
   // portal, the three things every real page component relies on.
   "self-test": SelfTest,
-  "spatial-classifier-tool": SpatialClassifierTool
+  "spatial-classifier-tool": SpatialClassifierTool,
+  "spatial-classification-lab": SpatialClassificationLab
 };
 
 function mount(name, target, props = {}) {
