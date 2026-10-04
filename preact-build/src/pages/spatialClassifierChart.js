@@ -5,26 +5,26 @@
 //
 // Every row carries its selection key in the same field, `key`
 // (renderVegaChart reads one keyField for the whole spec): a class name
-// for the bars, "true>predicted" for a matrix cell. CHART_KEY and
-// selectionFromChartKey translate between those keys and the page's
-// selection state.
+// for the bars, "true>predicted" for a matrix cell. chartKeyFor and
+// selectionFromChartKey translate between those keys and the tool's
+// selection, a { property: value } filter over the points.
 
 export const PAIR_SEPARATOR = ">";
 const MAX_MATRIX_CLASSES = 6;
 const SELECTION_YELLOW = "#ffeb3b"; // same as map/table selection (--dataviz-selection)
 
-export function chartKeyFor(selection) {
-  if (!selection) return null;
-  if (selection.kind === "pair") return `${selection.trueClass}${PAIR_SEPARATOR}${selection.predictedClass}`;
-  return selection.cls ?? null; // a class, or the class of a selected point
+// A matrix cell, a class, or the class of a selected point.
+export function chartKeyFor(selection, points) {
+  if (selection.predictedClass !== undefined) return `${selection.class}${PAIR_SEPARATOR}${selection.predictedClass}`;
+  return selection.class ?? points[0]?.properties.class ?? null;
 }
 
+// A matrix cell selects only the held-out points behind it.
 export function selectionFromChartKey(key) {
-  if (!key) return null;
   const [trueClass, predictedClass] = key.split(PAIR_SEPARATOR);
   return predictedClass === undefined
-    ? { kind: "class", cls: trueClass }
-    : { kind: "pair", trueClass, predictedClass };
+    ? { class: trueClass }
+    : { heldOut: true, class: trueClass, predictedClass };
 }
 
 export function classifierChartSpec(summary) {
