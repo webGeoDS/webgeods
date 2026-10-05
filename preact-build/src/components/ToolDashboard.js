@@ -170,6 +170,10 @@ export function ToolDashboard({ config }) {
     return list;
   }, [data, selection, selectedCollection]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // What tool-smoke.mjs reads to test any tool from its own config.
+  const exposed = (window.WebGeoDS.Preact.tools ??= {});
+  exposed[tool] = { config, layers, selectionLayer: selectable?.layer ?? null };
+
   const mapHeight = map.height ?? DEFAULT_MAP_HEIGHT;
   const mapView = (
     <MapView tool={tool} height={mapHeight} center={map.center} zoom={map.zoom}

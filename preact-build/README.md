@@ -32,6 +32,18 @@ writes only to the rendered site, so run `./build.sh` and
 `../sync-shared-assets.sh` before committing, and `quarto render` after
 changing a `.qmd`.
 
+### Testing a tool
+
+```
+node ../tool-smoke.mjs http://127.0.0.1:4801/tools/<page>.html
+```
+
+A baseline test for any `ToolDashboard` page, read from the tool's own
+config: example and compute, layers on the map, layer switches,
+selection from map, diagram, chart and table, reset, phone width,
+console errors and config warnings. A tool's own numbers still belong in
+its own checklist.
+
 ## Layout
 
 - `src/index.js`: exposes `window.WebGeoDS.Preact.mount(name, target, props)`
