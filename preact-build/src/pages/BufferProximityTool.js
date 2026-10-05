@@ -42,8 +42,11 @@ const CONFIG = {
     // The uploaded features in the map's default style, the buffer on top.
     { id: "buffer-original-py", label: "Features", data: inspect?.features ?? null },
     { id: "buffer-result-py", label: "Buffer", type: "fill", data: result?.features ?? null,
-      paint: result ? ringPaint(result.summary.ringCount) : undefined }
+      paint: result ? ringPaint(result.summary.ringCount) : undefined, selectBy: "feature" }
   ],
+
+  // A buffer row in the table, or a buffer on the map, selects it in both.
+  selectable: { id: "buffer-result-py", from: ({ result }) => result?.features ?? null, layer: "buffer-selection", fit: true },
 
   tables: [{ label: "Buffers", id: "buffer-result-py", from: ({ result }) => result?.features, emptyMessage: "No results yet" }],
 

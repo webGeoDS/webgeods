@@ -31,6 +31,8 @@ import { FileInspectorTool } from "./pages/FileInspectorTool.js";
 import { FileInspectionLab } from "./pages/FileInspectionLab.js";
 import { ValidatorTool } from "./pages/ValidatorTool.js";
 import { GeometryValidityLab } from "./pages/GeometryValidityLab.js";
+import { TopologyTool } from "./pages/TopologyTool.js";
+import { TopologyErrorsLab } from "./pages/TopologyErrorsLab.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
@@ -63,7 +65,9 @@ const PAGES = {
   "file-inspector-tool": FileInspectorTool,
   "file-inspection-lab": FileInspectionLab,
   "validator-tool": ValidatorTool,
-  "geometry-validity-lab": GeometryValidityLab
+  "geometry-validity-lab": GeometryValidityLab,
+  "topology-tool": TopologyTool,
+  "topology-errors-lab": TopologyErrorsLab
 };
 
 function mount(name, target, props = {}) {

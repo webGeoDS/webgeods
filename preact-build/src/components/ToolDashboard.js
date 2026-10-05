@@ -32,12 +32,14 @@
 //   map                    { center, zoom, height,
 //                            onClick: (lngLat, inputs, data) => inputs to change }
 //   selectable             { id, from: (data) => FC, layer: "<selection layer id>",
-//                            paint: (data) => paint overrides, fit: zoom to a selection }
+//                            paint: (data) => circle paint overrides, fit: zoom to a selection }
+//                          The selection layer's type follows the selected geometry.
 //   categories             { field, values: (data) => [], label: (value) => string }:
 //                          what the tool colors by. ctx.categories.paint(field, options)
 //                          colors a layer, the legend lists them, a diagram can take
 //                          color: "categories", and a "bars" panel charts them
-//   layers(data, ctx)      [{ id, label, type, data, paint, selectBy: (mapFeature) => selection }]
+//   layers(data, ctx)      [{ id, label, type, data, paint, selectBy: (mapFeature) => selection
+//                            | "feature" (that one feature; the layer's id is selectable.id) }]
 //                          bottom first; the selection layer goes on top
 //   fit                    { inspect: (v) => FC, result: (v) => FC }: zoom on new data
 //   side                   { id, placeholder, panels: [
@@ -105,13 +107,8 @@ import { Carousel } from "./Carousel.js";
 import { StatCard, Legend, MapWithSidePanel, Tabs, DEFAULT_MAP_HEIGHT } from "./Layout.js";
 import { makeCategories, barsPanel } from "./categories.js";
 import { checkConfig, checkLayer } from "./configCheck.js";
+import { selectionLayer } from "./selection.js";
 
-const SELECTION_PAINT = {
-  "circle-color": "#ffeb3b",
-  "circle-radius": 8,
-  "circle-stroke-color": "#2a2117",
-  "circle-stroke-width": 1.5
-};
 
 const sameSelection = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -177,16 +174,14 @@ export function ToolDashboard({ config }) {
   const layers = useMemo(() => {
     const list = config.layers(data, ctx).map(({ selectBy, ...layer }) => {
       checkLayer(tool, { selectBy, ...layer });
-      return selectBy ? { ...layer, onClick: (feature) => select(selectBy(feature)) } : layer;
+      // "feature": the clicked feature itself, as its table row would.
+      const toSelection = selectBy === "feature"
+        ? (feature) => ({ __key: featureKey(layer.id, feature, -1) })
+        : selectBy;
+      return toSelection ? { ...layer, onClick: (feature) => select(toSelection(feature)) } : layer;
     });
-    if (selectable) {
-      list.push({
-        id: selectable.layer,
-        type: "circle",
-        data: selectedCollection,
-        paint: { ...SELECTION_PAINT, ...(selectable.paint?.(data, ctx) ?? {}) }
-      });
-    }
+    // Drawn as a fill, a line or circles by the selected geometry.
+    if (selectable) list.push(selectionLayer(selectable.layer, selected, selectable.paint?.(data, ctx)));
     return list;
   }, [data, selection, selectedCollection]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -254,7 +249,8 @@ export function ToolDashboard({ config }) {
     };
   });
 
-  const statRows = result ? statRowsOf(stats.result, result, data) : inspect ? statRowsOf(stats.inspect, inspect, data) : stats.empty;
+  const statRows = result ? statRowsOf(stats.result, result, data)
+    : inspect && stats.inspect ? statRowsOf(stats.inspect, inspect, data) : stats.empty;
 
   // Default legend, once there is a result: the categories, then any
   // extra items (which may be all there is: every point noise, say).

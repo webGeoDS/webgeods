@@ -30,11 +30,14 @@ const CONFIG = {
     const features = result?.features ?? inspect?.features ?? null;
     return [
       { id: "geometry-py", label: "Features", type: "fill", data: features,
-        paint: { "fill-color": byValidity, "fill-opacity": 0.55 } },
+        paint: { "fill-color": byValidity, "fill-opacity": 0.55 }, selectBy: "feature" },
       { id: "geometry-py-outline", type: "line", data: features && window.WebGeoDS.toOutlineFeatures(features),
         paint: { "line-color": byValidity, "line-width": 2.5 } }
     ];
   },
+
+  // A table row, or the feature on the map, selects it in both.
+  selectable: { id: "geometry-py", from: ({ inspect, result }) => result?.features ?? inspect?.features ?? null, layer: "geometry-selection", fit: true },
 
   tables: [{ label: "Features", id: "geometry-py", from: ({ inspect, result }) => result?.features ?? inspect?.features,
     iconColumns: ["valid"], emptyMessage: "No results yet" }],

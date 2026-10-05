@@ -35,42 +35,8 @@ A `.geojson`, or a shapefile: either as a single `.zip`, or as the
 individual `.shp`/`.dbf`/`.shx` files (and optionally `.prj`) selected
 together.
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-// A native <input type="file"> (WebGeoDS.Upload.createControl(), see
-// shared/upload.js) instead of Observable Inputs' `viewof`-bound
-// Inputs.file() widget used here previously — see its doc comment
-// there for why (a `viewof` cell's element turned out to be unsafe
-// to relocate in Quarto's OJS runtime; this plain `mutable` +
-// onChange callback doesn't have that fragility).
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles);
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 ## 2. What we look for
 
@@ -141,123 +107,8 @@ the second language, that's usually because both languages are
 checking the exact same coordinates and landing on the exact same
 shapes, not because anything failed.
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  return map;
-}
-```
-
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// The color is decided by JS, not by Python/R: the Python/R cells
-// only return GeoJSON with properties like "has_error" — neither
-// language knows or needs to know who's going to draw it.
-//
-// Unlike geometry-validity.qmd (always polygons, a single static
-// VALIDITY_PAINT), here the geometry type changes from one example to
-// the next (polygons for overlap/gap/sliver/duplicates, lines for
-// dangle) — so the paint itself depends on the data: setGeoJSON()
-// (shared/map.js) detects on its own when the layer's TYPE needs to
-// change and recreates the layer, but the color/style for that type
-// remains a presentation choice, so it stays here.
-errorPaint = (data) => {
-  const geometryType = data?.features?.find((f) => f?.geometry?.type)?.geometry?.type ?? "";
-  const colorExpr = ["case", ["==", ["get", "has_error"], true], "#e05252", "#3d5a73"];
-  if (geometryType === "LineString" || geometryType === "MultiLineString") {
-    return { "line-color": colorExpr, "line-width": 4 };
-  }
-  if (geometryType === "Point" || geometryType === "MultiPoint") {
-    return { "circle-color": colorExpr, "circle-radius": 6 };
-  }
-  return { "fill-color": colorExpr, "fill-opacity": 0.55 };
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Gaps are always polygons (check_gap()/gap_geom is built from a
-// convex-hull difference) — no per-geometry-type branching needed,
-// unlike errorPaint above. Amber, matching topology-checker.qmd's own
-// gapPaint and the "severity": "warning" both languages already tag
-// every gap feature with.
-gapPaint = ({
-  "fill-color": "#c48a2e",
-  "fill-opacity": 0.45
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// FOUR independent, stable tableCell()s (never re-created — only
-// their .style.display is toggled by topologyErrorsTable below), one
-// per (role x language) combination, instead of two tables each
-// merging both languages. Merging double-counted every row: with
-// both languages detecting on the SAME uploaded features
-// independently, one row came from each language for what's
-// conceptually one record (verified empirically, same bug as
-// geometry-validity.qmd's topologyTable — see shared/map.js's
-// tableCell() doc comment for the full story and why
-// SELECTION_SOURCE_ID had to become per-call to support this).
-featuresPyTableCell = sharedMap.tableCell(
-  ["topology-errors-py"],
-  null,
-  Generators,
-  {
-    rowClassName: (row) => row.has_error === "true" ? "webgeods-row-invalid" : "",
-    emptyMessage: "No results yet"
-  }
-)
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-featuresRTableCell = sharedMap.tableCell(
-  ["topology-errors-r"],
-  null,
-  Generators,
-  {
-    rowClassName: (row) => row.has_error === "true" ? "webgeods-row-invalid" : "",
-    emptyMessage: "No results yet"
-  }
-)
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// No rowClassName here: every row IS a gap (has_error is always true
-// for them), so coloring every row the same would add nothing.
-gapsPyTableCell = sharedMap.tableCell(
-  ["topology-errors-gaps-py"],
-  null,
-  Generators,
-  { emptyMessage: "No gaps found" }
-)
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-gapsRTableCell = sharedMap.tableCell(
-  ["topology-errors-gaps-r"],
-  null,
-  Generators,
-  { emptyMessage: "No gaps found" }
-)
-```
+::: {#lab-map style="min-height: 500px;"}
+:::
 
 Pick a language, then what to look at: the original geometries (with
 errors highlighted) or just the gaps found between them.
@@ -270,11 +121,13 @@ errors highlighted) or just the gaps found between them.
 
 #### Original geometries
 
-${featuresPyTableCell}
+::: {#lab-features-py}
+:::
 
 #### Gaps
 
-${gapsPyTableCell}
+::: {#lab-gaps-py}
+:::
 
 :::
 
@@ -284,164 +137,26 @@ ${gapsPyTableCell}
 
 #### Original geometries
 
-${featuresRTableCell}
+::: {#lab-features-r}
+:::
 
 #### Gaps
 
-${gapsRTableCell}
+::: {#lab-gaps-r}
+:::
 
 :::
 
 ::::
 
-```{ojs}
-//| echo: false
-//| output: false
-// total/errors/gaps for lastResult only (see its own doc comment
-// above) — NOT a merge of both map sources. An earlier version
-// flattened topology-errors-py + -r (and the two gaps sources)
-// together, reading the map via a 'sourcedata' listener since
-// MapLibre's own source state isn't natively OJS-reactive — correct
-// as "how many rows are currently drawn", wrong as "how many features
-// did I upload": with both languages detecting on the SAME uploaded
-// features independently, that merge double-counted every one of
-// them (and every gap). Reading lastResult directly is also simpler:
-// a plain OJS mutable needs no event-listener bridge to the map.
-topologyErrorsStats = {
-  const features = lastResult?.features?.features ?? [];
-  const gaps = lastResult?.gaps?.features ?? [];
-  const total = features.length;
-  const errors = features.filter((f) => f.properties?.has_error === true).length;
-  return { total, errors, gaps: gaps.length };
-}
-```
+::: {#lab-status}
+:::
 
-```{ojs}
-//| echo: false
-// Combines whichever of pyCrsWarning/rCrsWarning is currently set —
-// at most one in practice (both languages read the same uploaded
-// file), but shown separately just in case they ever disagree.
-crsWarningNotice = {
-  const warnings = [pyCrsWarning, rCrsWarning].filter(Boolean);
-  return warnings.length ? ` ⚠️ ${[...new Set(warnings)].join(" ")}` : "";
-}
-```
+::: {#lab-reset}
+:::
 
-```{ojs}
-//| echo: false
-// A single JS-built element, not four adjacent `${...}` markdown
-// interpolations on one line — same bug found and fixed the same way
-// in geometry-validity.qmd: Pandoc's math-dollar parser reads a `$`
-// not followed by whitespace as opening inline math and looks for the
-// next `$` to close it, so a row of `${a} ... ${b} ... ${c}.${d}`
-// gets some of its interpolations swallowed as literal "$...$" text
-// instead of real OJS values.
-topologyStatusLine = {
-  const p = document.createElement("p");
-  const strong = document.createElement("strong");
-  strong.textContent = "Topology check";
-  p.append(strong, ` — ${topologyErrorsStats.total} feature, ${topologyErrorsStats.errors} with an error, ${topologyErrorsStats.gaps} total gaps.${crsWarningNotice}`);
-  return p;
-}
-```
-
-${topologyStatusLine}
-
-```{ojs}
-//| echo: false
-// Download payloads in each language's own original CRS, not the
-// WGS84 working copy the map/table show — kept in sync with whichever
-// of the example cells or the "apply to your file" cells ran most
-// recently (pyErrors/rErrors and pyErrorsUploaded/rErrorsUploaded
-// below all write to the SAME map sources and must all update these
-// together, or downloading after loading a plain example would
-// wrongly reuse a stale reprojection from an earlier upload).
-mutable pyExportFeatures = null
-```
-
-```{ojs}
-//| echo: false
-mutable rExportFeatures = null
-```
-
-```{ojs}
-//| echo: false
-mutable pyCrsWarning = null
-```
-
-```{ojs}
-//| echo: false
-mutable rCrsWarning = null
-```
-
-```{ojs}
-//| echo: false
-// Whichever of the four detection cells (either language, either
-// entry point — the fixed examples in section 4 or "apply to your
-// file" in section 5) most recently produced a result —
-// { features, gaps, exportFeatures, crsWarning, source }. The four
-// map sources stay separate and ALL stay visible — same as
-// geometry-validity.qmd, that side-by-side comparison is the point —
-// but topologyErrorsStats and downloadButton below read only this,
-// not a merge of both languages: with both sources holding
-// independently-computed results for the SAME uploaded features,
-// flatMap-ing them (the previous approach) double-counted every
-// feature and every gap, and downloaded each real feature twice.
-// Cleared by resetTopologyErrors.
-mutable lastResult = null
-```
-
-```{ojs}
-//| echo: false
-resetTopologyErrors = async () => {
-  const ids = ["topology-errors-py", "topology-errors-r", "topology-errors-gaps-py", "topology-errors-gaps-r"];
-  for (const id of ids) {
-    if (sharedMap.getGeoJSON(id)) {
-      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
-    }
-  }
-  mutable pyExportFeatures = null;
-  mutable rExportFeatures = null;
-  mutable pyCrsWarning = null;
-  mutable rCrsWarning = null;
-  mutable lastResult = null;
-}
-```
-
-```{ojs}
-//| echo: false
-resetMapButton = WebGeoDS.resetButton(resetTopologyErrors, "🔄 Reset map and table")
-```
-
-```{ojs}
-//| echo: false
-// WebGeoDS.downloadBlob (shared/download.js) — the same helper the
-// standalone tool uses. Downloads lastResult only — whichever
-// language most recently ran, a fixed example or "apply to your
-// file" — not a merge of both (see lastResult's own doc comment:
-// merging duplicated every feature, once per language). Original
-// features only, no gaps — same reasoning as topology-checker.qmd's
-// own downloadButton: a gap has no corresponding row in the uploaded
-// file, so a "here's your data plus its topology report" download
-// shouldn't reintroduce synthetic rows the source data never had.
-downloadButton = {
-  const button = document.createElement("button");
-  button.textContent = "⬇ Download";
-  button.onclick = () => {
-    const features = lastResult?.exportFeatures?.features ?? [];
-    if (features.length === 0) return;
-    const base = WebGeoDS.Upload.baseName(uploadedFiles);
-    WebGeoDS.downloadBlob(
-      JSON.stringify({ type: "FeatureCollection", features }, null, 2),
-      base ? `${base}-topology-report.geojson` : "topology-report.geojson",
-      "application/geo+json",
-      { tool: "topology-errors-article" }
-    );
-  };
-  return button;
-}
-```
-
+::: {#lab-download}
+:::
 
 ### 3.1 First run (once only)
 
@@ -932,55 +647,6 @@ detect_and_check(data)
 
 :::
 
-```{ojs}
-//| echo: false
-//| output: false
-// No Map()/webgeods_map() involved: the cells above return plain
-// GeoJSON as their own value (no MapLibre API in their code).
-// WebGeoDS.getCellValue() reads it reactively, sharedMap.setGeoJSON()
-// draws it — no queue of calls to replay. errorPaint(data) picks
-// fill/line/circle based on the geometry type that arrives;
-// setGeoJSON() itself notices if the layer needs to be recreated with
-// a different type than the current one.
-pyErrors = WebGeoDS.getCellValue("topology-errors-example-py", Generators)
-{
-  if (pyErrors) {
-    await sharedMap.setGeoJSON("topology-errors-py", pyErrors.features, { paint: errorPaint(pyErrors.features) });
-    await sharedMap.setGeoJSON("topology-errors-gaps-py", pyErrors.gaps, { paint: gapPaint });
-    // Zooms to the real features' bounds — same as
-    // topology-checker.qmd's own pyErrors effect. A gap sits between
-    // two nearby features by construction, so fitting to the features
-    // alone already covers it in practice; a no-op on an empty
-    // FeatureCollection.
-    await sharedMap.fitToData(pyErrors.features);
-    // Always EPSG:4326 by construction (see the code above) — no
-    // reprojection needed, but still refreshed here (not just by
-    // pyErrorsUploaded below) so downloading after loading a plain
-    // example doesn't reuse a stale reprojection from an earlier
-    // upload.
-    mutable pyExportFeatures = pyErrors.features;
-    mutable pyCrsWarning = null;
-    mutable lastResult = { features: pyErrors.features, gaps: pyErrors.gaps, exportFeatures: pyErrors.features, crsWarning: null, source: "py" };
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rErrors = WebGeoDS.getCellValue("topology-errors-example-r", Generators)
-{
-  if (rErrors) {
-    await sharedMap.setGeoJSON("topology-errors-r", rErrors.features, { paint: errorPaint(rErrors.features) });
-    await sharedMap.setGeoJSON("topology-errors-gaps-r", rErrors.gaps, { paint: gapPaint });
-    await sharedMap.fitToData(rErrors.features);
-    mutable rExportFeatures = rErrors.features;
-    mutable rCrsWarning = null;
-    mutable lastResult = { features: rErrors.features, gaps: rErrors.gaps, exportFeatures: rErrors.features, crsWarning: null, source: "r" };
-  }
-}
-```
-
 ## 4. Five errors, five examples
 
 ### 4.1 Overlap
@@ -989,27 +655,25 @@ Two polygons that should be adjacent instead overlap over a portion of
 surface: the example already loaded by default in the cell pair
 above.
 
-```{ojs}
-//| echo: false
-pyOverlapCode = `import geopandas as gpd
+::: {.webgeods-example py="topology-errors-example-py" r="topology-errors-example-r" label="Load the overlap example"}
+```python
+import geopandas as gpd
 from shapely.geometry import shape
 
 a = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.52, 41.85], [12.52, 41.92], [12.45, 41.92], [12.45, 41.85]]]}
 b = {"type": "Polygon", "coordinates": [[[12.50, 41.87], [12.57, 41.87], [12.57, 41.94], [12.50, 41.94], [12.50, 41.87]]]}
 gdf = gpd.GeoDataFrame({"name": ["A", "B"]}, geometry=[shape(a), shape(b)], crs="EPSG:4326")
 
-detect_and_check(gdf)`
-rOverlapCode = `a <- st_polygon(list(rbind(c(12.45, 41.85), c(12.52, 41.85), c(12.52, 41.92), c(12.45, 41.92), c(12.45, 41.85))))
+detect_and_check(gdf)
+```
+```r
+a <- st_polygon(list(rbind(c(12.45, 41.85), c(12.52, 41.85), c(12.52, 41.92), c(12.45, 41.92), c(12.45, 41.85))))
 b <- st_polygon(list(rbind(c(12.50, 41.87), c(12.57, 41.87), c(12.57, 41.94), c(12.50, 41.94), c(12.50, 41.87))))
 data <- st_sf(name = c("A", "B"), geometry = st_sfc(a, b, crs = 4326))
 
-detect_and_check(data)`
+detect_and_check(data)
 ```
-
-```{ojs}
-//| echo: false
-loadOverlapButton = WebGeoDS.loadExampleButton("Load the overlap example", { pyId: "topology-errors-example-py", rId: "topology-errors-example-r", pyCode: pyOverlapCode, rCode: rOverlapCode })
-```
+:::
 
 ### 4.2 Gap
 
@@ -1026,27 +690,25 @@ distant or overlapping shapes aren't aligned with each other). For a
 real dataset with a known study area, that area is still the more
 correct reference, not a convex hull.
 
-```{ojs}
-//| echo: false
-pyGapCode = `import geopandas as gpd
+::: {.webgeods-example py="topology-errors-example-py" r="topology-errors-example-r" label="Load the gap example"}
+```python
+import geopandas as gpd
 from shapely.geometry import shape
 
 a = {"type": "Polygon", "coordinates": [[[12.40, 41.85], [12.46, 41.85], [12.46, 41.92], [12.40, 41.92], [12.40, 41.85]]]}
 b = {"type": "Polygon", "coordinates": [[[12.50, 41.85], [12.56, 41.85], [12.56, 41.92], [12.50, 41.92], [12.50, 41.85]]]}
 gdf = gpd.GeoDataFrame({"name": ["A", "B"]}, geometry=[shape(a), shape(b)], crs="EPSG:4326")
 
-detect_and_check(gdf)`
-rGapCode = `a <- st_polygon(list(rbind(c(12.40, 41.85), c(12.46, 41.85), c(12.46, 41.92), c(12.40, 41.92), c(12.40, 41.85))))
+detect_and_check(gdf)
+```
+```r
+a <- st_polygon(list(rbind(c(12.40, 41.85), c(12.46, 41.85), c(12.46, 41.92), c(12.40, 41.92), c(12.40, 41.85))))
 b <- st_polygon(list(rbind(c(12.50, 41.85), c(12.56, 41.85), c(12.56, 41.92), c(12.50, 41.92), c(12.50, 41.85))))
 data <- st_sf(name = c("A", "B"), geometry = st_sfc(a, b, crs = 4326))
 
-detect_and_check(data)`
+detect_and_check(data)
 ```
-
-```{ojs}
-//| echo: false
-loadGapButton = WebGeoDS.loadExampleButton("Load the gap example", { pyId: "topology-errors-example-py", rId: "topology-errors-example-r", pyCode: pyGapCode, rCode: rGapCode })
-```
+:::
 
 ### 4.3 Sliver
 
@@ -1061,27 +723,25 @@ means "less than a sixth as compact as the roundest shape with the
 same perimeter would be," not an arbitrary cutoff. A perfect square
 scores about 0.785, for a sense of scale between the two.
 
-```{ojs}
-//| echo: false
-pySliverCode = `import geopandas as gpd
+::: {.webgeods-example py="topology-errors-example-py" r="topology-errors-example-r" label="Load the sliver example"}
+```python
+import geopandas as gpd
 from shapely.geometry import shape
 
 clean = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.50, 41.85], [12.50, 41.90], [12.45, 41.90], [12.45, 41.85]]]}
 sliver = {"type": "Polygon", "coordinates": [[[12.75, 41.87], [12.85, 41.87], [12.85, 41.871], [12.75, 41.871], [12.75, 41.87]]]}
 gdf = gpd.GeoDataFrame({"name": ["regular polygon", "sliver"]}, geometry=[shape(clean), shape(sliver)], crs="EPSG:4326")
 
-detect_and_check(gdf)`
-rSliverCode = `clean <- st_polygon(list(rbind(c(12.45, 41.85), c(12.50, 41.85), c(12.50, 41.90), c(12.45, 41.90), c(12.45, 41.85))))
+detect_and_check(gdf)
+```
+```r
+clean <- st_polygon(list(rbind(c(12.45, 41.85), c(12.50, 41.85), c(12.50, 41.90), c(12.45, 41.90), c(12.45, 41.85))))
 sliver <- st_polygon(list(rbind(c(12.75, 41.87), c(12.85, 41.87), c(12.85, 41.871), c(12.75, 41.871), c(12.75, 41.87))))
 data <- st_sf(name = c("regular polygon", "sliver"), geometry = st_sfc(clean, sliver, crs = 4326))
 
-detect_and_check(data)`
+detect_and_check(data)
 ```
-
-```{ojs}
-//| echo: false
-loadSliverButton = WebGeoDS.loadExampleButton("Load the sliver example", { pyId: "topology-errors-example-py", rId: "topology-errors-example-r", pyCode: pySliverCode, rCode: rSliverCode })
-```
+:::
 
 ### 4.4 Duplicates
 
@@ -1089,27 +749,25 @@ Two features with identical geometry, something that happens often
 during merges or repeated imports. The check applies the same way to
 polygons and lines (topological equality), shown here on polygons.
 
-```{ojs}
-//| echo: false
-pyDuplicateCode = `import geopandas as gpd
+::: {.webgeods-example py="topology-errors-example-py" r="topology-errors-example-r" label="Load the duplicates example"}
+```python
+import geopandas as gpd
 from shapely.geometry import shape
 
 a = {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.50, 41.85], [12.50, 41.90], [12.45, 41.90], [12.45, 41.85]]]}
 c = {"type": "Polygon", "coordinates": [[[12.75, 41.85], [12.80, 41.85], [12.80, 41.90], [12.75, 41.90], [12.75, 41.85]]]}
 gdf = gpd.GeoDataFrame({"name": ["A", "copy of A", "C"]}, geometry=[shape(a), shape(a), shape(c)], crs="EPSG:4326")
 
-detect_and_check(gdf)`
-rDuplicateCode = `a <- st_polygon(list(rbind(c(12.45, 41.85), c(12.50, 41.85), c(12.50, 41.90), c(12.45, 41.90), c(12.45, 41.85))))
+detect_and_check(gdf)
+```
+```r
+a <- st_polygon(list(rbind(c(12.45, 41.85), c(12.50, 41.85), c(12.50, 41.90), c(12.45, 41.90), c(12.45, 41.85))))
 c <- st_polygon(list(rbind(c(12.75, 41.85), c(12.80, 41.85), c(12.80, 41.90), c(12.75, 41.90), c(12.75, 41.85))))
 data <- st_sf(name = c("A", "copy of A", "C"), geometry = st_sfc(a, a, c, crs = 4326))
 
-detect_and_check(data)`
+detect_and_check(data)
 ```
-
-```{ojs}
-//| echo: false
-loadDuplicateButton = WebGeoDS.loadExampleButton("Load the duplicates example", { pyId: "topology-errors-example-py", rId: "topology-errors-example-r", pyCode: pyDuplicateCode, rCode: rDuplicateCode })
-```
+:::
 
 ### 4.5 Dangle
 
@@ -1119,9 +777,9 @@ isolated, with both ends "dangling". Notice how the layer on the map
 switches from fill to line: the code itself decides that, based on the
 geometry type you feed it.
 
-```{ojs}
-//| echo: false
-pyDangleCode = `import geopandas as gpd
+::: {.webgeods-example py="topology-errors-example-py" r="topology-errors-example-r" label="Load the dangle example"}
+```python
+import geopandas as gpd
 from shapely.geometry import shape
 
 # L1-L2-L3 form a closed loop (each end touches the next one): no
@@ -1133,20 +791,18 @@ l3 = {"type": "LineString", "coordinates": [[12.50, 41.90], [12.45, 41.85]]}
 l4 = {"type": "LineString", "coordinates": [[12.52, 41.87], [12.56, 41.87]]}
 gdf = gpd.GeoDataFrame({"name": ["L1", "L2", "L3", "L4 isolated"]}, geometry=[shape(l1), shape(l2), shape(l3), shape(l4)], crs="EPSG:4326")
 
-detect_and_check(gdf)`
-rDangleCode = `l1 <- st_linestring(rbind(c(12.45, 41.85), c(12.50, 41.85)))
+detect_and_check(gdf)
+```
+```r
+l1 <- st_linestring(rbind(c(12.45, 41.85), c(12.50, 41.85)))
 l2 <- st_linestring(rbind(c(12.50, 41.85), c(12.50, 41.90)))
 l3 <- st_linestring(rbind(c(12.50, 41.90), c(12.45, 41.85)))
 l4 <- st_linestring(rbind(c(12.52, 41.87), c(12.56, 41.87)))
 data <- st_sf(name = c("L1", "L2", "L3", "L4 isolated"), geometry = st_sfc(l1, l2, l3, l4, crs = 4326))
 
-detect_and_check(data)`
+detect_and_check(data)
 ```
-
-```{ojs}
-//| echo: false
-loadDangleButton = WebGeoDS.loadExampleButton("Load the dangle example", { pyId: "topology-errors-example-py", rId: "topology-errors-example-r", pyCode: pyDangleCode, rCode: rDangleCode })
-```
+:::
 
 ## 5. Apply to your file
 
@@ -1270,38 +926,6 @@ result
 
 :::
 
-```{ojs}
-//| echo: false
-//| output: false
-pyErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-py", Generators)
-{
-  if (pyErrorsUploaded) {
-    await sharedMap.setGeoJSON("topology-errors-py", pyErrorsUploaded.features, { paint: errorPaint(pyErrorsUploaded.features) });
-    await sharedMap.setGeoJSON("topology-errors-gaps-py", pyErrorsUploaded.gaps, { paint: gapPaint });
-    await sharedMap.fitToData(pyErrorsUploaded.features);
-    mutable pyExportFeatures = pyErrorsUploaded.originalCrsFeatures ?? pyErrorsUploaded.features;
-    mutable pyCrsWarning = pyErrorsUploaded.crsWarning ?? null;
-    mutable lastResult = { features: pyErrorsUploaded.features, gaps: pyErrorsUploaded.gaps, exportFeatures: pyErrorsUploaded.originalCrsFeatures ?? pyErrorsUploaded.features, crsWarning: pyErrorsUploaded.crsWarning ?? null, source: "py" };
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rErrorsUploaded = WebGeoDS.getCellValue("topology-errors-uploaded-r", Generators)
-{
-  if (rErrorsUploaded) {
-    await sharedMap.setGeoJSON("topology-errors-r", rErrorsUploaded.features, { paint: errorPaint(rErrorsUploaded.features) });
-    await sharedMap.setGeoJSON("topology-errors-gaps-r", rErrorsUploaded.gaps, { paint: gapPaint });
-    await sharedMap.fitToData(rErrorsUploaded.features);
-    mutable rExportFeatures = rErrorsUploaded.originalCrsFeatures ?? rErrorsUploaded.features;
-    mutable rCrsWarning = rErrorsUploaded.crsWarning ?? null;
-    mutable lastResult = { features: rErrorsUploaded.features, gaps: rErrorsUploaded.gaps, exportFeatures: rErrorsUploaded.originalCrsFeatures ?? rErrorsUploaded.features, crsWarning: rErrorsUploaded.crsWarning ?? null, source: "r" };
-  }
-}
-```
-
 ## 6. Knowing what's broken is already a result
 
 A report that says "23 overlaps, 8 gaps, 4 slivers" isn't half a tool:
@@ -1311,5 +935,7 @@ polygon to move, who to assign a gap to, whether a 2 m² sliver is
 noise or a real island. A future article may cover repair strategies;
 this one deliberately stops before that, where geometry alone can no
 longer answer the question.
+
+{{< webgeods-tool topology-errors-lab id=lab-root >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

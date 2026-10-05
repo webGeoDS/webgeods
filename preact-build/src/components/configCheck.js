@@ -7,7 +7,7 @@ const TOP = ["tool", "cells", "example", "autoCompute", "uploadKind", "languages
   "side", "tables", "stats", "legend", "legendExtra"];
 const KNOWN = {
   input: ["kind", "name", "label", "min", "max", "step", "value", "options", "onPick", "width", "placeholder", "size"],
-  layer: ["id", "label", "type", "data", "paint", "selectBy", "raster", "render"],
+  layer: ["id", "label", "type", "data", "paint", "selectBy", "raster", "render", "startHidden"],
   selectable: ["id", "from", "layer", "paint", "fit"],
   categories: ["field", "values", "label"],
   side: ["id", "placeholder", "panels"],

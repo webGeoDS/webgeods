@@ -43,8 +43,12 @@ const CONFIG = {
   layers: ({ inspect, result }, { categories }) => [{
     id: SOURCE, label: "Points", type: "circle",
     data: result?.features ?? inspect?.features ?? null,
-    paint: result ? categories.paint("cluster") : UPLOADED_POINT_PAINT
+    paint: result ? categories.paint("cluster") : UPLOADED_POINT_PAINT,
+    selectBy: "feature"
   }],
+
+  // A point's table row, or the point on the map, selects it in both.
+  selectable: { id: SOURCE, from: ({ inspect, result }) => result?.features ?? inspect?.features ?? null, layer: "spatial-clustering-selection", fit: true },
 
   tables: [{ label: "Points", id: SOURCE, from: ({ inspect, result }) => result?.features ?? inspect?.features, emptyMessage: "No results yet" }],
 

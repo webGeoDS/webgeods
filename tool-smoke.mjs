@@ -125,13 +125,16 @@ if (labeled.length > 1) {
   const results = [];
   for (const layer of labeled) {
     const box = page.locator(".webgeods-layer-control label", { hasText: layer.label }).locator("input");
+    // A layer may start switched off (startHidden): each click flips it.
+    const start = await visibility(layer.id);
     await box.click(); await page.waitForTimeout(200);
-    const off = await visibility(layer.id);
+    const flipped = await visibility(layer.id);
     await box.click(); await page.waitForTimeout(200);
-    const on = await visibility(layer.id);
-    results.push([layer.label, off, on]);
+    const back = await visibility(layer.id);
+    results.push([layer.label, start, flipped, back]);
   }
-  check(`layer switches: ${labeled.map((l) => l.label).join(", ")}`, results.every(([, off, on]) => off === "none" && on === "visible"), results);
+  check(`layer switches: ${labeled.map((l) => l.label).join(", ")}`,
+    results.every(([, start, flipped, back]) => flipped !== start && back === start), results);
 } else skip("layer switches", "fewer than two labeled layers with data");
 
 // Selection
@@ -141,10 +144,19 @@ if (selectionLayer) {
 
   if (clickable) {
     // A point feature of the clickable layer, clicked where the map draws it.
+    // The map must be on screen for the mouse to reach it.
+    await page.evaluate(() => document.querySelector(".webgeods-dashboard .webgeods-map-container").scrollIntoView({ block: "center" }));
+    await idle(page);
     const locate = () => page.evaluate(`(() => {
       const m = ${MAP};
       const layer = ${T(tool)}.layers.find((l) => l.id === ${JSON.stringify(clickable.id)});
-      const feature = layer.data.features.find((f) => f.geometry?.type === "Point");
+      // A point that is alone under its own pixel: in dense data the
+      // topmost feature there could be another one.
+      const points = layer.data.features.filter((f) => f.geometry?.type === "Point");
+      const alone = (f) => { const q = m.project(f.geometry.coordinates); return m.queryRenderedFeatures([q.x, q.y], { layers: [layer.id] }).length === 1; };
+      // Chosen once, then found again after the selection zooms.
+      window.__smokeFeature ??= points.find(alone) ?? points[0];
+      const feature = points.includes(window.__smokeFeature) ? window.__smokeFeature : null;
       if (!feature) return null;
       const p = m.project(feature.geometry.coordinates);
       const r = m.getCanvas().getBoundingClientRect();

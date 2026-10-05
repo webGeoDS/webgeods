@@ -1,0 +1,4 @@
+{"type": "FeatureCollection", "features": [
+  {"type": "Feature", "properties": {"name": "A (example)"}, "geometry": {"type": "Polygon", "coordinates": [[[12.45, 41.85], [12.52, 41.85], [12.52, 41.92], [12.45, 41.92], [12.45, 41.85]]]}},
+  {"type": "Feature", "properties": {"name": "B (example)"}, "geometry": {"type": "Polygon", "coordinates": [[[12.5, 41.87], [12.57, 41.87], [12.57, 41.94], [12.5, 41.94], [12.5, 41.87]]]}}
+]}

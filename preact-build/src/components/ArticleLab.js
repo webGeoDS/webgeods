@@ -41,25 +41,12 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { useCellValue } from "../hooks/useCellValue.js";
 import { MapView } from "./MapView.js";
 import { DataTable, featureRows, featureKey } from "./DataTable.js";
+import { selectionLayer } from "./selection.js";
 import { DomNode } from "./DomNode.js";
 import { Portal } from "./Layout.js";
 
 const LANGUAGE_LABELS = { py: "Python", r: "R" };
 const SELECTION_LAYER = "lab-selection";
-const YELLOW = "#ffeb3b";
-
-// The selected feature, drawn in the selection yellow by geometry type.
-function selectionLayer(feature) {
-  const type = feature?.geometry?.type ?? "";
-  const data = feature ? { type: "FeatureCollection", features: [feature] } : null;
-  if (/Polygon/.test(type)) {
-    return { id: SELECTION_LAYER, type: "fill", data, paint: { "fill-color": YELLOW, "fill-opacity": 0.6, "fill-outline-color": "#2a2117" } };
-  }
-  if (/LineString/.test(type)) {
-    return { id: SELECTION_LAYER, type: "line", data, paint: { "line-color": YELLOW, "line-width": 5 } };
-  }
-  return { id: SELECTION_LAYER, type: "circle", data, paint: { "circle-color": YELLOW, "circle-radius": 8, "circle-stroke-color": "#2a2117", "circle-stroke-width": 1.5 } };
-}
 
 export function ArticleLab({ config }) {
 
@@ -123,7 +110,7 @@ export function ArticleLab({ config }) {
   const layers = shown.flatMap((lang) => map.layers(results[lang], lang)).map((layer) => (
     tableIds.has(layer.id) ? { ...layer, onClick: (feature) => select(layer.id, featureKey(layer.id, feature, -1)) } : layer
   ));
-  if (tableIds.size) layers.push(selectionLayer(selectedFeature));
+  if (tableIds.size) layers.push(selectionLayer(SELECTION_LAYER, selectedFeature ? [selectedFeature] : []));
   // New results zoom to the data, a selection to its feature; clearing
   // a selection leaves the view where it is.
   const [fitTo, setFitTo] = useState(null);

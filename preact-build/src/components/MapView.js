@@ -22,6 +22,7 @@
 // label: a layer that has one gets an on/off checkbox in a box over the
 // map's top-left corner, shown once two or more labeled layers have
 // data. Hidden layers keep their data and come back as they were.
+// startHidden: the layer starts switched off, the first time it appears.
 //
 // fitTo: a FeatureCollection to zoom to whenever a new one is passed.
 // onReady(map): the WebGeoDS.Map instance, for anything not expressible
@@ -46,6 +47,7 @@ export function MapView({ tool, height, center, zoom, layers = [], fitTo, onRead
   const mapRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [hidden, setHidden] = useState(() => new Set());
+  const seen = useRef(new Set());
 
   // Last pushed { data, paintKey, type } per layer id.
   const pushed = useRef(new Map());
@@ -92,6 +94,13 @@ export function MapView({ tool, height, center, zoom, layers = [], fitTo, onRead
     };
 
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A layer marked startHidden is switched off the first time it shows up.
+  useEffect(() => {
+    const fresh = layers.filter((l) => l.startHidden && !seen.current.has(l.id));
+    layers.forEach((l) => seen.current.add(l.id));
+    if (fresh.length) setHidden((current) => new Set([...current, ...fresh.map((l) => l.id)]));
+  }, [layers]);
 
   useEffect(() => {
 
