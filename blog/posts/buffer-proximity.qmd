@@ -30,36 +30,8 @@ data spanning multiple UTM zones or very large areas.
 
 ## 2. Upload your data
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles);
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 No file uploaded? Both cells below fall back to the same three fixed
 features: a point (a shop), a line (a road segment), and a polygon (a
@@ -70,20 +42,8 @@ real data instead.
 
 ## 3. Same spatial question, two languages
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.47, 41.9], zoom: 12, height: "420px" });
-  await map.ready();
-  return map;
-}
-```
-
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+::: {#lab-map style="min-height: 440px;"}
+:::
 
 ::: {.panel-tabset}
 
@@ -244,183 +204,14 @@ jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FAL
 
 :::
 
-```{ojs}
-//| echo: false
-mutable pySummary = null
-```
+::: {#lab-crs}
+:::
 
-```{ojs}
-//| echo: false
-mutable rSummary = null
-```
+::: {#lab-stats}
+:::
 
-```{ojs}
-//| echo: false
-mutable crsWarning = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-BUFFER_MAP_PAINT = ({
-  "fill-color": "#42583c",
-  "fill-opacity": 0.35,
-  "fill-outline-color": "#2a2117"
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Draws only Python's own buffer (not both languages stacked on
-// identical coordinates, which would just hide one under the other):
-// the two languages agree on the shapes and positions, differing only
-// in the small area discrepancy section 4 covers -- the map isn't the
-// place that distinction is legible, the stat cards above already are.
-// Two layers, same as the standalone tool: the original feature in
-// the map's default styling, the buffer as a semi-transparent fill
-// on top of it, so both are visible at once.
-pyResult = WebGeoDS.getCellValue("buffer-proximity-py", Generators)
-{
-  if (pyResult) {
-    mutable pySummary = pyResult;
-    mutable crsWarning = pyResult.crsWarning;
-
-    // One map source renders as one MapLibre layer type, detected
-    // from its first feature -- fine for a real upload (typically one
-    // geometry type throughout) but not for the built-in fallback,
-    // which deliberately mixes point/line/polygon to show all three
-    // buffer shapes in one run. Split by geometry family into
-    // separate sources so none of them get silently dropped, and
-    // clear any family that no longer applies after a re-run.
-    const originalByFamily = { point: [], line: [], polygon: [] };
-    for (const feature of pyResult.originalFeatures.features) {
-      const t = feature.geometry.type;
-      if (t === "Point" || t === "MultiPoint") originalByFamily.point.push(feature);
-      else if (t === "LineString" || t === "MultiLineString") originalByFamily.line.push(feature);
-      else originalByFamily.polygon.push(feature);
-    }
-    for (const family of ["point", "line", "polygon"]) {
-      const id = `buffer-proximity-py-original-${family}`;
-      const features = originalByFamily[family];
-      if (features.length > 0) {
-        await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features });
-      } else {
-        await sharedMap.removeGeoJSON(id).catch(() => {});
-      }
-    }
-
-    await sharedMap.setGeoJSON("buffer-proximity-py", pyResult.features, { paint: BUFFER_MAP_PAINT });
-    await sharedMap.fitToData(pyResult.features);
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rResult = WebGeoDS.getCellValue("buffer-proximity-r", Generators)
-{
-  if (rResult) mutable rSummary = rResult;
-}
-```
-
-```{ojs}
-//| echo: false
-crsWarningEl = {
-  const div = document.createElement("div");
-  div.className = "webgeods-panel-status";
-  if (crsWarning) div.textContent = `⚠️ ${crsWarning}`;
-  return div;
-}
-```
-
-${crsWarningEl}
-
-```{ojs}
-//| echo: false
-statCard = (label, s) => {
-  const wrap = document.createElement("div");
-  wrap.style.flex = "1";
-  wrap.style.minWidth = "260px";
-
-  const heading = document.createElement("div");
-  heading.className = "webgeods-label";
-  heading.textContent = label;
-  wrap.appendChild(heading);
-
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  wrap.appendChild(box);
-
-  const row = (rowLabel, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = rowLabel;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-
-  if (!s) {
-    row("Calculation CRS", "—");
-    return wrap;
-  }
-
-  row("Calculation CRS", s.calculationCrs);
-  if (s.excludedCount > 0) {
-    row("Excluded from buffering", `${s.excludedCount} (too far from the calculation UTM zone to project)`);
-  }
-  row("Input geometry", s.geometryTypes.join(", "));
-  row("Buffer geometry", s.bufferGeometryTypes.join(", "));
-  row("Buffer areas (m²)", s.bufferAreas.join(", "));
-
-  return wrap;
-}
-```
-
-```{ojs}
-//| echo: false
-statCardsRow = {
-  const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.flexWrap = "wrap";
-  row.style.gap = "16px";
-  row.append(statCard("Python", pySummary), statCard("R", rSummary));
-  return row;
-}
-```
-
-${statCardsRow}
-
-```{ojs}
-//| echo: false
-resetBufferArticle = async () => {
-  const ids = [
-    "buffer-proximity-py-original-point",
-    "buffer-proximity-py-original-line",
-    "buffer-proximity-py-original-polygon",
-    "buffer-proximity-py"
-  ];
-  for (const id of ids) {
-    if (sharedMap.getGeoJSON(id)) {
-      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
-    }
-  }
-  mutable pySummary = null;
-  mutable rSummary = null;
-  mutable crsWarning = null;
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-resetMapButton = WebGeoDS.resetButton(resetBufferArticle, "🔄 Reset map and cards")
-```
-
-${resetMapButton}
+::: {#lab-reset}
+:::
 
 ## 4. One distance, three different shapes
 
@@ -475,5 +266,7 @@ each one separately."
 - **Wondering why the coordinate system needed picking at all?** →
   [Coordinate Reference Systems](crs-mismatch.qmd) covers the
   geographic/projected distinction this article leaned on in section 1.
+
+{{< webgeods-tool buffer-proximity-lab id=lab-root >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

@@ -20,132 +20,14 @@ including ours. Nothing to configure, nothing to trust: the code
 never gets the chance to see your data.
 :::
 
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-mutable uploadBusy = false
-mutable uploadedFiles = null
-mutable uploadKind = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "📁 Upload",
-  onChange: (files) => { mutable uploadedFiles = files; },
-  kind: "vector"
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  // Python-only tool (see the article for the same computation shown
-  // in R too): skip writing to R's filesystem entirely.
-  mutable uploadBusy = true;
-  mutable uploadStatus = "⌛ Uploading...";
-  try {
-    const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["python"] });
-    if (result.ok) {
-      mutable uploadKind = result.kind;
-      mutable uploadStatus = "⌛ Inspecting...";
-      await autoInspect();
-      mutable uploadStatus = result.message;
-    } else {
-      mutable uploadStatus = result.message;
-    }
-  } finally {
-    mutable uploadBusy = false;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-uploadStatusEl = WebGeoDS.uploadStatusEl(uploadStatus, uploadBusy)
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = await WebGeoDS.createSharedMap({ tool: "buffer-proximity" })
-```
-
 The code itself isn't shown here — it's a fixed, non-editable
 computation using GeoPandas' `.buffer()` underneath. Want to see it
 built up step by step, in Python *and* R? Read
 [Buffer & Proximity: How Far Is Within Reach](/posts/buffer-proximity.html).
 
-```{ojs}
-//| echo: false
-//| output: false
-autoInspect = async () => {
-  await window.WebGeoDS.CodeCell.find("buffer-inspect-py").run();
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Deterministic synthetic dataset -- five store locations near Rome,
-// fixed coordinates rather than generated at runtime, same reasoning
-// as every other tool's own example (reviewable, reproducible, no
-// randomness to explain).
-EXAMPLE_POINTS = [
-  [12.4964, 41.9028, "Store — Centro"],
-  [12.5157, 41.8986, "Store — Colosseo"],
-  [12.4733, 41.8896, "Store — Trastevere"],
-  [12.4614, 41.9109, "Store — Prati"],
-  [12.5389, 41.9095, "Store — Pigneto"]
-]
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-EXAMPLE_GEOJSON = JSON.stringify({
-  type: "FeatureCollection",
-  features: EXAMPLE_POINTS.map(([lon, lat, name]) => ({
-    type: "Feature",
-    properties: { name },
-    geometry: { type: "Point", coordinates: [lon, lat] }
-  }))
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-loadExampleButton = {
-  const button = document.createElement("button");
-  button.className = "webgeods-panel-btn";
-  button.dataset.variant = "outline";
-  button.textContent = "📋 Load example";
-  button.onclick = async () => {
-    mutable uploadBusy = true;
-    mutable uploadStatus = "⌛ Loading example...";
-    try {
-      const bytes = new TextEncoder().encode(EXAMPLE_GEOJSON);
-      await window.WebGeoDS.Python.writeFile("/uploaded.geojson", bytes);
-      mutable uploadKind = "geojson";
-      mutable uploadStatus = "⌛ Inspecting...";
-      await autoInspect();
-      mutable uploadStatus = "✓ example data loaded — set a distance and Compute below.";
-    } finally {
-      mutable uploadBusy = false;
-    }
-  };
-  return button;
-}
-```
-
-```{.webgeods-python #buffer-inspect-py}
+```{.webgeods-python #buffer-inspect-py .tool-cell}
 #| package: geopandas
-import geopandas as gpd
-
+#| helper: read_upload
 def export_crs(g):
     # Reprojects `g` (a WGS84 GeoDataFrame) back to the CRS the file
     # was UPLOADED in — every downloadable result goes through this,
@@ -157,25 +39,10 @@ def export_crs(g):
 
 EMPTY_FC = {"type": "FeatureCollection", "features": []}
 
-gdf = None
-for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
-    try:
-        gdf = gpd.read_file(path)
-        break
-    except Exception:
-        pass
+gdf, original_crs, crs_warning, _ = read_upload()
 
-crs_warning = None
-original_crs = None
 summary_out = None
 if gdf is not None:
-    if gdf.crs is None:
-        gdf = gdf.set_crs("EPSG:4326")
-        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
-    original_crs = gdf.crs
-    if str(original_crs) != "EPSG:4326":
-        gdf = gdf.to_crs("EPSG:4326")
-
     if "name" not in gdf.columns:
         gdf["name"] = [f"feature {i + 1}" for i in range(len(gdf))]
 
@@ -192,74 +59,7 @@ if gdf is not None:
 }
 ```
 
-```{ojs}
-//| echo: false
-mutable inspectSummary = null
-```
-
-```{ojs}
-//| echo: false
-mutable resultSummary = null
-```
-
-```{ojs}
-//| echo: false
-mutable exportFeatures = null
-```
-
-```{ojs}
-//| echo: false
-mutable crsWarning = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyInspect = WebGeoDS.getCellValue("buffer-inspect-py", Generators)
-{
-  if (pyInspect) {
-    // No paint override -- default styling is exactly right for
-    // "uploaded, not yet buffered". The buffer's own color only
-    // appears once Compute has actually run.
-    await sharedMap.setGeoJSON("buffer-original-py", pyInspect.features);
-    await sharedMap.fitToData(pyInspect.features);
-    mutable inspectSummary = pyInspect.summary;
-    mutable crsWarning = pyInspect.crsWarning;
-    // A fresh upload/example invalidates any previously computed
-    // buffer -- same reasoning as clicking Reset.
-    mutable resultSummary = null;
-    mutable exportFeatures = null;
-    await sharedMap.removeGeoJSON("buffer-result-py");
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// A function, not a static constant: the number of rings is chosen
-// per run. Opacity fades from 0.6 (closest ring) down to ~0.15
-// (farthest) via a match expression on each feature's own "ring"
-// property -- same "match" mechanism as Spatial Clustering's cluster
-// colors, applied to opacity instead of hue since these are ordered
-// distance bands, not unrelated categories. ringCount=1 resolves to
-// the single 0.35 opacity this tool always used before rings existed.
-ringPaint = (ringCount) => {
-  const opacityExpr = ["match", ["get", "ring"]];
-  for (let i = 1; i <= ringCount; i++) {
-    const opacity = ringCount === 1 ? 0.35 : 0.6 - (i - 1) * (0.45 / (ringCount - 1));
-    opacityExpr.push(i, Number(opacity.toFixed(2)));
-  }
-  opacityExpr.push(0.35);
-  return {
-    "fill-color": "#42583c",
-    "fill-opacity": opacityExpr,
-    "fill-outline-color": "#2a2117"
-  };
-}
-```
-
-```{.webgeods-python #buffer-compute-py}
+```{.webgeods-python #buffer-compute-py .tool-cell}
 #| inject: [bufferDistance, dissolveBuffers, ringCount]
 #| package: geopandas
 import numpy as np
@@ -390,7 +190,7 @@ ring_gdf_wgs84 = ring_gdf.to_crs("EPSG:4326")
 }
 ```
 
-```{.webgeods-python #buffer-export-shp-py}
+```{.webgeods-python #buffer-export-shp-py .tool-cell}
 # Only run on demand (see downloadButton below), not on every Compute:
 # re-exports ring_gdf_wgs84 (the just-computed buffer rings, already
 # available from buffer-compute-py above) reprojected back to the
@@ -415,228 +215,10 @@ with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
 base64.b64encode(buf.getvalue()).decode("ascii")
 ```
 
-```{ojs}
-//| echo: false
-//| output: false
-// The distance slider + dissolve checkbox + Compute button, rebuilt
-// whenever inspectSummary changes -- same "disabled with an
-// explanatory message until there's data" pattern as Raster
-// Calculator's own band-math row.
-bufferControlsRow = {
-  const s = inspectSummary;
-  const row = document.createElement("div");
-  row.className = "webgeods-panel-row";
-
-  if (!s) {
-    const status = document.createElement("span");
-    status.className = "webgeods-panel-status";
-    status.textContent = "Upload a file or load the example to set a distance.";
-    row.append(status);
-    return row;
-  }
-
-  const slider = WebGeoDS.createSlider([10, 2000], {
-    value: 100,
-    step: 10,
-    label: "Buffer distance (m)",
-    id: "buffer-distance-control"
-  });
-
-  const ringSlider = WebGeoDS.createSlider([1, 5], {
-    value: 1,
-    step: 1,
-    label: "Rings",
-    id: "ring-count-control"
-  });
-
-  const dissolveLabel = document.createElement("label");
-  dissolveLabel.className = "webgeods-panel-status";
-  const dissolveCheckbox = document.createElement("input");
-  dissolveCheckbox.type = "checkbox";
-  dissolveCheckbox.id = "dissolve-buffers-control";
-  dissolveLabel.append(dissolveCheckbox, " Dissolve overlapping buffers");
-
-  const computeButton = document.createElement("button");
-  computeButton.className = "webgeods-panel-btn";
-  computeButton.textContent = "▶ Compute";
-  computeButton.onclick = async () => {
-    computeButton.disabled = true;
-    const originalText = computeButton.textContent;
-    computeButton.textContent = "⌛ Computing...";
-    try {
-      const bufferDistance = Number(document.getElementById("buffer-distance-control").value);
-      const ringCount = Number(document.getElementById("ring-count-control").value);
-      const dissolveBuffers = document.getElementById("dissolve-buffers-control").checked;
-      window.bufferDistance = bufferDistance;
-      window.ringCount = ringCount;
-      window.dissolveBuffers = dissolveBuffers;
-      await window.WebGeoDS.CodeCell.find("buffer-compute-py").run();
-      const result = document.getElementById("buffer-compute-py").value;
-      await sharedMap.setGeoJSON("buffer-result-py", result.features, { paint: ringPaint(ringCount) });
-      await sharedMap.fitToData(result.features);
-      mutable exportFeatures = result.originalCrsFeatures;
-      mutable resultSummary = { ...result.summary, bufferDistance, ringCount, dissolveBuffers };
-      window.WebGeoDS.track?.("validation_completed", { tool: "buffer-proximity" });
-    } catch (err) {
-      console.error("buffer-proximity: Compute failed", err);
-      mutable uploadStatus = `⚠️ Compute failed: ${err.message}`;
-    } finally {
-      computeButton.disabled = false;
-      computeButton.textContent = originalText;
-    }
-  };
-
-  row.append(slider, ringSlider, dissolveLabel, computeButton);
-  return row;
-}
-```
-
-```{ojs}
-//| echo: false
-resetBuffer = async () => {
-  if (sharedMap.getGeoJSON("buffer-original-py")) {
-    await sharedMap.setGeoJSON("buffer-original-py", { type: "FeatureCollection", features: [] });
-  }
-  await sharedMap.removeGeoJSON("buffer-result-py").catch(() => {});
-  mutable inspectSummary = null;
-  mutable resultSummary = null;
-  mutable exportFeatures = null;
-  mutable crsWarning = null;
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-resetMapButton = WebGeoDS.resetButton(resetBuffer)
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Gated on resultSummary (a completed Compute), not just an upload --
-// downloading an unbuffered file wouldn't be this tool's own output.
-downloadButton = WebGeoDS.downloadButton({
-  getFeatures: () => exportFeatures,
-  getBaseName: () => WebGeoDS.Upload.baseName(uploadedFiles),
-  filenameSuffix: "-buffered.geojson",
-  defaultFilename: "buffered.geojson",
-  enabled: !!resultSummary,
-  tool: "buffer-proximity",
-  shapefile: {
-    cellId: "buffer-export-shp-py",
-    uploadKind,
-    filenameSuffix: "-buffered.zip",
-    defaultFilename: "buffered-shapefile.zip"
-  }
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-controlPanelRow = WebGeoDS.controlPanelRow([uploadControl, loadExampleButton, downloadButton, resetMapButton])
-```
-
 *First run loads the Python engine — timing varies by device, watch
 the counter below the code once it starts.*
 
-:::: {.webgeods-panel}
-
-::: {.webgeods-panel-row}
-${controlPanelRow}
-:::
-
-::: {.webgeods-panel-row}
-${uploadStatusEl}
-:::
-
-::: {.webgeods-panel-row}
-${bufferControlsRow}
-:::
-
-::::
-
-```{ojs}
-//| echo: false
-statCard = {
-  const s = inspectSummary;
-  const r = resultSummary;
-  const rows = [];
-
-  if (!s) {
-    rows.push(["Features", "—"]);
-    rows.push(["—", "Upload a point/line/polygon file or load the example above"]);
-    return WebGeoDS.statCard(rows);
-  }
-
-  rows.push(["Features", s.count.toLocaleString()]);
-  rows.push(["Geometry", s.geometryTypes.join(", ")]);
-  rows.push(["Original CRS", s.crs === "None" || !s.crs ? "Unknown" : s.crs]);
-
-  if (r) {
-    rows.push(["Calculation CRS", r.calculationCrs]);
-    if (r.excludedCount > 0) {
-      rows.push(["Excluded from buffering", `${r.excludedCount} (too far from the calculation UTM zone to project)`]);
-    }
-    rows.push(["Buffer distance", `${r.bufferDistance} m`]);
-    rows.push(["Rings", r.ringCount === 1 ? "1 (no ring split)" : `${r.ringCount} (at ${r.ringDistances.join(", ")} m)`]);
-    rows.push(["Dissolved", r.dissolveBuffers ? "Yes" : "No"]);
-    rows.push(["Buffer features", r.bufferCount]);
-  }
-
-  return WebGeoDS.statCard(rows);
-}
-```
-
-${statCard}
-
-```{ojs}
-//| echo: false
-legendEl = {
-  const r = resultSummary;
-  if (!r) return WebGeoDS.legend(null);
-
-  const items = [];
-
-  if (r.ringCount === 1) {
-    items.push({ color: "rgba(66,88,60,0.6)", label: `Buffer (${r.bufferDistance} m)` });
-  } else {
-    let previousDistance = 0;
-    r.ringDistances.forEach((distance, i) => {
-      const opacity = 0.6 - i * (0.45 / (r.ringCount - 1));
-      items.push({ color: `rgba(66,88,60,${opacity.toFixed(2)})`, label: `${previousDistance}–${distance} m` });
-      previousDistance = distance;
-    });
-  }
-
-  return WebGeoDS.legend(items, { swatchWidth: 32 });
-}
-```
-
-${legendEl}
-
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
-
-```{ojs}
-//| echo: false
-bufferTable = sharedMap.tableCell(["buffer-result-py"], null, Generators, {
-  emptyMessage: "No results yet"
-})
-```
-
-<style>
-#buffer-inspect-py, #buffer-compute-py, #buffer-export-shp-py {
-  height: 0;
-  overflow: hidden;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-</style>
+{{< webgeods-tool buffer-proximity-tool id=buffer-root min-height=820px >}}
 
 <div class="webgeods-closing-note">
 First tool in the Vector family's newest addition. Want to see the

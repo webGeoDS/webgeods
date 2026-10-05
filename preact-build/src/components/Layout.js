@@ -12,8 +12,9 @@ export function StatCard({ rows }) {
   return <DomNode build={() => window.WebGeoDS.statCard(rows)} deps={[JSON.stringify(rows)]} />;
 }
 
-export function Legend({ items }) {
-  return <DomNode build={() => window.WebGeoDS.legend(items)} deps={[JSON.stringify(items)]} />;
+// options: WebGeoDS.legend's own (e.g. { swatchWidth: 32 }).
+export function Legend({ items, options }) {
+  return <DomNode build={() => window.WebGeoDS.legend(items, options)} deps={[JSON.stringify(items), JSON.stringify(options)]} />;
 }
 
 // Map and side panel side by side, wrapping on narrow screens: same

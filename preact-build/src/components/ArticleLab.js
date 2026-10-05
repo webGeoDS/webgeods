@@ -16,7 +16,9 @@
 //   upload    options for WebGeoDS.Upload.load (e.g. { languages: ["python", "r"] })
 //   map       { center, zoom, height, layers: (value, lang) => [...], fit: (value) => FC,
 //               mode: "latest" (only the language that ran last) | "both" (each on
-//               its own layers, the one that ran last on top) }
+//               its own layers, the one that ran last on top) | "py" or "r" (that
+//               language only, when the other would just draw the same shapes) }
+//             #lab-crs shows the CRS warning of the result on the map
 //   stats     (value | null) => rows for a language's card
 //   slots     { "#selector": (state) => content } for the article's own slots
 //
@@ -61,7 +63,10 @@ export function ArticleLab({ config }) {
     setOrder([]);
   };
 
-  const shown = map.mode === "both" ? ranLanguages : ranLanguages.slice(-1);
+  const shown = map.mode === "both" ? ranLanguages
+    : map.mode === "py" || map.mode === "r" ? ranLanguages.filter((lang) => lang === map.mode)
+      : ranLanguages.slice(-1);
+  const onMap = shown.length ? results[shown.at(-1)] : null;
   const layers = shown.flatMap((lang) => map.layers(results[lang], lang));
 
   const parts = {
@@ -76,10 +81,10 @@ export function ArticleLab({ config }) {
     ),
     "#lab-map": () => (
       <MapView height={map.height ?? "420px"} center={map.center} zoom={map.zoom}
-        layers={layers} fitTo={latest ? map.fit(latest) : null} />
+        layers={layers} fitTo={onMap ? map.fit(onMap) : null} />
     ),
     "#lab-crs": () => (
-      <div class="webgeods-panel-status">{latest?.crsWarning ? `⚠️ ${latest.crsWarning}` : ""}</div>
+      <div class="webgeods-panel-status">{onMap?.crsWarning ? `⚠️ ${onMap.crsWarning}` : ""}</div>
     ),
     // Two cards side by side: seeing them agree is the point.
     "#lab-stats": () => (

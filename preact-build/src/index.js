@@ -21,6 +21,8 @@ import { SpatialClassifierTool } from "./pages/SpatialClassifierTool.js";
 import { SpatialClassificationLab } from "./pages/SpatialClassificationLab.js";
 import { NetworkFromLinesTool } from "./pages/NetworkFromLinesTool.js";
 import { NetworkFromLinesLab } from "./pages/NetworkFromLinesLab.js";
+import { BufferProximityTool } from "./pages/BufferProximityTool.js";
+import { BufferProximityLab } from "./pages/BufferProximityLab.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
@@ -43,7 +45,9 @@ const PAGES = {
   "spatial-classifier-tool": SpatialClassifierTool,
   "spatial-classification-lab": SpatialClassificationLab,
   "network-from-lines-tool": NetworkFromLinesTool,
-  "network-from-lines-lab": NetworkFromLinesLab
+  "network-from-lines-lab": NetworkFromLinesLab,
+  "buffer-proximity-tool": BufferProximityTool,
+  "buffer-proximity-lab": BufferProximityLab
 };
 
 function mount(name, target, props = {}) {

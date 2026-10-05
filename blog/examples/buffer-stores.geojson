@@ -1,0 +1,7 @@
+{"type": "FeatureCollection", "features": [
+  {"type": "Feature", "properties": {"name": "Store — Centro"}, "geometry": {"type": "Point", "coordinates": [12.4964, 41.9028]}},
+  {"type": "Feature", "properties": {"name": "Store — Colosseo"}, "geometry": {"type": "Point", "coordinates": [12.5157, 41.8986]}},
+  {"type": "Feature", "properties": {"name": "Store — Trastevere"}, "geometry": {"type": "Point", "coordinates": [12.4733, 41.8896]}},
+  {"type": "Feature", "properties": {"name": "Store — Prati"}, "geometry": {"type": "Point", "coordinates": [12.4614, 41.9109]}},
+  {"type": "Feature", "properties": {"name": "Store — Pigneto"}, "geometry": {"type": "Point", "coordinates": [12.5389, 41.9095]}}
+]}

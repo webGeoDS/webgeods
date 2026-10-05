@@ -50,8 +50,8 @@
 //                          clickable and shows the selection
 //   layers can also be rasters: { id, label, type: "raster", raster, render }
 //                          (MapView.js)
-//   stats                  { empty: rows, inspect, result }: each a function of the
-//                          value returning rows, or a list of rows where a row is
+//   stats                  { empty: rows, inspect, result }: each a function of
+//                          (value, data) returning rows, or a list of rows where a row is
 //                          [label, "path.in.value", unit?] (numbers formatted) or a
 //                          function of the value returning a row, rows or null
 //   legend(data, ctx)      legend items or null; by default the categories, then
@@ -250,7 +250,7 @@ export function ToolDashboard({ config }) {
     };
   });
 
-  const statRows = result ? statRowsOf(stats.result, result) : inspect ? statRowsOf(stats.inspect, inspect) : stats.empty;
+  const statRows = result ? statRowsOf(stats.result, result, data) : inspect ? statRowsOf(stats.inspect, inspect, data) : stats.empty;
 
   const legend = config.legend
     ? config.legend(data, ctx)
@@ -271,7 +271,8 @@ export function ToolDashboard({ config }) {
           map={mapView} side={sideContent} />
         : mapView}
 
-      <Legend items={legend ?? null} />
+      {/* legend() may also return { items, options } for WebGeoDS.legend options. */}
+      <Legend items={(Array.isArray(legend) ? legend : legend?.items) ?? null} options={Array.isArray(legend) ? undefined : legend?.options} />
 
       {tableViews.length > 1 && <Tabs tabs={tableViews} />}
       {tableViews.length === 1 && tableViews[0].content}
@@ -302,12 +303,13 @@ function renderInput(spec, tool, data, inputs, setInput, setInputs, busy) {
     value={inputs[spec.name]} onChange={setInput(spec.name)} disabled={busy} />;
 }
 
-// [label, "path.in.value", unit?] rows, or functions of the value.
-function statRowsOf(spec, value) {
-  if (typeof spec === "function") return spec(value);
+// [label, "path.in.value", unit?] rows, or functions of (value, data),
+// data being { inspect, result } for rows that combine the two.
+function statRowsOf(spec, value, data) {
+  if (typeof spec === "function") return spec(value, data);
   return spec.flatMap((row) => {
     if (typeof row === "function") {
-      const rows = row(value);
+      const rows = row(value, data);
       return rows == null ? [] : Array.isArray(rows[0]) ? rows : [rows];
     }
     const [label, path, unit] = row;
