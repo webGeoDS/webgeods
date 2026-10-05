@@ -18,6 +18,20 @@ the deploy workflow needs no Node build step.
 verifies the result in a real headless browser: mounts the `self-test`
 page, clicks, checks state, effects, a portal and unmounting.
 
+### While editing
+
+```
+npm run dev
+```
+
+Serves the rendered site (`../blog/_site/`, render it once first) on
+http://127.0.0.1:4801, rebuilds the bundle into it on every save of
+`src/` and copies any saved `../shared/` file into it: save, then reload
+the page (about 3 s, against about 70 s for build + sync + render). It
+writes only to the rendered site, so run `./build.sh` and
+`../sync-shared-assets.sh` before committing, and `quarto render` after
+changing a `.qmd`.
+
 ## Layout
 
 - `src/index.js`: exposes `window.WebGeoDS.Preact.mount(name, target, props)`

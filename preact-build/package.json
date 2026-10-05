@@ -3,7 +3,8 @@
   "private": true,
   "description": "Reproducible build for shared/webgeods-preact.js — the Preact components behind the interactive parts of pages migrated off OJS. Not part of the published site itself, see build.sh.",
   "scripts": {
-    "build": "esbuild src/index.js --bundle --minify --format=iife --jsx=automatic --jsx-import-source=preact --loader:.js=jsx --target=es2020 --outfile=../shared/webgeods-preact.js"
+    "build": "esbuild src/index.js --bundle --minify --format=iife --jsx=automatic --jsx-import-source=preact --loader:.js=jsx --target=es2020 --outfile=../shared/webgeods-preact.js",
+    "dev": "node dev.mjs"
   },
   "dependencies": {
     "preact": "10.29.8"
