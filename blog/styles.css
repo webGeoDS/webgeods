@@ -255,6 +255,20 @@
   background-color: var(--surface-muted);
 }
 
+/* A tool page's cells (`{.webgeods-python #id .tool-cell}`): still run
+   by the page's component, just not shown. height: 0, NOT display: none:
+   display: none on these cells kept window.maplibregl from ever loading
+   (reproducible, see the <style> note in
+   blog/tools/geojson-shapefile-validator.qmd). Two classes so it wins
+   over .webgeods-editor-container's margin and border above. */
+.webgeods-editor-container.tool-cell {
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 /* Top toolbar: language label on the left, Run button on the right. */
 .webgeods-toolbar {
   display: flex;

@@ -48,6 +48,7 @@ project:
     - "fonts/*.woff2"
     - "codemirror-bundle.js"
     - "downloads/*.pdf"
+    - "examples/*.geojson"
 
 website:
   title: "webGeoDs"
@@ -428,3 +429,5 @@ format:
 filters:
   - webgeods-cells.lua
   - seo-meta.lua
+shortcodes:
+  - webgeods-tool.lua

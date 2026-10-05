@@ -15,7 +15,6 @@
 // the blog/ and lessons/ copies from ../sync-shared-assets.sh. A change
 // to a .qmd page still needs `quarto render` of that page.
 import * as esbuild from "esbuild";
-import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, watch } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,8 +68,9 @@ watch(SHARED, (event, file) => {
   }
 });
 
-const server = spawn(process.execPath, [path.join(ROOT, "static-server.mjs"), SITE, String(PORT)], { stdio: "ignore" });
-process.on("exit", () => server.kill());
-process.on("SIGINT", () => process.exit(0));
+// In this same process, not a child one: on Windows a child server
+// outlived a stopped `npm run dev` and kept the port busy.
+process.argv = [process.argv[0], "static-server.mjs", SITE, String(PORT)];
+await import(new URL("../static-server.mjs", import.meta.url));
 
 console.log(`Serving blog/_site on http://127.0.0.1:${PORT} — save, then reload the page. Ctrl+C to stop.`);

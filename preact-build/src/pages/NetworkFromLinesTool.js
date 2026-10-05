@@ -13,8 +13,14 @@ const componentColor = (feature) => paletteColor(feature.properties.component ??
 
 const CONFIG = {
   tool: "network-from-lines",
+  // A closed block (4 edges, one connected piece), a separate cluster
+  // elsewhere on the map, and a "spur" whose first endpoint sits about
+  // 4 m from the block's corner, not exactly on it. At snap tolerance 0
+  // that gap makes 3 components; past ~4 m the spur joins the block,
+  // leaving 2. That gap is the lesson: a network is only as connected
+  // as its noding.
+  example: "/examples/network-lines.geojson",
   cells: {
-    example: "network-example-py",
     inspect: "network-inspect-py",
     compute: "network-build-py"
   },

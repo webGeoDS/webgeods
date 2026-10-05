@@ -15,7 +15,7 @@
 // Picking the same selection again clears it; new data clears it too.
 //
 // config:
-//   tool, cells, languages, exampleStatus, inputsFromInspect, download
+//   tool, cells, example, languages, exampleStatus, inputsFromInspect, download
 //                          passed to useToolData
 //   inputs                 [{ kind: "slider", name, label, min, max, step, value }
 //                           | { kind: "select", name, label, options: [] | (data) => [], value }]
@@ -72,6 +72,7 @@ export function ToolDashboard({ config }) {
   const toolData = useToolData({
     tool,
     cells: config.cells,
+    example: config.example,
     languages: config.languages,
     initialInputs: Object.fromEntries(inputSpecs.map((spec) => [spec.name, spec.value])),
     inputsFromInspect: config.inputsFromInspect,

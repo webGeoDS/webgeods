@@ -7,7 +7,10 @@
 //
 //   const tool = useToolData({
 //     tool: "spatial-classifier",
-//     cells: { example, inspect, compute, exportShp },  // exportShp optional
+//     example: "/examples/....geojson",  // the example data, a file on the site
+//     cells: { inspect, compute, exportShp },  // exportShp optional; an
+//                                              // `example` cell instead of
+//                                              // the file still works
 //     initialInputs: { nTrees: 100, ... },
 //     inputsFromInspect: (inspectValue, inputs) => ({ ...inputs, classColumn: ... }),
 //     exampleStatus: "✓ example data loaded — ...",
@@ -29,6 +32,7 @@ import { useCellRunner } from "./useCellRunner.js";
 export function useToolData({
   tool,
   cells,
+  example,
   languages = ["python"],
   uploadLabel = "📁 Upload",
   uploadKind: uploadControlKind = "vector",
@@ -57,9 +61,21 @@ export function useToolData({
     if (inputsFromInspect) setInputs((current) => inputsFromInspect(value, current));
   };
 
+  // The example file goes through the same path as an upload, but
+  // `files` stays null: downloads keep the tool's default filename.
   const loadExample = () => runner.queue("⌛ Loading example...", async () => {
-    await runner.runCell(cells.example);
-    setKind("geojson");
+    if (example) {
+      const response = await fetch(example);
+      if (!response.ok) throw new Error(`Example file ${example}: HTTP ${response.status}`);
+      const file = new File([await response.blob()], example.split("/").pop());
+      const loaded = await window.WebGeoDS.Upload.load([file], { languages });
+      if (!loaded.ok) return loaded.message;
+      setKind(loaded.kind);
+    } else {
+      await runner.runCell(cells.example);
+      setKind("geojson");
+    }
+    setFiles(null);
     await runInspect();
     return exampleStatus;
   });
@@ -90,7 +106,7 @@ export function useToolData({
 
   const panelProps = {
     upload: { label: uploadLabel, kind: uploadControlKind, onFiles: handleFiles },
-    example: cells.example ? { onClick: loadExample } : undefined,
+    example: example || cells.example ? { onClick: loadExample } : undefined,
     download: download && {
       enabled: !!result,
       getFeatures: () => (result ? download.getFeatures(result) : null),

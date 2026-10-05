@@ -1,0 +1,10 @@
+{"type": "FeatureCollection", "features": [
+  {"type": "Feature", "properties": {"name": "block-n"}, "geometry": {"type": "LineString", "coordinates": [[12.45, 41.9], [12.452, 41.9]]}},
+  {"type": "Feature", "properties": {"name": "block-e"}, "geometry": {"type": "LineString", "coordinates": [[12.452, 41.9], [12.452, 41.902]]}},
+  {"type": "Feature", "properties": {"name": "block-s"}, "geometry": {"type": "LineString", "coordinates": [[12.452, 41.902], [12.45, 41.902]]}},
+  {"type": "Feature", "properties": {"name": "block-w"}, "geometry": {"type": "LineString", "coordinates": [[12.45, 41.902], [12.45, 41.9]]}},
+  {"type": "Feature", "properties": {"name": "spur-1"}, "geometry": {"type": "LineString", "coordinates": [[12.45205, 41.9], [12.454, 41.9]]}},
+  {"type": "Feature", "properties": {"name": "spur-2"}, "geometry": {"type": "LineString", "coordinates": [[12.454, 41.9], [12.454, 41.902]]}},
+  {"type": "Feature", "properties": {"name": "island-1"}, "geometry": {"type": "LineString", "coordinates": [[12.47, 41.91], [12.472, 41.91]]}},
+  {"type": "Feature", "properties": {"name": "island-2"}, "geometry": {"type": "LineString", "coordinates": [[12.472, 41.91], [12.472, 41.912]]}}
+]}

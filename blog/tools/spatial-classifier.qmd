@@ -29,55 +29,7 @@ including ours. Nothing to configure, nothing to trust: the code
 never gets the chance to see your data.
 :::
 
-```{.webgeods-python #spatial-classifier-example-py}
-import json
-
-# Deterministic synthetic survey, the same one the companion article
-# (Predicting Spatial Classes with Random Forest) builds from the same
-# rule: 30 survey sites, 5 points recorded close together at each,
-# three bands whose boundaries undulate across the area, and one site
-# in five sitting on a local patch of a different class.
-#
-# Sampled in SITES on purpose, because that's how field surveys are
-# usually collected and it's what makes the validation choice matter.
-# An earlier version put the points on an even lattice with
-# independent label noise, one point in nine flipped on its own. On
-# that layout random and spatial-block validation scored the same
-# (measured: 5-fold CV 0.61-0.63 vs 0.57-0.67), so the Held out
-# selector had nothing to show. Here a random holdout keeps each test
-# point's site-mates in training, and the patches make those
-# site-mates informative in a way the model can't know from anywhere
-# else: measured live, 5-fold CV 0.76 random vs 0.57 in blocks.
-NEXT_CLASS = {"south": "centre", "centre": "north", "north": "south"}
-SITE_OFFSETS = [(0, 0), (1, 0.4), (-0.6, 0.9), (-0.8, -0.7), (0.5, -1)]
-
-features = []
-for s in range(30):
-    col, row = s % 6, s // 6
-    cx = (col + 0.5) / 6 + ((s * 37) % 11 - 5) / 110
-    cy = (row + 0.5) / 5 + ((s * 53) % 13 - 6) / 130
-    for k, (dx, dy) in enumerate(SITE_OFFSETS):
-        x, y = cx + dx * 0.02, cy + dy * 0.02
-        # Triangular wave along x: the band boundaries rise and fall,
-        # so no single horizontal cut separates the classes.
-        u, v = x * 15, y * 10
-        tri = abs((2 * u) % 8 - 4) - 2
-        cls = "south" if v < 3 + tri else ("centre" if v < 6 + tri else "north")
-        if s % 5 == 2:
-            cls = NEXT_CLASS[cls]
-        features.append({
-            "type": "Feature",
-            "properties": {"name": f"site {s + 1} point {k + 1}", "class": cls},
-            "geometry": {"type": "Point", "coordinates": [12.4450 + x * 0.0150, 41.8850 + y * 0.0120]}
-        })
-
-with open("/uploaded.geojson", "w") as f:
-    json.dump({"type": "FeatureCollection", "features": features}, f)
-
-{"written": "/uploaded.geojson", "points": len(features)}
-```
-
-```{.webgeods-python #spatial-classifier-inspect-py}
+```{.webgeods-python #spatial-classifier-inspect-py .tool-cell}
 #| package: geopandas
 import geopandas as gpd
 
@@ -138,7 +90,7 @@ real gotcha where the two languages disagree on classification vs.
 regression? Read
 [Predicting Spatial Classes with Random Forest](/posts/spatial-classification.html).
 
-```{.webgeods-python #spatial-classifier-compute-py}
+```{.webgeods-python #spatial-classifier-compute-py .tool-cell}
 #| inject: [classColumn, holdout, nTrees, gridResolution]
 #| package: geopandas, scikit-learn
 import warnings
@@ -561,7 +513,7 @@ training_wgs84["predictedClass"] = predicted_labels
 }
 ```
 
-```{.webgeods-python #spatial-classifier-export-shp-py}
+```{.webgeods-python #spatial-classifier-export-shp-py .tool-cell}
 # Only run on demand (the Download button, when the upload was a
 # shapefile), not on every Compute: re-exports grid_wgs84 (the
 # just-computed classified grid, already available from
@@ -590,25 +542,7 @@ base64.b64encode(buf.getvalue()).decode("ascii")
 *First run loads the Python engine — expect about a minute. Instant
 after that, and again each time you come back to this page.*
 
-<!-- The interactive part of this page is a Preact component
-     (preact-build/src/pages/SpatialClassifierTool.js, bundled into
-     /webgeods-preact.js) around the hidden Python cells above. The
-     min-height reserves its space before the script mounts it, so the
-     page doesn't jump when it appears. -->
-<div id="sc-root" style="min-height: 880px;"></div>
-
-<!-- Page-local, not site-wide (see blog/_quarto.yml's own comment on
-     this): vega*.min.js + vega-embed.min.js together are ~828KB, and
-     only the pages with a Vega chart need them. -->
-<script src="/vega.min.js"></script>
-<script src="/vega-lite.min.js"></script>
-<script src="/vega-embed.min.js"></script>
-<script src="/vega-chart.js"></script>
-<script src="/webgeods-preact.js"></script>
-<script>
-document.addEventListener("DOMContentLoaded", () =>
-  WebGeoDS.Preact.mount("spatial-classifier-tool", "#sc-root"));
-</script>
+{{< webgeods-tool spatial-classifier-tool id=sc-root min-height=880px vega=true >}}
 
 <div class="webgeods-closing-note" style="margin-top: 4px;">
 The filled grid is the model's prediction; the dots on top are your
@@ -662,16 +596,6 @@ where they are.
 </div>
 
 
-<style>
-#spatial-classifier-example-py, #spatial-classifier-inspect-py,
-#spatial-classifier-compute-py, #spatial-classifier-export-shp-py {
-  height: 0;
-  overflow: hidden;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-</style>
 
 <div class="webgeods-closing-note">
 Second tool in the GeoML family. Want to see the actual code, or the

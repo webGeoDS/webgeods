@@ -271,6 +271,21 @@ function CodeBlock(el)
     container_id = "webgeods-cell-" .. cell_counter
   end
 
+  -- Any other class (`{.webgeods-python #id .tool-cell}`) goes onto the
+  -- container, e.g. .tool-cell, which hides a tool's cells (styles.css).
+  -- No class attribute at all when there are none, so other pages'
+  -- HTML is unchanged.
+  local extra_classes = {}
+  for _, class in ipairs(el.classes) do
+    if not LANGUAGES[class] then
+      table.insert(extra_classes, class)
+    end
+  end
+  local class_attribute = ""
+  if #extra_classes > 0 then
+    class_attribute = " class=\"" .. table.concat(extra_classes, " ") .. "\""
+  end
+
   local packages, micropip_packages, inject_names, code = parse_cell_options(el.text)
 
   local initial_code_json = pandoc.json.encode(code)
@@ -314,7 +329,7 @@ function CodeBlock(el)
   end
 
   local html = table.concat({
-    "<div id=\"" .. container_id .. "\"></div>",
+    "<div id=\"" .. container_id .. "\"" .. class_attribute .. "></div>",
     "<script>",
     "document.addEventListener(\"DOMContentLoaded\", () => {",
     "  new window.WebGeoDS.CodeCell(" .. container_id_json .. ", {",
