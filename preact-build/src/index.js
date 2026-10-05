@@ -38,6 +38,9 @@ import { RasterFileInspectionLab } from "./pages/RasterFileInspectionLab.js";
 import { RasterCalculatorTool } from "./pages/RasterCalculatorTool.js";
 import { RasterBandMathLab } from "./pages/RasterBandMathLab.js";
 import { NdviCalculatorTool } from "./pages/NdviCalculatorTool.js";
+import { RasterNdviLab } from "./pages/RasterNdviLab.js";
+import { ViewshedCalculatorTool } from "./pages/ViewshedCalculatorTool.js";
+import { RasterViewshedLab } from "./pages/RasterViewshedLab.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
@@ -77,7 +80,10 @@ const PAGES = {
   "raster-file-inspection-lab": RasterFileInspectionLab,
   "raster-calculator-tool": RasterCalculatorTool,
   "raster-band-math-lab": RasterBandMathLab,
-  "ndvi-calculator-tool": NdviCalculatorTool
+  "ndvi-calculator-tool": NdviCalculatorTool,
+  "raster-ndvi-lab": RasterNdviLab,
+  "viewshed-calculator-tool": ViewshedCalculatorTool,
+  "raster-viewshed-lab": RasterViewshedLab
 };
 
 function mount(name, target, props = {}) {

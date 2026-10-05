@@ -27,38 +27,8 @@ click a point directly.
 A `.tif`/`.tiff` digital elevation model (DEM), one band of elevation
 values.
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; },
-  kind: "raster"
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["r"] });
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 ## 2. Why viewshed, and what "visible" actually means here
 
@@ -98,158 +68,17 @@ Four things worth knowing before the first computed map:
 
 ## 3. Shared map and result
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.45, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  return map;
-}
-```
+::: {#lab-map style="min-height: 500px;"}
+:::
 
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+::: {#lab-result}
+:::
 
-```{ojs}
-//| echo: false
-//| output: false
-FOOTPRINT_PAINT = ({
-  "fill-color": "#42583c",
-  "fill-opacity": 0.35,
-  "fill-outline-color": "#2a2117"
-})
-```
+::: {#lab-legend}
+:::
 
-```{ojs}
-//| echo: false
-//| output: false
-// Both stops the same warm color -- a boolean result, not a gradient:
-// any finite value (only ever 1, "visible") paints solid, NaN ("not
-// visible") stays transparent via shared/map.js's existing NaN
-// handling in _renderRasterCanvas — no changes needed there.
-VIEWSHED_RAMP = [
-  [0.00, 255, 213, 79],
-  [1.00, 255, 213, 79]
-]
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-base64ToBytes = (base64Str) => {
-  const binary = atob(base64Str);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-```
-
-```{ojs}
-//| echo: false
-mutable rResult = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rCompute = WebGeoDS.getCellValue("viewshed-r", Generators)
-{
-  if (rCompute && rCompute.summary) {
-    const s = rCompute.summary;
-    await sharedMap.setGeoJSON("viewshed-r-footprint", rCompute.footprint, { paint: FOOTPRINT_PAINT });
-    await sharedMap.fitToData(rCompute.footprint);
-    await sharedMap.setRasterImage("viewshed-r-result", {
-      bounds: s.wgs84Bounds,
-      width: s.width,
-      height: s.height,
-      values: new Float32Array(base64ToBytes(s.data).buffer),
-      min: 0,
-      max: 1,
-      colorRamp: VIEWSHED_RAMP
-    });
-    mutable rResult = s;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-statCard = {
-  const s = rResult;
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-
-  if (!s) {
-    row("Result", "—");
-    return box;
-  }
-
-  row("Dimensions", `${s.width} × ${s.height} px`);
-  row("Original CRS", s.originalCrs ?? "—");
-  row("Calculation CRS", s.calculationCrs);
-  row("Observer height", `${s.observerHeight} m`);
-  row("Visible pixels", s.visiblePixels.toLocaleString());
-  row("Total pixels", s.totalPixels.toLocaleString());
-  row("Visible %", `${s.visiblePercent}%`);
-
-  return box;
-}
-```
-
-${statCard}
-
-```{ojs}
-//| echo: false
-legendEl = {
-  const s = rResult;
-  const wrap = document.createElement("div");
-  wrap.className = "webgeods-legend";
-  if (!s) {
-    wrap.hidden = true;
-    return wrap;
-  }
-  const swatch = document.createElement("div");
-  swatch.className = "webgeods-legend-bar";
-  swatch.style.flex = "0 0 32px";
-  swatch.style.background = "rgb(255,213,79)";
-  const label = document.createElement("span");
-  label.className = "webgeods-legend-label";
-  label.textContent = "Visible from observer";
-  wrap.append(swatch, label);
-  return wrap;
-}
-```
-
-${legendEl}
-
-```{ojs}
-//| echo: false
-resetResult = async () => {
-  if (sharedMap.getGeoJSON("viewshed-r-footprint")) {
-    await sharedMap.setGeoJSON("viewshed-r-footprint", { type: "FeatureCollection", features: [] });
-  }
-  await sharedMap.removeRasterImage("viewshed-r-result");
-  mutable rResult = null;
-}
-```
-
-```{ojs}
-//| echo: false
-resetMapButton = WebGeoDS.resetButton(resetResult, "🔄 Reset map and result")
-```
+::: {#lab-reset}
+:::
 
 ## 4. Compute: viewshed in R — runnable here; Python — reference only
 
@@ -473,22 +302,9 @@ already is. Click below to load a DEM with the CRS deliberately
 omitted, then run the R cell in section 4 to see the refusal itself,
 surfaced as a normal R error in the cell's output.
 
-```{ojs}
-//| echo: false
-loadNoCrsExampleButton = {
-  const button = document.createElement("button");
-  button.textContent = "📋 Load a no-CRS example";
-  button.onclick = async () => {
-    await window.WebGeoDS.CodeCell.find("viewshed-r")?.setCode(rNoCrsExampleCode);
-    document.getElementById("viewshed-r")?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-  return button;
-}
-```
-
-```{ojs}
-//| echo: false
-rNoCrsExampleCode = `library(terra)
+::: {.webgeods-example r="viewshed-r" label="📋 Load a no-CRS example"}
+```r
+library(terra)
 
 n <- 20
 xs <- 0:(n - 1)
@@ -508,10 +324,9 @@ if (crs(elevation) == "") {
   stop("This file has no declared CRS — a real-world location is required to compute a viewshed (to choose a working projection and place the observer correctly). Upload a georeferenced DEM.")
 }
 
-"unreachable -- the stop() above always fires for this example"`
+"unreachable -- the stop() above always fires for this example"
 ```
-
-${loadNoCrsExampleButton}
+:::
 
 ## 7. Where to next
 
@@ -526,5 +341,7 @@ ${loadNoCrsExampleButton}
 
 This closes the Raster family at four tools (Inspect, Calculate,
 NDVI, Viewshed), covering understand, compute, analyze, model.
+
+{{< webgeods-tool raster-viewshed-lab id=lab-root >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

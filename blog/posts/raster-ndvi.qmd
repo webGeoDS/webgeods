@@ -26,38 +26,8 @@ your bands directly.
 
 A `.tif`/`.tiff` with a Red and a near-infrared band.
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; },
-  kind: "raster"
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles);
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 ## 2. Why NDVI, and its most common real-world mistake
 
@@ -89,230 +59,17 @@ Three things worth knowing before the first computed map:
 
 ## 3. Shared map and result
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  return map;
-}
-```
+::: {#lab-map style="min-height: 500px;"}
+:::
 
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+::: {#lab-stats}
+:::
 
-```{ojs}
-//| echo: false
-//| output: false
-FOOTPRINT_PAINT = ({
-  "fill-color": "#42583c",
-  "fill-opacity": 0.35,
-  "fill-outline-color": "#2a2117"
-})
-```
+::: {#lab-legend}
+:::
 
-```{ojs}
-//| echo: false
-//| output: false
-// Brown (bare soil/water) -> pale yellow (sparse) -> green (dense
-// vegetation) -- the conventional NDVI palette, deliberately
-// different from the generic viridis ramp Raster Band Math uses
-// (WebGeoDS.Map.DEFAULT_RASTER_RAMP) since a domain-specific tool
-// should look like one. Same 5-stop [t, r, g, b] shape, t mapping
-// onto the fixed -1..1 scale below.
-NDVI_RAMP = [
-  [0.00, 140, 90, 45],
-  [0.30, 210, 190, 130],
-  [0.50, 230, 220, 140],
-  [0.75, 130, 190, 80],
-  [1.00, 20, 90, 30]
-]
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-base64ToBytes = (base64Str) => {
-  const binary = atob(base64Str);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-```
-
-```{ojs}
-//| echo: false
-// Same reasoning as the other bilingual raster articles: separate
-// mutable state so Reset can clear the cards even though there's
-// nothing to re-run.
-mutable pyResult = null
-```
-
-```{ojs}
-//| echo: false
-mutable rResult = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyCompute = WebGeoDS.getCellValue("ndvi-py", Generators)
-{
-  if (pyCompute && pyCompute.summary) {
-    const s = pyCompute.summary;
-    await sharedMap.setGeoJSON("ndvi-py-footprint", pyCompute.footprint, { paint: FOOTPRINT_PAINT });
-    await sharedMap.fitToData(pyCompute.footprint);
-    if (s.min !== null) {
-      // Fixed -1..1 scale, not this result's own min/max -- see
-      // section 2's note on why NDVI gets a fixed reference scale.
-      await sharedMap.setRasterImage("ndvi-py-result", {
-        bounds: s.wgs84Bounds,
-        width: s.width,
-        height: s.height,
-        values: new Float32Array(base64ToBytes(s.data).buffer),
-        min: -1,
-        max: 1,
-        colorRamp: NDVI_RAMP
-      });
-    }
-    mutable pyResult = s;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rCompute = WebGeoDS.getCellValue("ndvi-r", Generators)
-{
-  if (rCompute && rCompute.summary) {
-    const s = rCompute.summary;
-    await sharedMap.setGeoJSON("ndvi-r-footprint", rCompute.footprint, { paint: FOOTPRINT_PAINT });
-    await sharedMap.fitToData(rCompute.footprint);
-    if (s.min !== null) {
-      await sharedMap.setRasterImage("ndvi-r-result", {
-        bounds: s.wgs84Bounds,
-        width: s.width,
-        height: s.height,
-        values: new Float32Array(base64ToBytes(s.data).buffer),
-        min: -1,
-        max: 1,
-        colorRamp: NDVI_RAMP
-      });
-    }
-    mutable rResult = s;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-statCard = (label, s) => {
-  const wrap = document.createElement("div");
-  wrap.style.flex = "1";
-  wrap.style.minWidth = "260px";
-
-  const heading = document.createElement("div");
-  heading.className = "webgeods-label";
-  heading.textContent = label;
-  wrap.appendChild(heading);
-
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  wrap.appendChild(box);
-
-  const row = (rowLabel, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = rowLabel;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-
-  if (!s) {
-    row("NDVI", "—");
-    return wrap;
-  }
-
-  row("Dimensions", `${s.width} × ${s.height} px`);
-  row("CRS", s.crs === null || s.crs === undefined ? `Unknown ⚠️ ${s.crsWarning}` : s.crs);
-  if (s.displayCrsAssumption) {
-    row("Display assumption", `${s.displayCrsAssumption} — map only, not a fact about the file`);
-  }
-  row("NDVI range (this file)", s.min !== null ? `${s.min} to ${s.max} (mean ${s.mean})` : "all NoData");
-  row("NoData pixels", `${s.nodataCount.toLocaleString()} / ${s.totalPixels.toLocaleString()}`);
-
-  return wrap;
-}
-```
-
-```{ojs}
-//| echo: false
-statCardsRow = {
-  const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.flexWrap = "wrap";
-  row.style.gap = "16px";
-  row.append(statCard("Python", pyResult), statCard("R", rResult));
-  return row;
-}
-```
-
-${statCardsRow}
-
-```{ojs}
-//| echo: false
-legendEl = {
-  const anyResult = (pyResult && pyResult.min !== null) || (rResult && rResult.min !== null);
-  const wrap = document.createElement("div");
-  wrap.className = "webgeods-legend";
-  if (!anyResult) {
-    wrap.hidden = true;
-    return wrap;
-  }
-  const minLabel = document.createElement("span");
-  minLabel.className = "webgeods-legend-label";
-  minLabel.textContent = "−1 (bare soil / water)";
-  const bar = document.createElement("div");
-  bar.className = "webgeods-legend-bar";
-  const stops = NDVI_RAMP
-    .map(([t, red, green, blue]) => `rgb(${red},${green},${blue}) ${t * 100}%`)
-    .join(", ");
-  bar.style.background = `linear-gradient(to right, ${stops})`;
-  const maxLabel = document.createElement("span");
-  maxLabel.className = "webgeods-legend-label";
-  maxLabel.textContent = "1 (dense vegetation)";
-  wrap.append(minLabel, bar, maxLabel);
-  return wrap;
-}
-```
-
-${legendEl}
-
-```{ojs}
-//| echo: false
-resetResult = async () => {
-  for (const id of ["ndvi-py-footprint", "ndvi-r-footprint"]) {
-    if (sharedMap.getGeoJSON(id)) {
-      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
-    }
-  }
-  await sharedMap.removeRasterImage("ndvi-py-result");
-  await sharedMap.removeRasterImage("ndvi-r-result");
-  mutable pyResult = null;
-  mutable rResult = null;
-}
-```
-
-```{ojs}
-//| echo: false
-resetMapButton = WebGeoDS.resetButton(resetResult, "🔄 Reset map and result")
-```
+::: {#lab-reset}
+:::
 
 ## 4. Compute: run NDVI in Python or R
 
@@ -596,10 +353,9 @@ synthetic Red/NIR pair whenever nothing has been uploaded. Click
 **▶ Run** on both languages in section 4 to see it with a real CRS.
 This button swaps in the same pair, minus the CRS.
 
-
-```{ojs}
-//| echo: false
-pyNoCrsExampleCode = `import base64
+::: {.webgeods-example py="ndvi-py" r="ndvi-r" label="📋 Load a no-CRS example"}
+```python
+import base64
 import rasterio
 from rasterio.transform import from_origin
 from rasterio.io import MemoryFile
@@ -680,8 +436,10 @@ with rasterio.open(memfile.name) as src:
 
 memfile.close()
 
-{"summary": summary, "footprint": footprint}`
-rNoCrsExampleCode = `library(terra)
+{"summary": summary, "footprint": footprint}
+```
+```r
+library(terra)
 
 n <- 20
 xs <- 0:(n - 1)
@@ -757,15 +515,9 @@ summary_out <- list(
 )
 
 result_out <- list(summary = summary_out, footprint = footprint)
-jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)`
+jsonlite::fromJSON(jsonlite::toJSON(result_out, null = "null"), simplifyVector = FALSE)
 ```
-
-```{ojs}
-//| echo: false
-loadNoCrsExampleButton = WebGeoDS.loadExampleButton("📋 Load a no-CRS example", { pyId: "ndvi-py", rId: "ndvi-r", pyCode: pyNoCrsExampleCode, rCode: rNoCrsExampleCode })
-```
-
-${loadNoCrsExampleButton}
+:::
 
 ## 7. Where to next
 
@@ -782,5 +534,7 @@ ${loadNoCrsExampleButton}
 - **Working with terrain instead of imagery?** See
   [Viewshed](raster-viewshed.qmd): what's visible from a point,
   accounting for the ground in between.
+
+{{< webgeods-tool raster-ndvi-lab id=lab-root >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
