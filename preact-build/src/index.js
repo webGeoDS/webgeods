@@ -29,6 +29,8 @@ import { CrsInspectorTool } from "./pages/CrsInspectorTool.js";
 import { CrsMismatchLab } from "./pages/CrsMismatchLab.js";
 import { FileInspectorTool } from "./pages/FileInspectorTool.js";
 import { FileInspectionLab } from "./pages/FileInspectionLab.js";
+import { ValidatorTool } from "./pages/ValidatorTool.js";
+import { GeometryValidityLab } from "./pages/GeometryValidityLab.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
@@ -59,7 +61,9 @@ const PAGES = {
   "crs-inspector-tool": CrsInspectorTool,
   "crs-mismatch-lab": CrsMismatchLab,
   "file-inspector-tool": FileInspectorTool,
-  "file-inspection-lab": FileInspectionLab
+  "file-inspection-lab": FileInspectionLab,
+  "validator-tool": ValidatorTool,
+  "geometry-validity-lab": GeometryValidityLab
 };
 
 function mount(name, target, props = {}) {

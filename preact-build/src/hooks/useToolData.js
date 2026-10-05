@@ -18,8 +18,8 @@
 //     computeLabel: "⌛ Training...",
 //     download: { getFeatures: (result) => ..., filenameSuffix, defaultFilename,
 //                 shapefile: { filenameSuffix, defaultFilename },
-//                 after: "inspect" (getFeatures gets the inspect value: a tool
-//                 that only inspects), enabled: (data) => boolean }
+//                 after: "inspect" (enabled once inspected; getFeatures gets the
+//                 result if there is one, else the inspect value), enabled: (data) => boolean }
 //       or, for a file a cell writes (a GeoTIFF, a reprojected file):
 //               { cell, label, after: "result" | "inspect",
 //                 enabled: (data) => boolean (default: there is a result / inspect),
@@ -160,7 +160,8 @@ export function useToolData({
     download: download && !download.cell && {
       enabled: downloadReady,
       getFeatures: () => {
-        const source = download.after === "inspect" ? inspect : result;
+        // After "inspect": the latest of the two (a repaired result, else the inspection).
+        const source = download.after === "inspect" ? (result ?? inspect) : result;
         return source ? download.getFeatures(source) : null;
       },
       getBaseName: () => window.WebGeoDS.Upload.baseName(files),

@@ -11,7 +11,9 @@
 //
 // config:
 //   cells     { py, r }: the cells computing the same thing in each
-//             language; either can be left out (an R-only article)
+//             language; either can be left out (an R-only article), and
+//             either can be a list (a diagnose and a repair cell): the
+//             language's result is then whichever of them ran last
 //   extra     { name: cellId }: other cells whose values slots read
 //   upload    options for WebGeoDS.Upload.load (e.g. { languages: ["python", "r"] })
 //   map       { center, zoom, height, layers: (value, lang) => [...], fit: (value) => FC,
@@ -22,67 +24,131 @@
 //   stats     (value | null) => rows for a language's card
 //   slots     { "#selector": (state) => content } for the article's own slots
 //   resetLabel the #lab-reset button's text
+//   onRun     (cellId, value) => void, after any of `cells` runs
+//   onReset   () => void, after a reset
+//   tables    { "#selector": { lang, id, from: (value) => FC, rowClassName,
+//               iconColumns, emptyMessage } }: a feature table of one
+//               language's result, `id` being the map layer it lists.
+//               Clicking a row selects that feature (drawn on top, zoomed
+//               to), clicking it on the map selects its row; the same
+//               click again, a reset or new results clear it.
 //
-// state: { py, r, latest, extra: { name: value } }; latest is the result
-// of the language that ran last.
-import { useEffect, useState } from "preact/hooks";
+// state: { py, r, latest, sources: { py, r } (the cell each result came
+// from), byCell: { cellId: latest value } (cleared on reset), extra:
+// { name: value }, files (the last upload), reset }; latest is the
+// result of the language that ran last.
+import { useEffect, useMemo, useState } from "preact/hooks";
 import { useCellValue } from "../hooks/useCellValue.js";
 import { MapView } from "./MapView.js";
+import { DataTable, featureRows, featureKey } from "./DataTable.js";
 import { DomNode } from "./DomNode.js";
 import { Portal } from "./Layout.js";
 
 const LANGUAGE_LABELS = { py: "Python", r: "R" };
+const SELECTION_LAYER = "lab-selection";
+const YELLOW = "#ffeb3b";
+
+// The selected feature, drawn in the selection yellow by geometry type.
+function selectionLayer(feature) {
+  const type = feature?.geometry?.type ?? "";
+  const data = feature ? { type: "FeatureCollection", features: [feature] } : null;
+  if (/Polygon/.test(type)) {
+    return { id: SELECTION_LAYER, type: "fill", data, paint: { "fill-color": YELLOW, "fill-opacity": 0.6, "fill-outline-color": "#2a2117" } };
+  }
+  if (/LineString/.test(type)) {
+    return { id: SELECTION_LAYER, type: "line", data, paint: { "line-color": YELLOW, "line-width": 5 } };
+  }
+  return { id: SELECTION_LAYER, type: "circle", data, paint: { "circle-color": YELLOW, "circle-radius": 8, "circle-stroke-color": "#2a2117", "circle-stroke-width": 1.5 } };
+}
 
 export function ArticleLab({ config }) {
 
-  const { cells, extra = {}, upload, map, stats, slots = {}, resetLabel = "🔄 Reset map and cards" } = config;
+  const { cells, extra = {}, upload, map, stats, slots = {}, tables = {}, resetLabel = "🔄 Reset map and cards", onRun, onReset } = config;
 
   const [uploadStatus, setUploadStatus] = useState(window.WebGeoDS.Upload.defaultStatus);
-  const [py, setPy] = useCellValue(cells.py);
-  const [r, setR] = useCellValue(cells.r);
+  const [files, setFiles] = useState(null);
+  const [py, setPy, pySource] = useCellValue(cells.py);
+  const [r, setR, rSource] = useCellValue(cells.r);
   // Fixed per article, so the hook count never changes between renders.
   const extraValues = Object.fromEntries(Object.entries(extra).map(([name, id]) => [name, useCellValue(id)[0]]));
   // Languages in the order they last ran, the latest at the end.
   const [order, setOrder] = useState([]);
+  const [byCell, setByCell] = useState({});
+  const [selection, setSelection] = useState(null); // { id, key } of a table row
 
-  const ran = (lang, value) => {
-    if (value) setOrder((current) => [...current.filter((l) => l !== lang), lang]);
+  const ran = (lang, value, source) => {
+    setSelection(null);
+    if (!value) return;
+    setOrder((current) => [...current.filter((l) => l !== lang), lang]);
+    setByCell((current) => ({ ...current, [source]: value }));
+    onRun?.(source, value);
   };
-  useEffect(() => ran("py", py), [py]);
-  useEffect(() => ran("r", r), [r]);
+  useEffect(() => ran("py", py, pySource), [py]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => ran("r", r, rSource), [r]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const results = { py, r };
   const languages = Object.keys(cells).filter((lang) => cells[lang]);
   const ranLanguages = order.filter((lang) => results[lang]);
   const lastLang = ranLanguages.at(-1);
   const latest = lastLang ? results[lastLang] : null;
-  const state = { py, r, latest, extra: extraValues };
-
   const reset = () => {
     setPy(null);
     setR(null);
     setOrder([]);
+    setByCell({});
+    setSelection(null);
+    onReset?.();
   };
+  const state = { py, r, latest, sources: { py: pySource, r: rSource }, byCell, extra: extraValues, files, reset };
+
+  // ---- tables and their selection --------------------------------------
+
+  const tableList = Object.entries(tables).map(([target, table]) => {
+    const collection = results[table.lang] ? table.from(results[table.lang]) : null;
+    return { target, table, collection, rows: featureRows(table.id, collection) };
+  });
+  const selectedFeature = useMemo(() => {
+    if (!selection) return null;
+    const entry = tableList.find((t) => t.table.id === selection.id);
+    const index = entry?.rows.rows.findIndex((row) => row.__key === selection.key) ?? -1;
+    return index >= 0 ? entry.collection.features[index] : null;
+  }, [selection, py, r]); // eslint-disable-line react-hooks/exhaustive-deps
+  const select = (id, key) => setSelection((current) => (current?.id === id && current.key === key ? null : { id, key }));
 
   const shown = map.mode === "both" ? ranLanguages
     : map.mode === "py" || map.mode === "r" ? ranLanguages.filter((lang) => lang === map.mode)
       : ranLanguages.slice(-1);
   const onMap = shown.length ? results[shown.at(-1)] : null;
-  const layers = shown.flatMap((lang) => map.layers(results[lang], lang));
+  const tableIds = new Set(Object.values(tables).map((t) => t.id));
+  const layers = shown.flatMap((lang) => map.layers(results[lang], lang)).map((layer) => (
+    tableIds.has(layer.id) ? { ...layer, onClick: (feature) => select(layer.id, featureKey(layer.id, feature, -1)) } : layer
+  ));
+  if (tableIds.size) layers.push(selectionLayer(selectedFeature));
+  // New results zoom to the data, a selection to its feature; clearing
+  // a selection leaves the view where it is.
+  const [fitTo, setFitTo] = useState(null);
+  const mapFit = onMap ? map.fit(onMap) : null;
+  useEffect(() => setFitTo(mapFit), [mapFit]);
+  useEffect(() => {
+    if (selectedFeature) setFitTo({ type: "FeatureCollection", features: [selectedFeature] });
+  }, [selectedFeature]);
 
   const parts = {
     "#lab-upload": () => (
       <>
         <DomNode build={() => window.WebGeoDS.Upload.createControl({
           label: "Upload",
-          onChange: async (files) => setUploadStatus((await window.WebGeoDS.Upload.load(files, upload)).message)
+          onChange: async (selected) => {
+            setFiles(selected);
+            setUploadStatus((await window.WebGeoDS.Upload.load(selected, upload)).message);
+          }
         })} />
         <p>{uploadStatus}</p>
       </>
     ),
     "#lab-map": () => (
       <MapView height={map.height ?? "420px"} center={map.center} zoom={map.zoom}
-        layers={layers} fitTo={onMap ? map.fit(onMap) : null} />
+        layers={layers} fitTo={fitTo} />
     ),
     "#lab-crs": () => (
       <div class="webgeods-panel-status">{onMap?.crsWarning ? `⚠️ ${onMap.crsWarning}` : ""}</div>
@@ -98,6 +164,12 @@ export function ArticleLab({ config }) {
     "#lab-reset": () => (
       <DomNode build={() => window.WebGeoDS.resetButton(() => reset(), resetLabel)} />
     ),
+    ...Object.fromEntries(tableList.map(({ target, table, rows }) => [target, () => (
+      <DataTable columns={rows.columns} rows={rows.rows} rowClassName={table.rowClassName}
+        iconColumns={table.iconColumns} emptyMessage={table.emptyMessage ?? "No results yet"}
+        selectedKeys={selection?.id === table.id ? [selection.key] : undefined}
+        onRowClick={(row) => select(table.id, row.__key)} />
+    )])),
     ...Object.fromEntries(Object.entries(slots).map(([target, render]) => [target, () => render(state)]))
   };
 
