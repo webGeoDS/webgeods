@@ -35,6 +35,9 @@ import { TopologyTool } from "./pages/TopologyTool.js";
 import { TopologyErrorsLab } from "./pages/TopologyErrorsLab.js";
 import { RasterInspectorTool } from "./pages/RasterInspectorTool.js";
 import { RasterFileInspectionLab } from "./pages/RasterFileInspectionLab.js";
+import { RasterCalculatorTool } from "./pages/RasterCalculatorTool.js";
+import { RasterBandMathLab } from "./pages/RasterBandMathLab.js";
+import { NdviCalculatorTool } from "./pages/NdviCalculatorTool.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
@@ -71,7 +74,10 @@ const PAGES = {
   "topology-tool": TopologyTool,
   "topology-errors-lab": TopologyErrorsLab,
   "raster-inspector-tool": RasterInspectorTool,
-  "raster-file-inspection-lab": RasterFileInspectionLab
+  "raster-file-inspection-lab": RasterFileInspectionLab,
+  "raster-calculator-tool": RasterCalculatorTool,
+  "raster-band-math-lab": RasterBandMathLab,
+  "ndvi-calculator-tool": NdviCalculatorTool
 };
 
 function mount(name, target, props = {}) {
