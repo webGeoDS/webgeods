@@ -8,9 +8,7 @@
 // diagram and its component's bar lights up in the chart.
 import { ToolDashboard } from "../components/ToolDashboard.js";
 
-const paletteColor = (i) => window.WebGeoDS.DEFAULT_PALETTE[i % window.WebGeoDS.DEFAULT_PALETTE.length];
-const componentColor = (feature) => paletteColor(feature.properties.component ?? 0);
-
+/** @type {import("../components/ToolDashboard.js").ToolConfig} */
 const CONFIG = {
   tool: "network-from-lines",
   // A closed block (4 edges, one connected piece), a separate cluster
@@ -35,16 +33,23 @@ const CONFIG = {
 
   selectable: { id: "network-nodes-py", from: ({ result }) => result?.nodes ?? null, layer: "network-selection" },
 
-  layers: ({ inspect, result }) => [
+  // Components are numbered by size, largest first (0, 1, 2...).
+  categories: {
+    field: "component",
+    values: ({ result }) => result?.componentIds,
+    label: (id) => `Component ${id + 1}`
+  },
+
+  layers: ({ inspect, result }, { categories }) => [
     { id: "network-input-py", label: "Input lines", type: "line", data: inspect?.features ?? null },
     ...(result ? [
       {
         id: "network-edges-py", label: "Edges", type: "line", data: result.edges,
-        paint: window.WebGeoDS.matchPaint(result.componentIds, "component", { line: true, lineWidth: 3 })
+        paint: categories.paint("component", { line: true, lineWidth: 3 })
       },
       {
         id: "network-nodes-py", label: "Nodes", type: "circle", data: result.nodes,
-        paint: window.WebGeoDS.matchPaint(result.componentIds, "component", { radius: 5 }),
+        paint: categories.paint("component", { radius: 5 }),
         selectBy: (feature) => ({ node: Number(feature.properties.node) })
       }
     ] : [])
@@ -55,25 +60,38 @@ const CONFIG = {
     panels: [
       // The topology takes the free height, the chart sits under it.
       {
-        kind: "diagram", idField: "node", color: componentColor,
+        kind: "diagram", idField: "node", color: "categories",
         nodes: ({ result }) => result?.nodes, links: ({ result }) => result?.edges
       },
       {
-        kind: "chart", height: 160,
-        spec: ({ result }) => (result ? componentChartSpec(result.componentSizes) : null),
-        selectParams: ["componentSelect"], externalParam: "componentExternal", keyField: "component",
-        toKey: (selection, nodes) => (nodes.length ? String(nodes[0].properties.component) : null),
-        fromKey: (key) => ({ component: Number(key) })
+        kind: "bars", title: "Nodes per component", height: 160,
+        counts: ({ result }) => result?.componentSizes,
+        tick: (id) => `#${id + 1}`,
+        axis: { x: "Component", y: "Nodes" }
       }
     ]
   },
 
   stats: {
     empty: [["—", "Upload a file or load the example above"]],
-    inspect: inspectStats,
-    result: (result) => graphStats(result.summary)
+    inspect: [
+      ["Lines", "summary.count"],
+      (v) => (v.summary?.dropped > 0 ? ["Non-line features skipped", v.summary.dropped] : null),
+      (v) => (v.crsWarning ? ["CRS", v.crsWarning] : null)
+    ],
+    result: [
+      ["Nodes", "summary.nodes"],
+      ["Edges", "summary.edges"],
+      ["Connected components", "summary.components"],
+      ["Largest component (nodes)", "summary.largestComponentNodes"],
+      ["Dead ends (degree 1)", "summary.deadEnds"],
+      ["Intersections (degree ≥ 3)", "summary.intersections"],
+      ["Mean degree", "summary.meanDegree"],
+      ["Total length", "summary.totalLengthKm", "km"],
+      ["Snap tolerance", "summary.snapTolerance", "m"],
+      ["Calculation CRS", "summary.calculationCrs"]
+    ]
   },
-  legend: ({ result }) => result?.componentIds.map((id, i) => ({ color: paletteColor(i), label: `Component ${id + 1}` })),
 
   download: {
     // Nodes and edges in one file, tagged so they're one filter apart
@@ -91,57 +109,3 @@ const CONFIG = {
 };
 
 export const NetworkFromLinesTool = () => <ToolDashboard config={CONFIG} />;
-
-function inspectStats(value) {
-  const s = value.summary;
-  const rows = [["Lines", s ? s.count.toLocaleString() : "—"]];
-  if (s && s.dropped > 0) rows.push(["Non-line features skipped", s.dropped]);
-  if (value.crsWarning) rows.push(["CRS", value.crsWarning]);
-  return rows;
-}
-
-function graphStats(s) {
-  return [
-    ["Nodes", s.nodes.toLocaleString()],
-    ["Edges", s.edges.toLocaleString()],
-    ["Connected components", s.components],
-    ["Largest component (nodes)", s.largestComponentNodes],
-    ["Dead ends (degree 1)", s.deadEnds],
-    ["Intersections (degree ≥ 3)", s.intersections],
-    ["Mean degree", s.meanDegree],
-    ["Total length", `${s.totalLengthKm} km`],
-    ["Snap tolerance", `${s.snapTolerance} m`],
-    ["Calculation CRS", s.calculationCrs]
-  ];
-}
-
-// "Nodes per component", one bar per component in size order, clickable.
-// Component values stay strings ("0", "1"...) in the chart: the field is
-// nominal; the axis labels convert to a number before adding 1
-// ("0" + 1 would read "#01").
-function componentChartSpec(componentSizes) {
-  const rows = componentSizes.map((size, rank) => ({ component: String(rank), size }));
-  return {
-    $schema: "https://vega.github.io/schema/vega-lite/v5.json",
-    title: "Nodes per component",
-    width: "container",
-    height: "container",
-    autosize: { type: "fit", contains: "padding" },
-    data: { values: rows },
-    params: [
-      { name: "componentSelect", select: { type: "point", fields: ["component"] } },
-      { name: "componentExternal", value: null }
-    ],
-    mark: "bar",
-    encoding: {
-      x: { field: "component", type: "nominal", title: "Component", sort: null,
-        axis: { labelExpr: "'#' + (toNumber(datum.value) + 1)" } },
-      y: { field: "size", type: "quantitative", title: "Nodes" },
-      color: {
-        condition: { test: "datum.component === componentExternal", value: "#ffeb3b" },
-        field: "component", type: "nominal", legend: null,
-        scale: { domain: rows.map((r) => r.component), range: rows.map((_, i) => paletteColor(i)) }
-      }
-    }
-  };
-}

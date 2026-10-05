@@ -33,6 +33,7 @@ const isHeldOut = ["==", ["get", "heldOut"], true];
 // thick ring around each point in random mode.
 const blocksMode = (result) => (result?.summary.heldOutBlockCount ?? 0) > 0;
 
+/** @type {import("../components/ToolDashboard.js").ToolConfig} */
 const CONFIG = {
   tool: "spatial-classifier",
   // 30 survey sites of 5 points each, three undulating bands, one site
@@ -70,7 +71,9 @@ const CONFIG = {
     fit: true
   },
 
-  layers: ({ inspect, result }, { selection }) => {
+  categories: { field: "class", values: ({ result }) => result?.summary.classLabels },
+
+  layers: ({ inspect, result }, { selection, categories }) => {
     // MapLibre hands back its own copy of the feature, with a numeric id;
     // featureKey normalizes it to the key the data has.
     const points = {
@@ -80,7 +83,6 @@ const CONFIG = {
     };
     if (!result) return [{ ...points, paint: INSPECT_POINT_PAINT }];
 
-    const palette = window.WebGeoDS.DEFAULT_PALETTE;
     const labels = result.summary.classLabels;
     // A matrix cell selects only held-out points: fade the training ones
     // so they don't compete with them. Not for a class: it has both.
@@ -89,7 +91,7 @@ const CONFIG = {
       {
         id: SRC.grid, label: "Classification areas", type: "fill", data: result.gridFeatures,
         paint: {
-          ...window.WebGeoDS.matchPaint(labels, "predictedClass", { palette, fill: true, strokeWidth: 1.5 }),
+          ...categories.paint("predictedClass", { fill: true, strokeWidth: 1.5 }),
           // Opacity carries the forest's confidence: nearly transparent
           // at 1/n_classes (trees split evenly), solid where all agree.
           "fill-opacity": ["interpolate", ["linear"], ["get", "confidence"], 1 / labels.length, 0.08, 1, 0.6]
@@ -102,7 +104,7 @@ const CONFIG = {
       {
         ...points,
         paint: {
-          ...window.WebGeoDS.matchPaint(labels, "class", { palette, strokeWidth: 1.5 }),
+          ...categories.paint("class", { strokeWidth: 1.5 }),
           "circle-stroke-width": blocksMode(result) ? 1.5 : ["case", isHeldOut, 3, 1.5],
           "circle-opacity": fadeTraining ? ["case", isHeldOut, 1, 0.12] : 1
         }
@@ -129,12 +131,9 @@ const CONFIG = {
 
   stats: { empty: EMPTY_STATS, inspect: inspectStats, result: (result) => computeStats(result.summary) },
 
-  legend: ({ result }) => result && [
-    ...result.summary.classLabels.map((label, i) => ({
-      color: window.WebGeoDS.DEFAULT_PALETTE[i % window.WebGeoDS.DEFAULT_PALETTE.length],
-      label
-    })),
-    // One "held out" entry, drawn the way the map draws it in this mode.
+  // After the classes: one "held out" entry, drawn the way the map draws
+  // it in this mode.
+  legendExtra: ({ result }) => [
     blocksMode(result)
       ? { color: "#2a2117", label: "held out for testing (points inside)", outline: "dashed" }
       : { color: "#2a2117", label: "held out for testing", outline: true, shape: "circle" }

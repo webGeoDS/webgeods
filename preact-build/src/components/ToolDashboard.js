@@ -23,21 +23,60 @@
 //   map                    { center, zoom, height }
 //   selectable             { id, from: (data) => FC, layer: "<selection layer id>",
 //                            paint: (data) => paint overrides, fit: zoom to a selection }
-//   layers(data, ctx)      [{ id, type, data, paint, selectBy: (mapFeature) => selection }]
+//   categories             { field, values: (data) => [], label: (value) => string }:
+//                          what the tool colors by. ctx.categories.paint(field, options)
+//                          colors a layer, the legend lists them, a diagram can take
+//                          color: "categories", and a "bars" panel charts them
+//   layers(data, ctx)      [{ id, label, type, data, paint, selectBy: (mapFeature) => selection }]
 //                          bottom first; the selection layer goes on top
 //   fit                    { inspect: (v) => FC, result: (v) => FC }: zoom on new data
 //   side                   { id, placeholder, panels: [
 //                            { kind: "diagram", nodes, links, color, idField, height }
 //                            | { kind: "chart", spec, selectParams, externalParam, keyField,
 //                                toKey: (selection, features) => key, fromKey: (key) => selection, height }
+//                            | { kind: "bars", title, counts: (data) => [one per category],
+//                                tick: (value) => axis label, axis: { x, y }, height }
 //                          ] }  panels without `height` share the free space
 //   tables                 [{ label, from: (data) => FC, id }] — a table whose id is
 //                          selectable.id is clickable and shows the selection
-//   stats                  { empty: rows, inspect: (v) => rows, result: (v) => rows }
-//   legend(data, ctx)      legend items or null
+//   stats                  { empty: rows, inspect, result }: each a function of the
+//                          value returning rows, or a list of rows where a row is
+//                          [label, "path.in.value", unit?] (numbers formatted) or a
+//                          function of the value returning a row, rows or null
+//   legend(data, ctx)      legend items or null; by default the categories, then
+//   legendExtra(data, ctx) any extra items
 //
-// data is { inspect, result }; ctx is { selection, selected } (selected:
-// the matched features).
+// data is { inspect, result }; ctx is { selection, selected, categories }
+// (selected: the matched features). Unknown fields are reported in the
+// console (configCheck.js); the ToolConfig type below gives VS Code
+// autocompletion in a page that declares
+//   /** @type {import("../components/ToolDashboard.js").ToolConfig} */
+
+/**
+ * @typedef {{ inspect: any, result: any }} ToolData
+ * @typedef {Object} ToolConfig
+ * @property {string} tool
+ * @property {{ inspect: string, compute: string, exportShp?: string, example?: string }} cells
+ * @property {string} [example]
+ * @property {string[]} [languages]
+ * @property {string} [exampleStatus]
+ * @property {(inspect: any, inputs: Object) => Object} [inputsFromInspect]
+ * @property {{ getFeatures: Function, filenameSuffix: string, defaultFilename: string, shapefile?: Object }} [download]
+ * @property {Array<{ kind: "slider" | "select", name: string, label: string, value: any, min?: number, max?: number, step?: number, options?: any[] | ((data: ToolData) => any[]) }>} [inputs]
+ * @property {string} [computeLabel]
+ * @property {string} [busyLabel]
+ * @property {{ center?: [number, number], zoom?: number, height?: string }} [map]
+ * @property {{ inspect?: Function, result?: Function }} [fit]
+ * @property {{ id: string, from: (data: ToolData) => any, layer: string, paint?: Function, fit?: boolean }} [selectable]
+ * @property {{ field: string, values: (data: ToolData) => any[], label?: (value: any) => string }} [categories]
+ * @property {(data: ToolData, ctx: Object) => Array<{ id: string, label?: string, type: string, data: any, paint?: Object, selectBy?: Function }>} layers
+ * @property {{ id: string, placeholder?: string, panels: Object[] }} [side]
+ * @property {Array<{ label: string, id: string, from: (data: ToolData) => any }>} [tables]
+ * @property {{ empty: any[], inspect: Function | any[], result: Function | any[] }} stats
+ * @property {(data: ToolData, ctx: Object) => (Object[] | null)} [legend]
+ * @property {(data: ToolData, ctx: Object) => Object[]} [legendExtra]
+ */
+
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { useToolData } from "../hooks/useToolData.js";
 import { MapView } from "./MapView.js";
@@ -46,6 +85,8 @@ import { VegaChart } from "./VegaChart.js";
 import { DataTable, featureRows, featureKey } from "./DataTable.js";
 import { ControlPanel, SelectInput, SliderInput, ComputeButton } from "./ControlPanel.js";
 import { StatCard, Legend, MapWithSidePanel, Tabs, DEFAULT_MAP_HEIGHT } from "./Layout.js";
+import { makeCategories, barsPanel } from "./categories.js";
+import { checkConfig, checkLayer } from "./configCheck.js";
 
 const SELECTION_PAINT = {
   "circle-color": "#ffeb3b",
@@ -68,6 +109,8 @@ export function ToolDashboard({ config }) {
     tool, inputs: inputSpecs = [], map = {}, selectable, side, tables = [],
     stats, fit = {}, computeLabel = "▶ Compute", busyLabel
   } = config;
+
+  useMemo(() => checkConfig(config), [config]);
 
   const toolData = useToolData({
     tool,
@@ -102,7 +145,8 @@ export function ToolDashboard({ config }) {
 
   const selectedCollection = useMemo(() => ({ type: "FeatureCollection", features: selected }), [selected]);
   const selectedKeys = selected.map((f) => featureKey(selectable.id, f, pool.features.indexOf(f)));
-  const ctx = { selection, selected };
+  const categories = useMemo(() => makeCategories(config.categories, data), [data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ctx = { selection, selected, categories };
 
   useEffect(() => {
     if (selectable?.fit && selected.length) setFitTo(selectedCollection);
@@ -111,9 +155,10 @@ export function ToolDashboard({ config }) {
   // ---- map ------------------------------------------------------------
 
   const layers = useMemo(() => {
-    const list = config.layers(data, ctx).map(({ selectBy, ...layer }) => (
-      selectBy ? { ...layer, onClick: (feature) => select(selectBy(feature)) } : layer
-    ));
+    const list = config.layers(data, ctx).map(({ selectBy, ...layer }) => {
+      checkLayer(tool, { selectBy, ...layer });
+      return selectBy ? { ...layer, onClick: (feature) => select(selectBy(feature)) } : layer;
+    });
     if (selectable) {
       list.push({
         id: selectable.layer,
@@ -133,8 +178,19 @@ export function ToolDashboard({ config }) {
 
   // ---- side panels -----------------------------------------------------
 
+  // Chart specs only change with the data: a new spec object redraws the
+  // chart, which a selection change must not do.
+  const charts = useMemo(() => (side?.panels ?? []).map((panel) => {
+    if (panel.kind === "bars") return barsPanel(panel, categories, data);
+    if (panel.kind === "chart") {
+      const spec = panel.spec(data);
+      return spec && { ...panel, spec };
+    }
+    return null;
+  }), [data, categories]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const panels = (side?.panels ?? [])
-    .map((panel) => renderPanel(panel, data, { selection, selected, select, setSelection }))
+    .map((panel, i) => renderPanel(panel, charts[i], data, { selected, selection, select, setSelection, categories }))
     .filter(Boolean);
 
   const sideContent = panels.length === 0 ? null
@@ -162,7 +218,11 @@ export function ToolDashboard({ config }) {
     };
   });
 
-  const statRows = result ? stats.result(result) : inspect ? stats.inspect(inspect) : stats.empty;
+  const statRows = result ? statRowsOf(stats.result, result) : inspect ? statRowsOf(stats.inspect, inspect) : stats.empty;
+
+  const legend = config.legend
+    ? config.legend(data, ctx)
+    : categories?.values.length ? [...categories.legend, ...(config.legendExtra?.(data, ctx) ?? [])] : null;
 
   return (
     <div class="webgeods-dashboard">
@@ -178,7 +238,7 @@ export function ToolDashboard({ config }) {
           map={mapView} side={sideContent} />
         : mapView}
 
-      <Legend items={config.legend?.(data, ctx) ?? null} />
+      <Legend items={legend ?? null} />
 
       {tableViews.length > 1 && <Tabs tabs={tableViews} />}
       {tableViews.length === 1 && tableViews[0].content}
@@ -198,35 +258,50 @@ function renderInput(spec, tool, data, inputs, setInput, busy) {
     value={inputs[spec.name]} onChange={setInput(spec.name)} disabled={busy} />;
 }
 
+// [label, "path.in.value", unit?] rows, or functions of the value.
+function statRowsOf(spec, value) {
+  if (typeof spec === "function") return spec(value);
+  return spec.flatMap((row) => {
+    if (typeof row === "function") {
+      const rows = row(value);
+      return rows == null ? [] : Array.isArray(rows[0]) ? rows : [rows];
+    }
+    const [label, path, unit] = row;
+    const v = path.split(".").reduce((object, key) => object?.[key], value);
+    const text = v == null ? "—" : Number.isInteger(v) ? v.toLocaleString() : String(v);
+    return [[label, unit && v != null ? `${text} ${unit}` : text]];
+  });
+}
+
 // A panel with nothing to show yet (no result) is left out.
-function renderPanel(panel, data, { selection, selected, select, setSelection }) {
+function renderPanel(panel, chart, data, { selection, selected, select, setSelection, categories }) {
 
   if (panel.kind === "diagram") {
     const nodes = panel.nodes(data);
     const links = panel.links(data);
     if (!nodes || !links) return null;
     const idField = panel.idField;
+    const color = panel.color === "categories" ? categories?.featureColor : panel.color;
     return {
       height: panel.height,
       node: (
-        <ForceGraph nodes={nodes} links={links} nodeColor={panel.color} linkColor={panel.color}
+        <ForceGraph nodes={nodes} links={links} nodeColor={color} linkColor={color}
           selectedIds={selected.map((f) => f.properties[idField])}
           onNodeClick={(id, feature) => select({ [idField]: feature.properties[idField] })} />
       )
     };
   }
 
-  const spec = panel.spec(data);
-  if (!spec) return null;
+  if (!chart) return null;
   return {
     height: panel.height,
     node: (
-      <VegaChart spec={spec} selectParams={panel.selectParams} externalParam={panel.externalParam}
-        keyField={panel.keyField} style={panel.height ? { height: "100%" } : undefined}
-        selected={selection ? panel.toKey(selection, selected) : null}
+      <VegaChart spec={chart.spec} selectParams={chart.selectParams} externalParam={chart.externalParam}
+        keyField={chart.keyField} style={panel.height ? { height: "100%" } : undefined}
+        selected={selection ? chart.toKey(selection, selected) : null}
         // The chart's own point selection already toggles: a second click
         // on the same bar reports null.
-        onSelect={(key) => setSelection(key == null ? null : panel.fromKey(key))} />
+        onSelect={(key) => setSelection(key == null ? null : chart.fromKey(key))} />
     )
   };
 
