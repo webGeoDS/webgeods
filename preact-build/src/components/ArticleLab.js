@@ -21,6 +21,7 @@
 //             #lab-crs shows the CRS warning of the result on the map
 //   stats     (value | null) => rows for a language's card
 //   slots     { "#selector": (state) => content } for the article's own slots
+//   resetLabel the #lab-reset button's text
 //
 // state: { py, r, latest, extra: { name: value } }; latest is the result
 // of the language that ran last.
@@ -34,7 +35,7 @@ const LANGUAGE_LABELS = { py: "Python", r: "R" };
 
 export function ArticleLab({ config }) {
 
-  const { cells, extra = {}, upload, map, stats, slots = {} } = config;
+  const { cells, extra = {}, upload, map, stats, slots = {}, resetLabel = "🔄 Reset map and cards" } = config;
 
   const [uploadStatus, setUploadStatus] = useState(window.WebGeoDS.Upload.defaultStatus);
   const [py, setPy] = useCellValue(cells.py);
@@ -95,7 +96,7 @@ export function ArticleLab({ config }) {
       </SideBySide>
     ),
     "#lab-reset": () => (
-      <DomNode build={() => window.WebGeoDS.resetButton(() => reset(), "🔄 Reset map and cards")} />
+      <DomNode build={() => window.WebGeoDS.resetButton(() => reset(), resetLabel)} />
     ),
     ...Object.fromEntries(Object.entries(slots).map(([target, render]) => [target, () => render(state)]))
   };

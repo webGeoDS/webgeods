@@ -26,39 +26,8 @@ A `.geojson`, or a shapefile: either as a single `.zip`, or as the
 individual `.shp`/`.dbf`/`.shx` files (and optionally `.prj`) selected
 together.
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-// A native <input type="file"> (WebGeoDS.Upload.createControl(), see
-// shared/upload.js) — see its doc comment there for why, over an
-// Observable Inputs `viewof`-bound widget.
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles);
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 ## 2. Why start with a summary?
 
@@ -95,201 +64,14 @@ for:
 
 ## 3. Shared map and summary
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  return map;
-}
-```
+::: {#lab-map style="min-height: 500px;"}
+:::
 
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+::: {#lab-stats}
+:::
 
-```{ojs}
-//| echo: false
-//| output: false
-// Same coloring convention as geometry-validity.qmd's VALIDITY_PAINT
-// — green valid, red invalid.
-INSPECT_PAINT = ({
-  "fill-color": [
-    "case",
-    ["==", ["get", "valid"], true],
-    "#2ea44f",
-    "#e05252"
-  ],
-  "fill-opacity": 0.55
-})
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-// Same line-paint companion as geometry-validity.qmd's
-// VALIDITY_OUTLINE_PAINT, and the same reason: the example's own
-// "bowtie" feature is a self-intersecting polygon, which tessellates
-// to a ZERO-area fill in MapLibre — verified empirically, drawing
-// only the square (and its exact duplicate on top of it) visible, the
-// bowtie invisible. WebGeoDS.toOutlineFeatures() (shared/ui.js) draws
-// every feature's ring as a line too, which has no such dependency.
-INSPECT_OUTLINE_PAINT = ({
-  "line-color": [
-    "case",
-    ["==", ["get", "valid"], true],
-    "#2ea44f",
-    "#e05252"
-  ],
-  "line-width": 2.5
-})
-```
-
-```{ojs}
-//| echo: false
-// The summary cards' own state, separate from reading pyInspect/
-// rInspect directly: those are the CodeCells' cached values, which
-// Reset below has no way to clear (there's nothing to re-run) —
-// without this, clicking Reset would empty the map but leave both
-// summary cards showing stale numbers. Set alongside each map update
-// below, cleared alongside the map reset further down.
-mutable pySummary = null
-```
-
-```{ojs}
-//| echo: false
-mutable rSummary = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyInspect = WebGeoDS.getCellValue("inspect-py", Generators)
-{
-  if (pyInspect) {
-    // mapFeatures (WGS84), falling back to features -- a defensive
-    // default; every example on this page (including the CRS-mismatch
-    // one in section 6, fixed to reproject for the map while keeping
-    // its own native-CRS "features"/bounds for the "look how odd this
-    // is" point) provides mapFeatures explicitly.
-    const mapData = pyInspect.mapFeatures ?? pyInspect.features;
-    await sharedMap.setGeoJSON("inspect-py", mapData, { paint: INSPECT_PAINT });
-    await sharedMap.setGeoJSON("inspect-py-outline", WebGeoDS.toOutlineFeatures(mapData), { paint: INSPECT_OUTLINE_PAINT });
-    // Zooms to whatever was just inspected — same as the standalone
-    // tool. Without this the CRS-mismatch example in section 6 would
-    // load fine but stay invisible: the map would just sit at its
-    // fixed initial view over Italy instead of jumping to wherever the
-    // Web Mercator coordinates actually land, missing the whole point
-    // of that example.
-    await sharedMap.fitToData(mapData);
-    mutable pySummary = pyInspect.summary;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rInspect = WebGeoDS.getCellValue("inspect-r", Generators)
-{
-  if (rInspect) {
-    // Same mapFeatures/features fallback as pyInspect above.
-    const mapData = rInspect.mapFeatures ?? rInspect.features;
-    await sharedMap.setGeoJSON("inspect-r", mapData, { paint: INSPECT_PAINT });
-    await sharedMap.setGeoJSON("inspect-r-outline", WebGeoDS.toOutlineFeatures(mapData), { paint: INSPECT_OUTLINE_PAINT });
-    await sharedMap.fitToData(mapData);
-    mutable rSummary = rInspect.summary;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-// Two summary cards side by side — Python's and R's — instead of one
-// merged card: unlike a FeatureCollection (where combining both
-// languages' results on one map is the whole point of a shared map),
-// merging two "total feature count" numbers wouldn't mean anything.
-// Seeing them agree (or notice where they don't, e.g. a differently
-// formatted CRS string between GDAL bindings) is itself the point.
-statCard = (label, s) => {
-  const wrap = document.createElement("div");
-  wrap.style.flex = "1";
-  wrap.style.minWidth = "260px";
-
-  const heading = document.createElement("div");
-  heading.className = "webgeods-label";
-  heading.textContent = label;
-  wrap.appendChild(heading);
-
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  wrap.appendChild(box);
-
-  const row = (rowLabel, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = rowLabel;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-
-  if (!s || s.total === 0) {
-    row("Features", "0");
-    return wrap;
-  }
-
-  const geometryLabel = s.geometryTypes.length > 1
-    ? `Mixed (${s.geometryTypes.join(", ")})`
-    : (s.geometryTypes[0] ?? "—");
-
-  row("Features", s.total.toLocaleString());
-  row("Geometry", geometryLabel);
-  row("CRS", s.crsWarning ? `${s.crs} ⚠️ ${s.crsWarning}` : (s.crs ?? "Unknown"));
-  row("Bounds", s.bounds ? s.bounds.join(", ") : "—");
-  row("Attributes", `${s.attributeNames.length}${s.attributeNames.length > 0 ? ` (${s.attributeNames.join(", ")})` : ""}`);
-  row("Invalid", String(s.invalid));
-  row("Empty", String(s.empty));
-  row("Duplicates", String(s.duplicates));
-
-  return wrap;
-}
-```
-
-```{ojs}
-//| echo: false
-statCardsRow = {
-  const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.flexWrap = "wrap";
-  row.style.gap = "16px";
-  row.append(statCard("Python", pySummary), statCard("R", rSummary));
-  return row;
-}
-```
-
-${statCardsRow}
-
-```{ojs}
-//| echo: false
-resetInspection = async () => {
-  for (const id of ["inspect-py", "inspect-r", "inspect-py-outline", "inspect-r-outline"]) {
-    if (sharedMap.getGeoJSON(id)) {
-      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
-    }
-  }
-  mutable pySummary = null;
-  mutable rSummary = null;
-}
-```
-
-```{ojs}
-//| echo: false
-resetMapButton = WebGeoDS.resetButton(resetInspection, "🔄 Reset map and summary")
-```
+::: {#lab-reset}
+:::
 
 ## 4. Inspect: summarize your file
 
@@ -527,7 +309,6 @@ an actual data problem.
 
 ## 6. Load an example
 
-
 The reusable cell pair above already loads a small dataset with one
 exact duplicate and one invalid geometry whenever nothing has been
 uploaded. Click **▶ Run** on both languages above to see it. This
@@ -542,9 +323,9 @@ mismatch, and converting a file to a different CRS, is what
 [Coordinate Reference Systems](crs-mismatch.qmd) and its [standalone
 tool](/tools/crs-inspector.html) do.
 
-```{ojs}
-//| echo: false
-pyCrsExampleCode = `import geopandas as gpd
+::: {.webgeods-example py="inspect-py" r="inspect-r" label="📋 Load a CRS-mismatch example"}
+```python
+import geopandas as gpd
 from shapely.geometry import shape
 
 # The same square as the default example, but reprojected to Web
@@ -588,8 +369,10 @@ map_gdf = gdf.to_crs("EPSG:4326")
         "attributeNames": attribute_columns,
         "invalid": int((~gdf["valid"]).sum()), "empty": int(gdf["empty"].sum()), "duplicates": int(gdf["duplicate"].sum())
     }
-}`
-rCrsExampleCode = `library(sf)
+}
+```
+```r
+library(sf)
 library(geojsonsf)
 wkt <- "POLYGON((12.40 41.80, 12.50 41.80, 12.50 41.90, 12.40 41.90, 12.40 41.80))"
 data <- st_sf(name = "square", geometry = st_as_sfc(wkt, crs = 4326))
@@ -620,13 +403,9 @@ result <- list(
 out <- jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
 out$features <- jsonlite::fromJSON(sf_geojson(data), simplifyVector = FALSE)
 out$mapFeatures <- jsonlite::fromJSON(sf_geojson(map_data), simplifyVector = FALSE)
-out`
+out
 ```
-
-```{ojs}
-//| echo: false
-loadCrsExampleButton = WebGeoDS.loadExampleButton("📋 Load a CRS-mismatch example", { pyId: "inspect-py", rId: "inspect-r", pyCode: pyCrsExampleCode, rCode: rCrsExampleCode })
-```
+:::
 
 ## 7. Where to next
 
@@ -648,5 +427,7 @@ A summary is a starting point, not an endpoint:
 - **Just needed the numbers?** The
   [standalone Inspector](/tools/geospatial-file-inspector.html) has
   the same summary, no reading required.
+
+{{< webgeods-tool file-inspection-lab id=lab-root >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

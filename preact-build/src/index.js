@@ -27,6 +27,8 @@ import { SpatialClusteringTool } from "./pages/SpatialClusteringTool.js";
 import { SpatialClusteringLab } from "./pages/SpatialClusteringLab.js";
 import { CrsInspectorTool } from "./pages/CrsInspectorTool.js";
 import { CrsMismatchLab } from "./pages/CrsMismatchLab.js";
+import { FileInspectorTool } from "./pages/FileInspectorTool.js";
+import { FileInspectionLab } from "./pages/FileInspectionLab.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
@@ -55,7 +57,9 @@ const PAGES = {
   "spatial-clustering-tool": SpatialClusteringTool,
   "spatial-clustering-lab": SpatialClusteringLab,
   "crs-inspector-tool": CrsInspectorTool,
-  "crs-mismatch-lab": CrsMismatchLab
+  "crs-mismatch-lab": CrsMismatchLab,
+  "file-inspector-tool": FileInspectorTool,
+  "file-inspection-lab": FileInspectionLab
 };
 
 function mount(name, target, props = {}) {
