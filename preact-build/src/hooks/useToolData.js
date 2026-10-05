@@ -11,19 +11,21 @@
 //     cells: { inspect, compute, exportShp },  // each optional; an `example`
 //                                              // cell instead of the file
 //                                              // still works
-//     autoCompute: false,          // true: compute right after every load
+//     autoCompute: false,          // true, or (inspectValue) => boolean:
+//                                  // compute right after a load
 //     initialInputs: { nTrees: 100, ... },
 //     inputsFromInspect: (inspectValue, inputs) => ({ ...inputs, classColumn: ... }),
 //     exampleStatus: "✓ example data loaded — ...",
 //     computeLabel: "⌛ Training...",
-//     download: { getFeatures: (result) => ..., filenameSuffix, defaultFilename,
+//     download: { getFeatures: (result, { inspect, result }) => ..., filenameSuffix, defaultFilename,
 //                 shapefile: { filenameSuffix, defaultFilename },
 //                 after: "inspect" (enabled once inspected; getFeatures gets the
 //                 result if there is one, else the inspect value), enabled: (data) => boolean }
 //       or, for a file a cell writes (a GeoTIFF, a reprojected file):
 //               { cell, label, after: "result" | "inspect",
 //                 enabled: (data) => boolean (default: there is a result / inspect),
-//                 inputs: (data, inputs, { uploadKind }) => extra injected values,
+//                 inputs: (data, inputs, { uploadKind }) => extra injected values
+//                   (data has resultInputs: download what was computed),
 //                 filename: (baseName, inputs) => name, mimeType   (the cell
 //                   returns base64), or
 //                 file: (value, baseName, inputs) => { content, filename, mimeType }
@@ -43,6 +45,9 @@ import { useRef, useState } from "preact/hooks";
 import { useCellRunner } from "./useCellRunner.js";
 
 export const base64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+
+// A raster band sent by a cell as base64 float32 bytes.
+export const base64ToFloat32 = (b64) => new Float32Array(base64ToBytes(b64).buffer);
 
 export function useToolData({
   tool,
@@ -94,7 +99,8 @@ export function useToolData({
       nextInputs = inputsFromInspect(value, nextInputs);
       setInputs(nextInputs);
     }
-    if (autoCompute && cells.compute) await runCompute(nextInputs);
+    const auto = typeof autoCompute === "function" ? autoCompute(value) : autoCompute;
+    if (auto && cells.compute) await runCompute(nextInputs);
   };
 
   // The example file goes through the same path as an upload, but
@@ -140,12 +146,14 @@ export function useToolData({
 
   // A file written by a cell: run it, decode its base64 value, save it.
   const downloadFromCell = () => runner.queue("⌛ Preparing download...", async () => {
-    const extra = download.inputs ? download.inputs({ inspect, result }, inputs, { uploadKind: kind }) : {};
-    const value = await runner.runCell(download.cell, { ...inputs, ...extra });
+    const extra = download.inputs ? download.inputs({ inspect, result, resultInputs }, inputs, { uploadKind: kind }) : {};
+    // What the cell was given: filename()/file() name the file after it.
+    const injected = { ...inputs, ...extra };
+    const value = await runner.runCell(download.cell, injected);
     const base = window.WebGeoDS.Upload.baseName(files);
     const file = download.file
-      ? download.file(value, base, inputs)
-      : { content: base64ToBytes(value), filename: download.filename(base, inputs), mimeType: download.mimeType };
+      ? download.file(value, base, injected)
+      : { content: base64ToBytes(value), filename: download.filename(base, injected), mimeType: download.mimeType };
     window.WebGeoDS.downloadBlob(file.content, file.filename, file.mimeType ?? "application/octet-stream", { tool });
     return "✓ Downloaded.";
   });
@@ -162,11 +170,12 @@ export function useToolData({
       getFeatures: () => {
         // After "inspect": the latest of the two (a repaired result, else the inspection).
         const source = download.after === "inspect" ? (result ?? inspect) : result;
-        return source ? download.getFeatures(source) : null;
+        return source ? download.getFeatures(source, { inspect, result }) : null;
       },
       getBaseName: () => window.WebGeoDS.Upload.baseName(files),
       filenameSuffix: download.filenameSuffix,
       defaultFilename: download.defaultFilename,
+      mimeType: download.mimeType,
       tool,
       uploadKind: kind,
       shapefile: download.shapefile && cells.exportShp

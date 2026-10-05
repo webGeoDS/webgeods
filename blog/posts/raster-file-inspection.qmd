@@ -24,38 +24,8 @@ prose.
 
 A single `.tif` or `.tiff`, no sidecars, unlike a shapefile.
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; },
-  kind: "raster"
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles);
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 ## 2. Why start with a summary?
 
@@ -95,168 +65,14 @@ wrong by assumption:
 
 ## 3. Shared map and summary
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  return map;
-}
-```
+::: {#lab-map style="min-height: 500px;"}
+:::
 
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+::: {#lab-stats}
+:::
 
-```{ojs}
-//| echo: false
-//| output: false
-FOOTPRINT_PAINT = ({
-  "fill-color": "#42583c",
-  "fill-opacity": 0.35,
-  "fill-outline-color": "#2a2117"
-})
-```
-
-```{ojs}
-//| echo: false
-// Same reasoning as geospatial-file-inspection.qmd's pySummary/
-// rSummary: separate mutable state so Reset (added in section 6) can
-// clear the cards even though there's nothing to re-run.
-mutable pySummary = null
-```
-
-```{ojs}
-//| echo: false
-mutable rSummary = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyInspect = WebGeoDS.getCellValue("raster-inspect-py", Generators)
-{
-  if (pyInspect && pyInspect.summary) {
-    await sharedMap.setGeoJSON("raster-inspect-py", pyInspect.footprint, { paint: FOOTPRINT_PAINT });
-    await sharedMap.fitToData(pyInspect.footprint);
-    mutable pySummary = pyInspect.summary;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rInspect = WebGeoDS.getCellValue("raster-inspect-r", Generators)
-{
-  if (rInspect && rInspect.summary) {
-    await sharedMap.setGeoJSON("raster-inspect-r", rInspect.footprint, { paint: FOOTPRINT_PAINT });
-    await sharedMap.fitToData(rInspect.footprint);
-    mutable rSummary = rInspect.summary;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-// Two cards side by side, same reasoning as the vector article: a
-// combined "total pixel count" wouldn't mean anything, but seeing the
-// two engines' numbers agree (or noticing where the CRS string or
-// data type label doesn't) is itself the point — see section 5.
-statCard = (label, s) => {
-  const wrap = document.createElement("div");
-  wrap.style.flex = "1";
-  wrap.style.minWidth = "260px";
-
-  const heading = document.createElement("div");
-  heading.className = "webgeods-label";
-  heading.textContent = label;
-  wrap.appendChild(heading);
-
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  wrap.appendChild(box);
-
-  const row = (rowLabel, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = rowLabel;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-
-  if (!s) {
-    row("Dimensions", "—");
-    return wrap;
-  }
-
-  const MAX_BANDS_SHOWN = 6;
-  const bandLines = s.bandStats.slice(0, MAX_BANDS_SHOWN).map((b) =>
-    b.min === null
-      ? `Band ${b.band}: all NoData`
-      : `Band ${b.band}: ${b.min} to ${b.max} (mean ${b.mean})`
-  );
-  if (s.bandStats.length > MAX_BANDS_SHOWN) {
-    bandLines.push(`… and ${s.bandStats.length - MAX_BANDS_SHOWN} more band(s)`);
-  }
-
-  row("Dimensions", `${s.width} × ${s.height} px`);
-  row("Bands", String(s.bandCount));
-  row("CRS", s.crs === null || s.crs === undefined ? `Unknown ⚠️ ${s.crsWarning}` : s.crs);
-  if (s.displayCrsAssumption) {
-    row("Display assumption", `${s.displayCrsAssumption} — map only, not a fact about the file`);
-  }
-  row("Resolution", s.resolution.join(" × "));
-  // terra's datatype() returns "" for a raster built directly from a
-  // matrix (the fallback example, no GDAL file behind it — nothing to
-  // report a storage type FROM) rather than a placeholder string —
-  // shown as "—" here for the same reason every other "nothing to
-  // show" value on this page is, not blank space that reads as a
-  // rendering bug.
-  row("Data type", s.dtype || "—");
-  row("NoData", s.nodata === null || s.nodata === undefined ? "None declared" : String(s.nodata));
-  row("Bounds", s.bounds.join(", "));
-  row("Value range", bandLines.join(" · "));
-
-  return wrap;
-}
-```
-
-```{ojs}
-//| echo: false
-statCardsRow = {
-  const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.flexWrap = "wrap";
-  row.style.gap = "16px";
-  row.append(statCard("Python", pySummary), statCard("R", rSummary));
-  return row;
-}
-```
-
-${statCardsRow}
-
-```{ojs}
-//| echo: false
-resetInspection = async () => {
-  for (const id of ["raster-inspect-py", "raster-inspect-r"]) {
-    if (sharedMap.getGeoJSON(id)) {
-      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
-    }
-  }
-  mutable pySummary = null;
-  mutable rSummary = null;
-}
-```
-
-```{ojs}
-//| echo: false
-resetMapButton = WebGeoDS.resetButton(resetInspection, "🔄 Reset map and summary")
-```
+::: {#lab-reset}
+:::
 
 ## 4. Inspect: summarize your file
 
@@ -616,10 +432,9 @@ supplies it, which is exactly the situation the warning exists to
 flag before a map silently plots it in the wrong place (or, for
 `sf`/GeoPandas, refuses to reproject it at all).
 
-
-```{ojs}
-//| echo: false
-pyNoCrsExampleCode = `import rasterio
+::: {.webgeods-example py="raster-inspect-py" r="raster-inspect-r" label="📋 Load a no-CRS example"}
+```python
+import rasterio
 from rasterio.transform import from_origin
 from rasterio.io import MemoryFile
 import numpy as np
@@ -690,8 +505,10 @@ with rasterio.open(memfile.name) as src:
 
 memfile.close()
 
-{"summary": summary, "footprint": footprint}`
-rNoCrsExampleCode = `library(terra)
+{"summary": summary, "footprint": footprint}
+```
+```r
+library(terra)
 
 n <- 20
 xs <- 0:(n - 1)
@@ -771,13 +588,9 @@ summary_out <- list(
 )
 
 result <- list(summary = summary_out, footprint = footprint)
-jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)`
+jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FALSE)
 ```
-
-```{ojs}
-//| echo: false
-loadNoCrsExampleButton = WebGeoDS.loadExampleButton("📋 Load a no-CRS example", { pyId: "raster-inspect-py", rId: "raster-inspect-r", pyCode: pyNoCrsExampleCode, rCode: rNoCrsExampleCode })
-```
+:::
 
 ## 7. Where to next
 
@@ -793,5 +606,7 @@ A summary is a starting point:
   Normalized Difference like NDVI)? See
   [Raster Band Math](raster-band-math.qmd), or the standalone
   [Raster Calculator](/tools/raster-calculator.html).
+
+{{< webgeods-tool raster-file-inspection-lab id=lab-root >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

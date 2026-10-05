@@ -6,7 +6,7 @@ const TOP = ["tool", "cells", "example", "autoCompute", "uploadKind", "languages
   "inputs", "computeLabel", "busyLabel", "map", "fit", "selectable", "categories", "layers",
   "side", "tables", "stats", "legend", "legendExtra"];
 const KNOWN = {
-  input: ["kind", "name", "label", "min", "max", "step", "value", "options", "onPick", "width", "placeholder", "size"],
+  input: ["kind", "name", "label", "min", "max", "step", "value", "options", "onPick", "width", "placeholder", "size", "visible", "number", "text"],
   layer: ["id", "label", "type", "data", "paint", "selectBy", "raster", "render", "startHidden"],
   selectable: ["id", "from", "layer", "paint", "fit"],
   categories: ["field", "values", "label"],
@@ -15,6 +15,7 @@ const KNOWN = {
   chart: ["kind", "spec", "selectParams", "externalParam", "keyField", "toKey", "fromKey", "height"],
   bars: ["kind", "title", "counts", "tick", "axis", "height"],
   carousel: ["kind", "items", "height"],
+  note: ["kind", "text", "height"],
   table: ["label", "id", "from", "rowClassName", "iconColumns", "emptyMessage"],
   map: ["center", "zoom", "height", "onClick"],
   stats: ["empty", "inspect", "result"]
@@ -44,7 +45,7 @@ export function checkConfig(config) {
   unknown(config.side, KNOWN.side, "side", problems);
   (config.side?.panels ?? []).forEach((panel, i) => {
     const known = KNOWN[panel.kind];
-    if (!known) problems.push(`side.panels[${i}]: unknown kind "${panel.kind}" (diagram, chart, bars or carousel)`);
+    if (!known) problems.push(`side.panels[${i}]: unknown kind "${panel.kind}" (diagram, chart, bars, carousel or note)`);
     else unknown(panel, known, `side.panels[${i}]`, problems);
     if (panel.kind === "bars" && !config.categories) problems.push(`side.panels[${i}]: a "bars" panel needs "categories"`);
   });

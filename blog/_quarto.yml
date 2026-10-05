@@ -49,6 +49,7 @@ project:
     - "codemirror-bundle.js"
     - "downloads/*.pdf"
     - "examples/*.geojson"
+    - "examples/*.tif"
 
 website:
   title: "webGeoDs"

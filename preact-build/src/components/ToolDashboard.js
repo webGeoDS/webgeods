@@ -26,6 +26,9 @@
 //                           | { kind: "number", name, label, step, width, value }
 //                           | { kind: "checkbox", name, label, value }
 //                           | { kind: "text", name, label, placeholder, size, value }]
+//                           | { kind: "note", text: (data, inputs) => string | null }  a line of text
+//                          any input: visible: (inputs, data) => boolean; a select with
+//                          number: true hands its value on as a number
 //   download.withInputs    a download through a cell (useToolData.js) shown in
 //                          the inputs row, as that row's action, not the top row
 //   computeLabel, busyLabel
@@ -49,6 +52,7 @@
 //                            | { kind: "bars", title, counts: (data) => [one per category],
 //                                tick: (value) => axis label, axis: { x, y }, height }
 //                            | { kind: "carousel", items: (data) => [{ title, spec }], height }
+//                            | { kind: "note", text: (data) => string | null }  a line of text
 //                          ] }  panels without `height` share the free space
 //   tables                 [{ label, from: (data) => FC, id, rowClassName, iconColumns,
 //                            emptyMessage }] — a table whose id is selectable.id is
@@ -59,7 +63,8 @@
 //                          (value, data) returning rows, or a list of rows where a row is
 //                          [label, "path.in.value", unit?] (numbers formatted) or a
 //                          function of the value returning a row, rows or null
-//   legend(data, ctx)      legend items or null; by default the categories, then
+//   legend(data, ctx)      legend items, { items, options }, a WebGeoDS.legend gradient
+//                          ({ gradient, minLabel, maxLabel }) or null; by default the categories, then
 //   legendExtra(data, ctx) any extra items
 //
 // data is { inspect, result, resultInputs } (the inputs result was
@@ -134,7 +139,7 @@ export function ToolDashboard({ config }) {
     autoCompute: config.autoCompute,
     languages: config.languages,
     uploadKind: config.uploadKind,
-    initialInputs: Object.fromEntries(inputSpecs.map((spec) => [spec.name, spec.value])),
+    initialInputs: Object.fromEntries(inputSpecs.filter((spec) => spec.name).map((spec) => [spec.name, spec.value])),
     inputsFromInspect: config.inputsFromInspect,
     exampleStatus: config.exampleStatus,
     computeLabel: busyLabel,
@@ -249,7 +254,9 @@ export function ToolDashboard({ config }) {
     };
   });
 
-  const statRows = result ? statRowsOf(stats.result, result, data)
+  // A tool whose card describes the input only (no stats.result) keeps
+  // showing it after a compute.
+  const statRows = result && stats.result ? statRowsOf(stats.result, result, data)
     : inspect && stats.inspect ? statRowsOf(stats.inspect, inspect, data) : stats.empty;
 
   // Default legend, once there is a result: the categories, then any
@@ -276,8 +283,8 @@ export function ToolDashboard({ config }) {
           map={mapView} side={sideContent} />
         : mapView}
 
-      {/* legend() may also return { items, options } for WebGeoDS.legend options. */}
-      <Legend items={(Array.isArray(legend) ? legend : legend?.items) ?? null} options={Array.isArray(legend) ? undefined : legend?.options} />
+      {/* legend() may also return { items, options }, or a gradient. */}
+      <Legend items={(legend?.items ?? legend) ?? null} options={legend?.items ? legend.options : undefined} />
 
       {tableViews.length > 1 && <Tabs tabs={tableViews} />}
       {tableViews.length === 1 && tableViews[0].content}
@@ -287,12 +294,18 @@ export function ToolDashboard({ config }) {
 }
 
 function renderInput(spec, tool, data, inputs, setInput, setInputs, busy) {
+  if (spec.visible && !spec.visible(inputs, data)) return null;
+  if (spec.kind === "note") {
+    const text = spec.text(data, inputs);
+    return text ? <span class="webgeods-panel-status">{text}</span> : null;
+  }
   const id = `${tool}-${spec.name}`;
   if (spec.kind === "select") {
     const options = typeof spec.options === "function" ? spec.options(data) : spec.options;
+    const set = (value) => (spec.number ? Number(value) : value);
     const onChange = spec.onPick
-      ? (value) => setInputs((current) => spec.onPick(value, { ...current, [spec.name]: value }))
-      : setInput(spec.name);
+      ? (value) => setInputs((current) => spec.onPick(set(value), { ...current, [spec.name]: set(value) }))
+      : (value) => setInput(spec.name)(set(value));
     return <SelectInput id={id} label={spec.label} options={options}
       value={inputs[spec.name]} onChange={onChange} disabled={busy} />;
   }
@@ -345,6 +358,11 @@ function renderPanel(panel, chart, data, { selection, selected, select, setSelec
           onNodeClick={(id, feature) => select({ [idField]: feature.properties[idField] })} />
       )
     };
+  }
+
+  if (panel.kind === "note") {
+    const text = panel.text(data);
+    return text ? { height: panel.height, node: <div class="webgeods-carousel-note">{text}</div> } : null;
   }
 
   if (panel.kind === "carousel") {

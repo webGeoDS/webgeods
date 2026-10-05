@@ -16,6 +16,7 @@
 //             language's result is then whichever of them ran last
 //   extra     { name: cellId }: other cells whose values slots read
 //   upload    options for WebGeoDS.Upload.load (e.g. { languages: ["python", "r"] })
+//   uploadKind "vector" (default) or "raster": what the upload control accepts
 //   map       { center, zoom, height, layers: (value, lang) => [...], fit: (value) => FC,
 //               mode: "latest" (only the language that ran last) | "both" (each on
 //               its own layers, the one that ran last on top) | "py" or "r" (that
@@ -50,7 +51,7 @@ const SELECTION_LAYER = "lab-selection";
 
 export function ArticleLab({ config }) {
 
-  const { cells, extra = {}, upload, map, stats, slots = {}, tables = {}, resetLabel = "🔄 Reset map and cards", onRun, onReset } = config;
+  const { cells, extra = {}, upload, uploadKind = "vector", map, stats, slots = {}, tables = {}, resetLabel = "🔄 Reset map and cards", onRun, onReset } = config;
 
   const [uploadStatus, setUploadStatus] = useState(window.WebGeoDS.Upload.defaultStatus);
   const [files, setFiles] = useState(null);
@@ -125,6 +126,7 @@ export function ArticleLab({ config }) {
       <>
         <DomNode build={() => window.WebGeoDS.Upload.createControl({
           label: "Upload",
+          kind: uploadKind,
           onChange: async (selected) => {
             setFiles(selected);
             setUploadStatus((await window.WebGeoDS.Upload.load(selected, upload)).message);

@@ -32,6 +32,7 @@ export function ControlPanel({ upload, example, download, cellDownload, onReset,
               getBaseName: () => latest.current.download.getBaseName?.() ?? null,
               filenameSuffix: download.filenameSuffix,
               defaultFilename: download.defaultFilename,
+              ...(download.mimeType ? { mimeType: download.mimeType } : {}),
               enabled: false,
               tool: download.tool,
               shapefile: download.shapefile ? {
