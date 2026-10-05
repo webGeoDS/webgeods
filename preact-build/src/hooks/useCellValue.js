@@ -14,6 +14,9 @@ export function useCellValue(id) {
 
   useEffect(() => {
 
+    // No cell (an article with only an R cell, say): stays null.
+    if (!id) return undefined;
+
     let element = null;
     const onInput = () => setValue(element.value ?? null);
 

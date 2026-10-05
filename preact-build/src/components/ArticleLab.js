@@ -10,7 +10,8 @@
 //   #lab-reset   "Reset map and cards": clears both results
 //
 // config:
-//   cells     { py, r }: the two cells computing the same thing
+//   cells     { py, r }: the cells computing the same thing in each
+//             language; either can be left out (an R-only article)
 //   extra     { name: cellId }: other cells whose values slots read
 //   upload    options for WebGeoDS.Upload.load (e.g. { languages: ["python", "r"] })
 //   map       { center, zoom, height, layers: (value, lang) => [...], fit: (value) => FC,
@@ -48,6 +49,7 @@ export function ArticleLab({ config }) {
   useEffect(() => ran("r", r), [r]);
 
   const results = { py, r };
+  const languages = Object.keys(cells).filter((lang) => cells[lang]);
   const ranLanguages = order.filter((lang) => results[lang]);
   const lastLang = ranLanguages.at(-1);
   const latest = lastLang ? results[lastLang] : null;
@@ -82,7 +84,7 @@ export function ArticleLab({ config }) {
     // Two cards side by side: seeing them agree is the point.
     "#lab-stats": () => (
       <SideBySide>
-        {Object.keys(cells).map((lang) => (
+        {languages.map((lang) => (
           <LabeledBox label={LANGUAGE_LABELS[lang]}><StatGrid rows={stats(results[lang])} /></LabeledBox>
         ))}
       </SideBySide>

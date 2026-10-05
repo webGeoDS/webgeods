@@ -10,9 +10,18 @@
 // later (the class grid after the inspect points, say) would cover the
 // ones listed after it.
 //
+// A raster layer is { id, type: "raster", raster, render } instead:
+// `raster` is what WebGeoDS.Map's raster methods take (shared/
+// map-raster.js) and `render` picks one: "ramp" (default,
+// setRasterImage: { bounds, width, height, values, min, max, colorRamp }),
+// "rgb" (setRasterRGBImage: red/green/blue channels) or "bicolor"
+// (setRasterBicolorImage: channelA/channelB). Pushed again when the
+// `raster` object changes, removed when the layer is no longer listed
+// or its raster is null; stacked and switched on/off like any other.
+//
 // label: a layer that has one gets an on/off checkbox in a box over the
 // map's top-left corner, shown once two or more labeled layers have
-// features. Hidden layers keep their data and come back as they were.
+// data. Hidden layers keep their data and come back as they were.
 //
 // fitTo: a FeatureCollection to zoom to whenever a new one is passed.
 // onReady(map): the WebGeoDS.Map instance, for anything not expressible
@@ -21,6 +30,12 @@ import { createPortal } from "preact/compat";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 const EMPTY = { type: "FeatureCollection", features: [] };
+
+const RASTER_METHODS = { ramp: "setRasterImage", rgb: "setRasterRGBImage", bicolor: "setRasterBicolorImage" };
+
+// Whether a layer has anything to draw (and so a checkbox).
+export const hasData = (layer) =>
+  layer.type === "raster" ? !!layer.raster : !!layer.data?.features?.length;
 
 // tool: set on tool pages only. It goes through WebGeoDS.createSharedMap,
 // which also records the "tool_loaded" event; an article passes no tool
@@ -93,6 +108,21 @@ export function MapView({ tool, height, center, zoom, layers = [], fitTo, onRead
 
       for (const layer of layers) {
 
+        if (layer.type === "raster") {
+          const previous = pushed.current.get(layer.id);
+          if (previous?.data !== layer.raster) {
+            if (layer.raster) {
+              const method = RASTER_METHODS[layer.render ?? "ramp"];
+              if (!method) throw new Error(`MapView: unknown raster render "${layer.render}" (ramp, rgb or bicolor).`);
+              await map[method](layer.id, layer.raster);
+            } else {
+              await map.removeRasterImage(layer.id);
+            }
+            pushed.current.set(layer.id, { data: layer.raster ?? null, type: "raster" });
+          }
+          continue;
+        }
+
         const paintKey = layer.paint ? JSON.stringify(layer.paint) : "";
         const previous = pushed.current.get(layer.id);
 
@@ -116,7 +146,8 @@ export function MapView({ tool, height, center, zoom, layers = [], fitTo, onRead
       const listed = new Set(layers.map((l) => l.id));
       for (const [id, previous] of pushed.current) {
         if (!listed.has(id) && previous.data !== null) {
-          await map.setGeoJSON(id, EMPTY, { type: previous.type });
+          if (previous.type === "raster") await map.removeRasterImage(id);
+          else await map.setGeoJSON(id, EMPTY, { type: previous.type });
           pushed.current.set(id, { ...previous, data: null });
         }
       }
@@ -143,7 +174,7 @@ export function MapView({ tool, height, center, zoom, layers = [], fitTo, onRead
     if (!next.delete(id)) next.add(id);
     return next;
   });
-  const switchable = layers.filter((layer) => layer.label && layer.data?.features?.length);
+  const switchable = layers.filter((layer) => layer.label && hasData(layer));
 
   return (
     <div ref={slot}>

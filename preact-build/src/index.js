@@ -28,7 +28,8 @@ import { VegaChart } from "./components/VegaChart.js";
 import { ForceGraph } from "./components/ForceGraph.js";
 import { ToolDashboard } from "./components/ToolDashboard.js";
 import { ArticleLab, StatGrid, SideBySide, LabeledBox } from "./components/ArticleLab.js";
-import { ControlPanel, SelectInput, SliderInput, ComputeButton } from "./components/ControlPanel.js";
+import { ControlPanel, SelectInput, SliderInput, NumberInput, CheckboxInput, ComputeButton } from "./components/ControlPanel.js";
+import { Carousel } from "./components/Carousel.js";
 import { StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT } from "./components/Layout.js";
 import { useCellRunner, findCell } from "./hooks/useCellRunner.js";
 import { useToolData } from "./hooks/useToolData.js";
@@ -79,7 +80,7 @@ window.WebGeoDS.Preact = {
   lib: {
     h, render, hooks,
     DomNode, MapView, DataTable, featureRows, featureKey, VegaChart, ForceGraph, ToolDashboard, ArticleLab, StatGrid, SideBySide, LabeledBox,
-    ControlPanel, SelectInput, SliderInput, ComputeButton,
+    ControlPanel, SelectInput, SliderInput, NumberInput, CheckboxInput, ComputeButton, Carousel,
     StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT,
     useCellRunner, findCell, useToolData, useCellValue, useResizeTick
   }

@@ -15,12 +15,19 @@
 // Picking the same selection again clears it; new data clears it too.
 //
 // config:
-//   tool, cells, example, languages, exampleStatus, inputsFromInspect, download
-//                          passed to useToolData
+//   tool, cells, example, autoCompute, languages, uploadKind, exampleStatus,
+//   inputsFromInspect, download
+//                          passed to useToolData (cells.compute optional: a tool
+//                          that only inspects has no Compute button)
 //   inputs                 [{ kind: "slider", name, label, min, max, step, value }
-//                           | { kind: "select", name, label, options: [] | (data) => [], value }]
+//                           | { kind: "select", name, label, value,
+//                               options: [] | (data) => [] (strings or { value, label }),
+//                               onPick: (value, inputs) => inputs (a preset setting others) }
+//                           | { kind: "number", name, label, step, width, value }
+//                           | { kind: "checkbox", name, label, value }]
 //   computeLabel, busyLabel
-//   map                    { center, zoom, height }
+//   map                    { center, zoom, height,
+//                            onClick: (lngLat, inputs, data) => inputs to change }
 //   selectable             { id, from: (data) => FC, layer: "<selection layer id>",
 //                            paint: (data) => paint overrides, fit: zoom to a selection }
 //   categories             { field, values: (data) => [], label: (value) => string }:
@@ -36,9 +43,13 @@
 //                                toKey: (selection, features) => key, fromKey: (key) => selection, height }
 //                            | { kind: "bars", title, counts: (data) => [one per category],
 //                                tick: (value) => axis label, axis: { x, y }, height }
+//                            | { kind: "carousel", items: (data) => [{ title, spec }], height }
 //                          ] }  panels without `height` share the free space
-//   tables                 [{ label, from: (data) => FC, id }] — a table whose id is
-//                          selectable.id is clickable and shows the selection
+//   tables                 [{ label, from: (data) => FC, id, rowClassName, iconColumns,
+//                            emptyMessage }] — a table whose id is selectable.id is
+//                          clickable and shows the selection
+//   layers can also be rasters: { id, label, type: "raster", raster, render }
+//                          (MapView.js)
 //   stats                  { empty: rows, inspect, result }: each a function of the
 //                          value returning rows, or a list of rows where a row is
 //                          [label, "path.in.value", unit?] (numbers formatted) or a
@@ -56,34 +67,37 @@
  * @typedef {{ inspect: any, result: any }} ToolData
  * @typedef {Object} ToolConfig
  * @property {string} tool
- * @property {{ inspect: string, compute: string, exportShp?: string, example?: string }} cells
+ * @property {{ inspect?: string, compute?: string, exportShp?: string, example?: string }} cells
  * @property {string} [example]
+ * @property {boolean} [autoCompute]
  * @property {string[]} [languages]
+ * @property {"vector" | "raster"} [uploadKind]
  * @property {string} [exampleStatus]
  * @property {(inspect: any, inputs: Object) => Object} [inputsFromInspect]
- * @property {{ getFeatures: Function, filenameSuffix: string, defaultFilename: string, shapefile?: Object }} [download]
- * @property {Array<{ kind: "slider" | "select", name: string, label: string, value: any, min?: number, max?: number, step?: number, options?: any[] | ((data: ToolData) => any[]) }>} [inputs]
+ * @property {{ getFeatures?: Function, filenameSuffix?: string, defaultFilename?: string, shapefile?: Object, cell?: string, label?: string, filename?: Function, mimeType?: string, after?: "result" | "inspect", inputs?: Function }} [download]
+ * @property {Array<{ kind: "slider" | "select" | "number" | "checkbox", name: string, label: string, value: any, min?: number, max?: number, step?: number, width?: string, options?: any[] | ((data: ToolData) => any[]), onPick?: Function }>} [inputs]
  * @property {string} [computeLabel]
  * @property {string} [busyLabel]
- * @property {{ center?: [number, number], zoom?: number, height?: string }} [map]
+ * @property {{ center?: [number, number], zoom?: number, height?: string, onClick?: Function }} [map]
  * @property {{ inspect?: Function, result?: Function }} [fit]
  * @property {{ id: string, from: (data: ToolData) => any, layer: string, paint?: Function, fit?: boolean }} [selectable]
  * @property {{ field: string, values: (data: ToolData) => any[], label?: (value: any) => string }} [categories]
  * @property {(data: ToolData, ctx: Object) => Array<{ id: string, label?: string, type: string, data: any, paint?: Object, selectBy?: Function }>} layers
  * @property {{ id: string, placeholder?: string, panels: Object[] }} [side]
- * @property {Array<{ label: string, id: string, from: (data: ToolData) => any }>} [tables]
+ * @property {Array<{ label: string, id: string, from: (data: ToolData) => any, rowClassName?: Function, iconColumns?: string[], emptyMessage?: string }>} [tables]
  * @property {{ empty: any[], inspect: Function | any[], result: Function | any[] }} stats
  * @property {(data: ToolData, ctx: Object) => (Object[] | null)} [legend]
  * @property {(data: ToolData, ctx: Object) => Object[]} [legendExtra]
  */
 
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useToolData } from "../hooks/useToolData.js";
 import { MapView } from "./MapView.js";
 import { ForceGraph } from "./ForceGraph.js";
 import { VegaChart } from "./VegaChart.js";
 import { DataTable, featureRows, featureKey } from "./DataTable.js";
-import { ControlPanel, SelectInput, SliderInput, ComputeButton } from "./ControlPanel.js";
+import { ControlPanel, SelectInput, SliderInput, NumberInput, CheckboxInput, ComputeButton } from "./ControlPanel.js";
+import { Carousel } from "./Carousel.js";
 import { StatCard, Legend, MapWithSidePanel, Tabs, DEFAULT_MAP_HEIGHT } from "./Layout.js";
 import { makeCategories, barsPanel } from "./categories.js";
 import { checkConfig, checkLayer } from "./configCheck.js";
@@ -116,14 +130,16 @@ export function ToolDashboard({ config }) {
     tool,
     cells: config.cells,
     example: config.example,
+    autoCompute: config.autoCompute,
     languages: config.languages,
+    uploadKind: config.uploadKind,
     initialInputs: Object.fromEntries(inputSpecs.map((spec) => [spec.name, spec.value])),
     inputsFromInspect: config.inputsFromInspect,
     exampleStatus: config.exampleStatus,
     computeLabel: busyLabel,
     download: config.download
   });
-  const { inspect, result, inputs, setInput, busy } = toolData;
+  const { inspect, result, inputs, setInput, setInputs, busy } = toolData;
   const data = useMemo(() => ({ inspect, result }), [inspect, result]);
 
   const [selection, setSelection] = useState(null);
@@ -175,9 +191,18 @@ export function ToolDashboard({ config }) {
   exposed[tool] = { config, layers, selectionLayer: selectable?.layer ?? null };
 
   const mapHeight = map.height ?? DEFAULT_MAP_HEIGHT;
+  // A plain map click (not on a selectable feature) can set inputs: an
+  // observer point, say. Read through a ref, bound once on the map.
+  const latest = useRef({});
+  latest.current = { inputs, data };
+  const onMapReady = map.onClick && ((webgeodsMap) => webgeodsMap.map.on("click", (e) => {
+    const changes = map.onClick(e.lngLat, latest.current.inputs, latest.current.data);
+    if (changes) setInputs((current) => ({ ...current, ...changes }));
+  }));
+
   const mapView = (
     <MapView tool={tool} height={mapHeight} center={map.center} zoom={map.zoom}
-      layers={layers} fitTo={fitTo} flushTop={!!side} />
+      layers={layers} fitTo={fitTo} flushTop={!!side} onReady={onMapReady} />
   );
 
   // ---- side panels -----------------------------------------------------
@@ -186,6 +211,7 @@ export function ToolDashboard({ config }) {
   // chart, which a selection change must not do.
   const charts = useMemo(() => (side?.panels ?? []).map((panel) => {
     if (panel.kind === "bars") return barsPanel(panel, categories, data);
+    if (panel.kind === "carousel") return panel.items(data);
     if (panel.kind === "chart") {
       const spec = panel.spec(data);
       return spec && { ...panel, spec };
@@ -216,6 +242,8 @@ export function ToolDashboard({ config }) {
       label: table.label,
       content: (
         <DataTable columns={rows.columns} rows={rows.rows}
+          rowClassName={table.rowClassName} iconColumns={table.iconColumns}
+          emptyMessage={table.emptyMessage}
           selectedKeys={clickable ? selectedKeys : undefined}
           onRowClick={clickable ? (row) => select({ __key: row.__key }) : undefined} />
       )
@@ -231,8 +259,9 @@ export function ToolDashboard({ config }) {
   return (
     <div class="webgeods-dashboard">
       <ControlPanel {...toolData.panelProps}>
-        {inputSpecs.map((spec) => renderInput(spec, tool, data, inputs, setInput, busy))}
-        <ComputeButton label={computeLabel} disabled={!toolData.canCompute} onClick={toolData.compute} />
+        {inputSpecs.map((spec) => renderInput(spec, tool, data, inputs, setInput, setInputs, busy))}
+        {config.cells.compute &&
+          <ComputeButton label={computeLabel} disabled={!toolData.canCompute} onClick={toolData.compute} />}
       </ControlPanel>
 
       <StatCard rows={statRows} />
@@ -251,11 +280,22 @@ export function ToolDashboard({ config }) {
 
 }
 
-function renderInput(spec, tool, data, inputs, setInput, busy) {
+function renderInput(spec, tool, data, inputs, setInput, setInputs, busy) {
   const id = `${tool}-${spec.name}`;
   if (spec.kind === "select") {
     const options = typeof spec.options === "function" ? spec.options(data) : spec.options;
+    const onChange = spec.onPick
+      ? (value) => setInputs((current) => spec.onPick(value, { ...current, [spec.name]: value }))
+      : setInput(spec.name);
     return <SelectInput id={id} label={spec.label} options={options}
+      value={inputs[spec.name]} onChange={onChange} disabled={busy} />;
+  }
+  if (spec.kind === "number") {
+    return <NumberInput id={id} label={spec.label} step={spec.step} width={spec.width}
+      value={inputs[spec.name]} onChange={setInput(spec.name)} disabled={busy} />;
+  }
+  if (spec.kind === "checkbox") {
+    return <CheckboxInput id={id} label={spec.label}
       value={inputs[spec.name]} onChange={setInput(spec.name)} disabled={busy} />;
   }
   return <SliderInput id={id} label={spec.label} min={spec.min} max={spec.max} step={spec.step}
@@ -294,6 +334,12 @@ function renderPanel(panel, chart, data, { selection, selected, select, setSelec
           onNodeClick={(id, feature) => select({ [idField]: feature.properties[idField] })} />
       )
     };
+  }
+
+  if (panel.kind === "carousel") {
+    const items = chart;
+    if (!items?.length) return null;
+    return { height: panel.height, node: <Carousel items={items} /> };
   }
 
   if (!chart) return null;

@@ -6,7 +6,7 @@
 import { useRef } from "preact/hooks";
 import { DomNode } from "./DomNode.js";
 
-export function ControlPanel({ upload, example, download, onReset, resetLabel = "🔄 Reset", status, busy, children }) {
+export function ControlPanel({ upload, example, download, cellDownload, onReset, resetLabel = "🔄 Reset", status, busy, children }) {
 
   // Helpers are built once; their callbacks read the latest props here.
   const latest = useRef({});
@@ -42,6 +42,12 @@ export function ControlPanel({ upload, example, download, onReset, resetLabel = 
             update={(button) => { button.disabled = busy || !download.enabled; }}
           />
         )}
+        {cellDownload && (
+          <button type="button" class="webgeods-panel-btn" data-variant="outline"
+            disabled={busy || !cellDownload.enabled} onClick={cellDownload.onClick}>
+            {cellDownload.label}
+          </button>
+        )}
         <DomNode build={() => window.WebGeoDS.resetButton(() => latest.current.onReset?.(), resetLabel)} />
       </div>
       <div class="webgeods-panel-row">
@@ -53,14 +59,17 @@ export function ControlPanel({ upload, example, download, onReset, resetLabel = 
 
 }
 
-// Same markup as Dashboard's select input.
+// Same markup as Dashboard's select input. options: strings, or
+// { value, label } objects.
 export function SelectInput({ id, label, options, value, onChange, disabled }) {
   return (
     <>
       <span class="webgeods-panel-status">{label}</span>
       <select class="webgeods-panel-status" id={id} value={value} disabled={disabled}
         onChange={(e) => onChange(e.currentTarget.value)}>
-        {options.map((option) => <option value={option}>{option}</option>)}
+        {options.map((option) => (typeof option === "object"
+          ? <option value={option.value}>{option.label}</option>
+          : <option value={option}>{option}</option>))}
       </select>
     </>
   );
@@ -81,5 +90,28 @@ export function SliderInput({ id, label, min, max, step = 1, value, onChange, di
 export function ComputeButton({ label = "▶ Compute", disabled, onClick }) {
   return (
     <button type="button" class="webgeods-panel-btn" disabled={disabled} onClick={onClick}>{label}</button>
+  );
+}
+
+// Same markup as the number inputs of the OJS tools (viewshed-calculator.qmd).
+export function NumberInput({ id, label, step, width = "95px", value, onChange, disabled }) {
+  return (
+    <>
+      {label && <span class="webgeods-panel-status">{label}</span>}
+      <input type="number" id={id} step={step} value={value} disabled={disabled}
+        class="webgeods-panel-status" style={{ width }}
+        onChange={(e) => onChange(Number(e.currentTarget.value))} />
+    </>
+  );
+}
+
+// Same markup as buffer-proximity.qmd's "Dissolve" checkbox.
+export function CheckboxInput({ id, label, value, onChange, disabled }) {
+  return (
+    <label class="webgeods-panel-status">
+      <input type="checkbox" id={id} checked={!!value} disabled={disabled}
+        onChange={(e) => onChange(e.currentTarget.checked)} />
+      {" "}{label}
+    </label>
   );
 }

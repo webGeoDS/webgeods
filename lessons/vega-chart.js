@@ -174,7 +174,13 @@
       onSelect
     } = opts;
 
-    if (!Array.isArray(selectParams) || selectParams.length === 0 || !externalParam || !keyField) {
+    // A chart with nothing to select (a histogram in a carousel) passes
+    // none of the three: it's drawn, themed and destroyable the same
+    // way, and setSelected() does nothing.
+    const selectable =
+      selectParams !== undefined || externalParam !== undefined || keyField !== undefined;
+
+    if (selectable && (!Array.isArray(selectParams) || selectParams.length === 0 || !externalParam || !keyField)) {
 
       throw new Error(
         "WebGeoDS.renderVegaChart: opts.selectParams (a non-empty array), " +
@@ -215,7 +221,7 @@
     // click itself triggered) is still in progress -- a synchronous
     // .run() re-enters it and throws "Dataflow already running"
     // (confirmed empirically). .runAsync() queues instead.
-    for (const selectParam of selectParams) {
+    for (const selectParam of (selectable ? selectParams : [])) {
 
       view.addSignalListener(selectParam, (name, value) => {
 
@@ -248,6 +254,8 @@
     // click did nothing (found 2026-10-04 migrating Network from Lines,
     // present in the Dashboard version too).
     function setSelected(key) {
+
+      if (!selectable) return;
 
       view.signal(externalParam, key ?? null);
       view.runAsync();

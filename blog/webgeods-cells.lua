@@ -380,3 +380,66 @@ function CodeBlock(el)
   return pandoc.RawBlock("html", html)
 
 end
+
+--[[
+  "Load this example" buttons, written in the article's own Markdown:
+
+    ::: {.webgeods-example py="geometry-diagnose-py" r="geometry-diagnose-r" label="📋 Load this example"}
+    ```python
+    ...the code the Python cell gets...
+    ```
+    ```r
+    ...the code the R cell gets...
+    ```
+    :::
+
+  becomes a WebGeoDS.loadExampleButton (shared/code-cell.js) that puts
+  each block's code into its cell. Either language may be left out. The
+  code stays readable in the .qmd instead of living in a JavaScript
+  string; the blocks themselves aren't shown on the page.
+]]
+
+local example_counter = 0
+
+function Div(el)
+
+  if not el.classes:includes("webgeods-example") then
+    return nil
+  end
+
+  local codes = {}
+  for _, block in ipairs(el.content) do
+    if block.t == "CodeBlock" then
+      if block.classes:includes("python") then
+        codes.py = block.text
+      elseif block.classes:includes("r") then
+        codes.r = block.text
+      end
+    end
+  end
+
+  example_counter = example_counter + 1
+  local slot_id = "webgeods-example-" .. example_counter
+  local label = el.attributes["label"] or "📋 Load this example"
+
+  local options = {}
+  if el.attributes["py"] then
+    table.insert(options, "pyId: " .. pandoc.json.encode(el.attributes["py"]))
+    table.insert(options, "pyCode: " .. pandoc.json.encode(codes.py or ""))
+  end
+  if el.attributes["r"] then
+    table.insert(options, "rId: " .. pandoc.json.encode(el.attributes["r"]))
+    table.insert(options, "rCode: " .. pandoc.json.encode(codes.r or ""))
+  end
+
+  return pandoc.RawBlock("html", table.concat({
+    "<div id=\"" .. slot_id .. "\"></div>",
+    "<script>",
+    "document.addEventListener(\"DOMContentLoaded\", () => {",
+    "  document.getElementById(" .. pandoc.json.encode(slot_id) .. ").appendChild(",
+    "    window.WebGeoDS.loadExampleButton(" .. pandoc.json.encode(label) .. ", { " .. table.concat(options, ", ") .. " }));",
+    "});",
+    "</script>"
+  }, "\n"))
+
+end

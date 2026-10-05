@@ -8,31 +8,39 @@
 //   const tool = useToolData({
 //     tool: "spatial-classifier",
 //     example: "/examples/....geojson",  // the example data, a file on the site
-//     cells: { inspect, compute, exportShp },  // exportShp optional; an
-//                                              // `example` cell instead of
-//                                              // the file still works
+//     cells: { inspect, compute, exportShp },  // each optional; an `example`
+//                                              // cell instead of the file
+//                                              // still works
+//     autoCompute: false,          // true: compute right after every load
 //     initialInputs: { nTrees: 100, ... },
 //     inputsFromInspect: (inspectValue, inputs) => ({ ...inputs, classColumn: ... }),
 //     exampleStatus: "✓ example data loaded — ...",
 //     computeLabel: "⌛ Training...",
 //     download: { getFeatures: (result) => ..., filenameSuffix, defaultFilename,
 //                 shapefile: { filenameSuffix, defaultFilename } }
+//       or, for a file a cell writes (a GeoTIFF, a reprojected file):
+//               { cell, label, filename: (baseName, inputs) => name, mimeType,
+//                 after: "result" | "inspect", inputs: (data, inputs) => extra injected values }
 //   });
 //   tool.inspect / tool.result   latest inspect / compute cell values
-//   tool.inputs, tool.setInput(name)(value)
+//   tool.inputs, tool.setInput(name)(value), tool.setInputs(fn)
 //   tool.compute(), tool.canCompute, tool.busy
 //   <ControlPanel {...tool.panelProps}>...inputs...</ControlPanel>
 //
-// New data clears the previous result; a page that keeps state derived
-// from them (a selection, a zoom target) resets it with an effect on
-// tool.inspect / tool.result.
-import { useState } from "preact/hooks";
+// Without an inspect cell, a load makes `inspect` an empty object, so
+// compute is enabled once there is data. New data clears the previous
+// result; a page that keeps state derived from them (a selection, a zoom
+// target) resets it with an effect on tool.inspect / tool.result.
+import { useRef, useState } from "preact/hooks";
 import { useCellRunner } from "./useCellRunner.js";
+
+const base64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
 export function useToolData({
   tool,
   cells,
   example,
+  autoCompute = false,
   languages = ["python"],
   uploadLabel = "📁 Upload",
   uploadKind: uploadControlKind = "vector",
@@ -50,15 +58,30 @@ export function useToolData({
   const [files, setFiles] = useState(null);
   const [kind, setKind] = useState(null);
   const [inputs, setInputs] = useState(initialInputs);
+  // The inputs as of the latest render, for steps queued before a
+  // re-render (an automatic compute right after inspect).
+  const latestInputs = useRef(inputs);
+  latestInputs.current = inputs;
 
   const setInput = (name) => (value) => setInputs((current) => ({ ...current, [name]: value }));
 
+  // Inputs reach the cells through `#| inject:` (window[name]).
+  const runCompute = async (currentInputs) => {
+    setResult(await runner.runCell(cells.compute, currentInputs));
+    window.WebGeoDS.track?.("validation_completed", { tool });
+  };
+
   // Runs inside a queued step: new data, so any previous result is stale.
   const runInspect = async () => {
-    const value = await runner.runCell(cells.inspect);
+    const value = cells.inspect ? await runner.runCell(cells.inspect) : {};
     setInspect(value);
     setResult(null);
-    if (inputsFromInspect) setInputs((current) => inputsFromInspect(value, current));
+    let nextInputs = latestInputs.current;
+    if (inputsFromInspect) {
+      nextInputs = inputsFromInspect(value, nextInputs);
+      setInputs(nextInputs);
+    }
+    if (autoCompute && cells.compute) await runCompute(nextInputs);
   };
 
   // The example file goes through the same path as an upload, but
@@ -90,9 +113,7 @@ export function useToolData({
   });
 
   const compute = () => runner.queue(computeLabel, async () => {
-    // Inputs reach the cell through `#| inject:` (window[name]).
-    setResult(await runner.runCell(cells.compute, inputs));
-    window.WebGeoDS.track?.("validation_completed", { tool });
+    await runCompute(inputs);
     return doneStatus;
   });
 
@@ -104,10 +125,21 @@ export function useToolData({
     return window.WebGeoDS.Upload.defaultStatus;
   });
 
+  // A file written by a cell: run it, decode its base64 value, save it.
+  const downloadFromCell = () => runner.queue("⌛ Preparing download...", async () => {
+    const extra = download.inputs ? download.inputs({ inspect, result }, inputs) : {};
+    const b64 = await runner.runCell(download.cell, { ...inputs, ...extra });
+    const base = window.WebGeoDS.Upload.baseName(files);
+    window.WebGeoDS.downloadBlob(base64ToBytes(b64), download.filename(base, inputs), download.mimeType ?? "application/octet-stream", { tool });
+    return "✓ Downloaded.";
+  });
+
+  const downloadReady = download?.after === "inspect" ? !!inspect : !!result;
+
   const panelProps = {
     upload: { label: uploadLabel, kind: uploadControlKind, onFiles: handleFiles },
     example: example || cells.example ? { onClick: loadExample } : undefined,
-    download: download && {
+    download: download && !download.cell && {
       enabled: !!result,
       getFeatures: () => (result ? download.getFeatures(result) : null),
       getBaseName: () => window.WebGeoDS.Upload.baseName(files),
@@ -119,6 +151,11 @@ export function useToolData({
         ? { cellId: cells.exportShp, ...download.shapefile }
         : undefined
     },
+    cellDownload: download?.cell && {
+      label: download.label ?? "⬇ Download",
+      enabled: downloadReady,
+      onClick: downloadFromCell
+    },
     onReset: reset,
     status: runner.status,
     busy: runner.busy
@@ -129,8 +166,9 @@ export function useToolData({
     result,
     inputs,
     setInput,
+    setInputs,
     compute,
-    canCompute: !!inspect && !runner.busy,
+    canCompute: !!cells.compute && !!inspect && !runner.busy,
     busy: runner.busy,
     status: runner.status,
     panelProps
