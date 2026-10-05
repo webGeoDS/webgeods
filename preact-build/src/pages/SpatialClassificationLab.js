@@ -23,9 +23,10 @@ function classPaint(classLabels, field, fill) {
 // differently shows a color that doesn't match.
 function languageLayers(result, lang) {
   const suffix = lang === "r" ? "-r" : "";
+  const name = lang === "r" ? "R" : "Python";
   return [
-    { id: `spatial-classification-grid${suffix}`, type: "fill", data: result.gridFeatures, paint: classPaint(result.classLabels, "predictedClass", true) },
-    { id: `spatial-classification-training${suffix}`, type: "circle", data: result.trainingFeatures, paint: classPaint(result.classLabels, "class", false) }
+    { id: `spatial-classification-grid${suffix}`, label: `${name} grid`, type: "fill", data: result.gridFeatures, paint: classPaint(result.classLabels, "predictedClass", true) },
+    { id: `spatial-classification-training${suffix}`, label: `${name} points`, type: "circle", data: result.trainingFeatures, paint: classPaint(result.classLabels, "class", false) }
   ];
 }
 

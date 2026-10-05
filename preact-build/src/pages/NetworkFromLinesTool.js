@@ -30,14 +30,14 @@ const CONFIG = {
   selectable: { id: "network-nodes-py", from: ({ result }) => result?.nodes ?? null, layer: "network-selection" },
 
   layers: ({ inspect, result }) => [
-    { id: "network-input-py", type: "line", data: inspect?.features ?? null },
+    { id: "network-input-py", label: "Input lines", type: "line", data: inspect?.features ?? null },
     ...(result ? [
       {
-        id: "network-edges-py", type: "line", data: result.edges,
+        id: "network-edges-py", label: "Edges", type: "line", data: result.edges,
         paint: window.WebGeoDS.matchPaint(result.componentIds, "component", { line: true, lineWidth: 3 })
       },
       {
-        id: "network-nodes-py", type: "circle", data: result.nodes,
+        id: "network-nodes-py", label: "Nodes", type: "circle", data: result.nodes,
         paint: window.WebGeoDS.matchPaint(result.componentIds, "component", { radius: 5 }),
         selectBy: (feature) => ({ node: Number(feature.properties.node) })
       }

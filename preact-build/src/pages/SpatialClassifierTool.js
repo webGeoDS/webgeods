@@ -70,7 +70,7 @@ const CONFIG = {
     // MapLibre hands back its own copy of the feature, with a numeric id;
     // featureKey normalizes it to the key the data has.
     const points = {
-      id: SRC.points, type: "circle",
+      id: SRC.points, label: "Points", type: "circle",
       data: result?.trainingFeatures ?? inspect?.features ?? null,
       selectBy: (feature) => ({ __key: featureKey(SRC.points, feature, -1) })
     };
@@ -83,7 +83,7 @@ const CONFIG = {
     const fadeTraining = selection?.predictedClass !== undefined;
     return [
       {
-        id: SRC.grid, type: "fill", data: result.gridFeatures,
+        id: SRC.grid, label: "Classification areas", type: "fill", data: result.gridFeatures,
         paint: {
           ...window.WebGeoDS.matchPaint(labels, "predictedClass", { palette, fill: true, strokeWidth: 1.5 }),
           // Opacity carries the forest's confidence: nearly transparent
@@ -92,7 +92,7 @@ const CONFIG = {
         }
       },
       {
-        id: SRC.blocks, type: "line", data: result.heldOutBlockFeatures,
+        id: SRC.blocks, label: "Held-out blocks", type: "line", data: result.heldOutBlockFeatures,
         paint: { "line-color": "#2a2117", "line-width": 2, "line-dasharray": [2, 1.5] }
       },
       {

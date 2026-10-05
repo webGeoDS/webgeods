@@ -10,9 +10,14 @@
 // later (the class grid after the inspect points, say) would cover the
 // ones listed after it.
 //
+// label: a layer that has one gets an on/off checkbox in a box over the
+// map's top-left corner, shown once two or more labeled layers have
+// features. Hidden layers keep their data and come back as they were.
+//
 // fitTo: a FeatureCollection to zoom to whenever a new one is passed.
 // onReady(map): the WebGeoDS.Map instance, for anything not expressible
 // as a layer.
+import { createPortal } from "preact/compat";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 const EMPTY = { type: "FeatureCollection", features: [] };
@@ -25,6 +30,7 @@ export function MapView({ tool, height, center, zoom, layers = [], fitTo, onRead
   const slot = useRef(null);
   const mapRef = useRef(null);
   const [ready, setReady] = useState(false);
+  const [hidden, setHidden] = useState(() => new Set());
 
   // Last pushed { data, paintKey, type } per layer id.
   const pushed = useRef(new Map());
@@ -118,18 +124,41 @@ export function MapView({ tool, height, center, zoom, layers = [], fitTo, onRead
       // Bottom to top: moving each listed layer to the top, in order,
       // leaves them stacked exactly as listed.
       for (const layer of layers) {
-        if (map.map.getLayer(layer.id)) map.map.moveLayer(layer.id);
+        if (!map.map.getLayer(layer.id)) continue;
+        map.map.moveLayer(layer.id);
+        map.map.setLayoutProperty(layer.id, "visibility", hidden.has(layer.id) ? "none" : "visible");
       }
 
     }).catch((err) => console.error("WebGeoDS.Preact MapView: layer update failed", err));
 
-  }, [ready, layers]);
+  }, [ready, layers, hidden]);
 
   useEffect(() => {
     if (!ready || !fitTo?.features?.length) return;
     syncChain.current = syncChain.current.then(() => mapRef.current?.fitToData(fitTo));
   }, [ready, fitTo]);
 
-  return <div ref={slot} />;
+  const toggle = (id) => setHidden((current) => {
+    const next = new Set(current);
+    if (!next.delete(id)) next.add(id);
+    return next;
+  });
+  const switchable = layers.filter((layer) => layer.label && layer.data?.features?.length);
+
+  return (
+    <div ref={slot}>
+      {ready && switchable.length > 1 && createPortal(
+        <div class="webgeods-layer-control">
+          {switchable.map((layer) => (
+            <label>
+              <input type="checkbox" checked={!hidden.has(layer.id)} onChange={() => toggle(layer.id)} />
+              {layer.label}
+            </label>
+          ))}
+        </div>,
+        mapRef.current.element
+      )}
+    </div>
+  );
 
 }

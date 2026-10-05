@@ -670,6 +670,34 @@ input[type="range"] {
 .webgeods-legend + .webgeods-map-container {
   margin-top: 0;
 }
+/* On/off checkboxes over a map's top-left corner, one per labeled
+   layer (Preact MapView, preact-build/src/components/MapView.js). */
+.webgeods-layer-control {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+.webgeods-layer-control label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.webgeods-layer-control input {
+  accent-color: var(--terracotta);
+}
 .webgeods-legend-label {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 12px;
