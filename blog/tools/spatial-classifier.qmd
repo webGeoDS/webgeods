@@ -31,8 +31,7 @@ never gets the chance to see your data.
 
 ```{.webgeods-python #spatial-classifier-inspect-py .tool-cell}
 #| package: geopandas
-import geopandas as gpd
-
+#| helper: read_upload
 def export_crs(g):
     # Reprojects `g` back to the CRS it was UPLOADED in (original_crs,
     # set below and reused as a module-level global by the compute
@@ -47,28 +46,12 @@ def export_crs(g):
 
 EMPTY_FC = {"type": "FeatureCollection", "features": []}
 
-# No built-in fallback: if nothing is readable, gdf stays None and the
-# result is an empty FeatureCollection -- this cell only ever runs
-# after a successful upload or "Load example".
-gdf = None
-for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
-    try:
-        gdf = gpd.read_file(path)
-        break
-    except Exception:
-        pass
+# This cell only ever runs after a successful upload or "Load example";
+# nothing readable gives gdf None and an empty FeatureCollection.
+gdf, original_crs, crs_warning, _ = read_upload()
 
-crs_warning = None
-original_crs = None
 summary_out = None
 if gdf is not None:
-    if gdf.crs is None:
-        gdf = gdf.set_crs("EPSG:4326")
-        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
-    original_crs = gdf.crs
-    if str(original_crs) != "EPSG:4326":
-        gdf = gdf.to_crs("EPSG:4326")
-
     columns = [c for c in gdf.columns if c != "geometry"]
     summary_out = {
         "count": int(len(gdf)),

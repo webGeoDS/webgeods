@@ -23,31 +23,13 @@ never gets the chance to see your data.
 
 ```{.webgeods-python #network-inspect-py .tool-cell}
 #| package: geopandas
-import geopandas as gpd
-
+#| helper: read_upload
 EMPTY_FC = {"type": "FeatureCollection", "features": []}
 
-gdf = None
-for path in ["/uploaded.geojson", "/uploaded.shp", "/vsizip//uploaded.zip"]:
-    try:
-        gdf = gpd.read_file(path)
-        break
-    except Exception:
-        pass
+gdf, original_crs, crs_warning, dropped = read_upload(geometry=["LineString", "MultiLineString"])
 
-crs_warning = None
 summary_out = None
 if gdf is not None:
-    if gdf.crs is None:
-        gdf = gdf.set_crs("EPSG:4326")
-        crs_warning = "No CRS found in the uploaded file — assuming WGS84 (EPSG:4326)."
-    elif str(gdf.crs) != "EPSG:4326":
-        gdf = gdf.to_crs("EPSG:4326")
-
-    line_mask = gdf.geometry.geom_type.isin(["LineString", "MultiLineString"])
-    dropped = int((~line_mask).sum())
-    gdf = gdf[line_mask].reset_index(drop=True)
-
     summary_out = {
         "count": int(len(gdf)),
         "dropped": dropped,

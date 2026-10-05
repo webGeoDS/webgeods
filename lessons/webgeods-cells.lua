@@ -119,11 +119,16 @@
     (own enumerable data properties only, no methods) or throw on a
     circular reference — this is for passing values, not instances.
 
+  **Shared helper code (`#| helper:`):** `#| helper: read_upload`
+  puts shared/python/read_upload.py in front of the cell's code, at
+  render time (`helpers:` accepted too). For tool pages, whose cells
+  are hidden: an article keeps that code written out for the reader.
+
   Recognized `#|` lines are stripped from the code shown in the
   editor. Parsing stops at the first line not in `#| key: value` form;
   no other cell option (`echo`, `eval`, ...) is recognized or
   stripped, only the id (`{.webgeods-r #my-id}`) and
-  package/packages/micropip/micropips/inject/injects.
+  package/packages/micropip/micropips/inject/injects/helper/helpers.
 
   A package loaded by one cell stays available to a later cell on the
   same page (`WebGeoDS.Runtime` is a page-level singleton) — declaring
@@ -213,6 +218,7 @@ local function parse_cell_options(text)
   local packages = {}
   local micropip_packages = {}
   local inject_names = {}
+  local helper_names = {}
   local i = 1
 
   while i <= #lines do
@@ -229,6 +235,8 @@ local function parse_cell_options(text)
       parse_option_list(value, micropip_packages)
     elseif key == "inject" or key == "injects" then
       parse_option_list(value, inject_names)
+    elseif key == "helper" or key == "helpers" then
+      parse_option_list(value, helper_names)
     end
 
     i = i + 1
@@ -240,8 +248,25 @@ local function parse_cell_options(text)
     table.insert(remaining, lines[j])
   end
 
-  return packages, micropip_packages, inject_names, table.concat(remaining, "\n")
+  return packages, micropip_packages, inject_names, helper_names, table.concat(remaining, "\n")
 
+end
+
+-- `#| helper: read_upload` puts the source of shared/python/read_upload.py
+-- in front of the cell's code, at render time: one copy of code every
+-- tool repeated, nothing new for the Python engine to load. Found next
+-- to the repository's shared/ folder, from wherever the synced copy of
+-- this filter runs (blog/ or lessons/).
+local function helper_source(name)
+  local filter_dir = pandoc.path.directory(PANDOC_SCRIPT_FILE)
+  local path = pandoc.path.join({ filter_dir, "..", "shared", "python", name .. ".py" })
+  local file = io.open(path, "r")
+  if not file then
+    error("webgeods-cells.lua: #| helper: " .. name .. " -- no file " .. path)
+  end
+  local source = file:read("a")
+  file:close()
+  return source
 end
 
 function CodeBlock(el)
@@ -286,7 +311,15 @@ function CodeBlock(el)
     class_attribute = " class=\"" .. table.concat(extra_classes, " ") .. "\""
   end
 
-  local packages, micropip_packages, inject_names, code = parse_cell_options(el.text)
+  local packages, micropip_packages, inject_names, helper_names, code = parse_cell_options(el.text)
+  if #helper_names > 0 then
+    local sources = {}
+    for _, name in ipairs(helper_names) do
+      table.insert(sources, helper_source(name))
+    end
+    table.insert(sources, code)
+    code = table.concat(sources, "\n\n")
+  end
 
   local initial_code_json = pandoc.json.encode(code)
   local container_id_json = pandoc.json.encode(container_id)
