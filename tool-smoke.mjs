@@ -89,11 +89,15 @@ await loadAndCompute(page, tool);
 check("example + compute finish with ✓ Done", /✓ Done/.test(await status(page)), await status(page));
 check("config: no unknown or missing fields", warnings.length === 0, warnings);
 
+// A raster layer counts as one "feature" when it has a raster.
 const layers = await page.evaluate(`${T(tool)}.layers.map((l) => ({ id: l.id, label: l.label ?? null, type: l.type,
-  features: l.data?.features?.length ?? 0, clickable: !!l.onClick }))`);
+  features: l.type === "raster" ? (l.raster ? 1 : 0) : (l.data?.features?.length ?? 0), clickable: !!l.onClick }))`);
+const shown = (l) => (l.type === "raster"
+  ? page.evaluate(`(${MAP}).getLayer(${JSON.stringify(l.id)}) ? 1 : 0`)
+  : sourceCount(page, l.id));
 const selectionLayer = await page.evaluate(`${T(tool)}.selectionLayer`);
 const withData = layers.filter((l) => l.features > 0 && l.id !== selectionLayer);
-const onMap = await Promise.all(withData.map(async (l) => [l.id, await sourceCount(page, l.id), l.features]));
+const onMap = await Promise.all(withData.map(async (l) => [l.id, await shown(l), l.features]));
 check(`layers with data are on the map (${withData.map((l) => l.id).join(", ")})`,
   withData.length > 0 && onMap.every(([, shown, expected]) => shown === expected), onMap);
 
@@ -183,7 +187,7 @@ if (selectionLayer) {
 // Reset
 await page.locator(".webgeods-dashboard .webgeods-panel-row").first().getByRole("button", { name: /Reset/ }).click();
 await page.waitForTimeout(800);
-const afterReset = await Promise.all(withData.map(async (l) => [l.id, await sourceCount(page, l.id)]));
+const afterReset = await Promise.all(withData.map(async (l) => [l.id, await shown(l)]));
 const resetStats = await stats(page);
 check("reset empties the map and the stats", afterReset.every(([, n]) => n === 0) &&
   (selectionLayer ? (await sourceCount(page, selectionLayer)) === 0 : true) &&
