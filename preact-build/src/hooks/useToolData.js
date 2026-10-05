@@ -19,8 +19,13 @@
 //     download: { getFeatures: (result) => ..., filenameSuffix, defaultFilename,
 //                 shapefile: { filenameSuffix, defaultFilename } }
 //       or, for a file a cell writes (a GeoTIFF, a reprojected file):
-//               { cell, label, filename: (baseName, inputs) => name, mimeType,
-//                 after: "result" | "inspect", inputs: (data, inputs) => extra injected values }
+//               { cell, label, after: "result" | "inspect",
+//                 enabled: (data) => boolean (default: there is a result / inspect),
+//                 inputs: (data, inputs, { uploadKind }) => extra injected values,
+//                 filename: (baseName, inputs) => name, mimeType   (the cell
+//                   returns base64), or
+//                 file: (value, baseName, inputs) => { content, filename, mimeType }
+//                   (the cell returns anything else) }
 //   });
 //   tool.inspect / tool.result   latest inspect / compute cell values
 //   tool.resultInputs            the inputs that result was computed with
@@ -35,7 +40,7 @@
 import { useRef, useState } from "preact/hooks";
 import { useCellRunner } from "./useCellRunner.js";
 
-const base64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+export const base64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
 export function useToolData({
   tool,
@@ -79,6 +84,8 @@ export function useToolData({
   const runInspect = async () => {
     const value = cells.inspect ? await runner.runCell(cells.inspect) : {};
     setInspect(value);
+    // A tool that only inspects: the inspection is its result.
+    if (cells.inspect && !cells.compute) window.WebGeoDS.track?.("validation_completed", { tool });
     setResult(null);
     let nextInputs = latestInputs.current;
     if (inputsFromInspect) {
@@ -131,14 +138,19 @@ export function useToolData({
 
   // A file written by a cell: run it, decode its base64 value, save it.
   const downloadFromCell = () => runner.queue("⌛ Preparing download...", async () => {
-    const extra = download.inputs ? download.inputs({ inspect, result }, inputs) : {};
-    const b64 = await runner.runCell(download.cell, { ...inputs, ...extra });
+    const extra = download.inputs ? download.inputs({ inspect, result }, inputs, { uploadKind: kind }) : {};
+    const value = await runner.runCell(download.cell, { ...inputs, ...extra });
     const base = window.WebGeoDS.Upload.baseName(files);
-    window.WebGeoDS.downloadBlob(base64ToBytes(b64), download.filename(base, inputs), download.mimeType ?? "application/octet-stream", { tool });
+    const file = download.file
+      ? download.file(value, base, inputs)
+      : { content: base64ToBytes(value), filename: download.filename(base, inputs), mimeType: download.mimeType };
+    window.WebGeoDS.downloadBlob(file.content, file.filename, file.mimeType ?? "application/octet-stream", { tool });
     return "✓ Downloaded.";
   });
 
-  const downloadReady = download?.after === "inspect" ? !!inspect : !!result;
+  const downloadReady = download?.enabled
+    ? !!download.enabled({ inspect, result })
+    : download?.after === "inspect" ? !!inspect : !!result;
 
   const panelProps = {
     upload: { label: uploadLabel, kind: uploadControlKind, onFiles: handleFiles },

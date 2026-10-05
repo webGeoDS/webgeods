@@ -23,36 +23,8 @@ A `.geojson`, or a shapefile: either as a single `.zip`, or as the
 individual `.shp`/`.dbf`/`.shx` files (and optionally `.prj`) selected
 together.
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles);
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 ## 2. Why a CRS problem is different
 
@@ -104,20 +76,8 @@ its own: whatever numbers you hand them, that's where they land.
 
 ## 3. Shared map and detection
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.5, 41.9], zoom: 4, height: "480px" });
-  await map.ready();
-  return map;
-}
-```
-
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+::: {#lab-map style="min-height: 500px;"}
+:::
 
 ::: {.panel-tabset}
 
@@ -295,123 +255,11 @@ out
 
 :::
 
-```{ojs}
-//| echo: false
-mutable pySummary = null
-```
+::: {#lab-stats}
+:::
 
-```{ojs}
-//| echo: false
-mutable rSummary = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyDiagnose = WebGeoDS.getCellValue("crs-diagnose-py", Generators)
-{
-  if (pyDiagnose) {
-    await sharedMap.setGeoJSON("crs-py", pyDiagnose.features);
-    // Zooms to whatever was just diagnosed — especially relevant here:
-    // the mismatched example's whole point is landing far from the
-    // map's fixed initial view. A no-op on an empty FeatureCollection.
-    await sharedMap.fitToData(pyDiagnose.features);
-    mutable pySummary = pyDiagnose.summary;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rDiagnose = WebGeoDS.getCellValue("crs-diagnose-r", Generators)
-{
-  if (rDiagnose) {
-    await sharedMap.setGeoJSON("crs-r", rDiagnose.features);
-    await sharedMap.fitToData(rDiagnose.features);
-    mutable rSummary = rDiagnose.summary;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-// Two summary cards side by side — Python's and R's — same reasoning
-// as geospatial-file-inspection.qmd's own statCard: merging two CRS
-// strings wouldn't mean anything, seeing them agree (or where they
-// diverge in formatting) is itself the point.
-statCard = (label, s) => {
-  const wrap = document.createElement("div");
-  wrap.style.flex = "1";
-  wrap.style.minWidth = "260px";
-
-  const heading = document.createElement("div");
-  heading.className = "webgeods-label";
-  heading.textContent = label;
-  wrap.appendChild(heading);
-
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  wrap.appendChild(box);
-
-  const row = (rowLabel, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = rowLabel;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-
-  if (!s) {
-    row("CRS", "—");
-    return wrap;
-  }
-
-  row("CRS", s.crsWarning ? `${s.crs} ⚠️ ${s.crsWarning}` : s.crs);
-  row("Type", s.isGeographic ? "Geographic (degrees)" : "Projected (usually meters)");
-  row("Bounds", s.bounds.join(", "));
-  row(s.mismatchWarning ? "⚠️ Mismatch" : "Mismatch check", s.mismatchWarning ?? "✓ CRS and coordinates agree");
-  if (s.mapCrsNote) {
-    row("On the map", s.mapCrsNote);
-  }
-
-  return wrap;
-}
-```
-
-```{ojs}
-//| echo: false
-statCardsRow = {
-  const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.flexWrap = "wrap";
-  row.style.gap = "16px";
-  row.append(statCard("Python", pySummary), statCard("R", rSummary));
-  return row;
-}
-```
-
-${statCardsRow}
-
-```{ojs}
-//| echo: false
-resetCrs = async () => {
-  for (const id of ["crs-py", "crs-r"]) {
-    if (sharedMap.getGeoJSON(id)) {
-      await sharedMap.setGeoJSON(id, { type: "FeatureCollection", features: [] });
-    }
-  }
-  mutable pySummary = null;
-  mutable rSummary = null;
-}
-```
-
-```{ojs}
-//| echo: false
-resetMapButton = WebGeoDS.resetButton(resetCrs, "🔄 Reset map and cards")
-```
+::: {#lab-reset}
+:::
 
 ## 4. Same spatial question, two languages
 
@@ -507,5 +355,7 @@ actually came from) has to come first.
 - **Just needed the check?** → The
   [standalone CRS Inspector & Converter](/tools/crs-inspector.html)
   runs the same detection and lets you convert and download directly.
+
+{{< webgeods-tool crs-mismatch-lab id=lab-root >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

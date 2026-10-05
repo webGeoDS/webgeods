@@ -115,3 +115,14 @@ export function CheckboxInput({ id, label, value, onChange, disabled }) {
     </label>
   );
 }
+
+// Same markup as crs-inspector.qmd's target-CRS field.
+export function TextInput({ id, label, placeholder, size = 10, value, onChange, disabled }) {
+  return (
+    <>
+      {label && <span class="webgeods-panel-status">{label}</span>}
+      <input type="text" id={id} size={size} placeholder={placeholder} value={value} disabled={disabled}
+        class="webgeods-panel-status" onInput={(e) => onChange(e.currentTarget.value)} />
+    </>
+  );
+}

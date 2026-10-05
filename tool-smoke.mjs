@@ -73,6 +73,12 @@ async function loadAndCompute(page, tool) {
   await page.getByRole("button", { name: /Load example/ }).click();
   await page.waitForFunction((text) =>
     (document.querySelector(".webgeods-dashboard .webgeods-panel-row:nth-child(2) .webgeods-panel-status")?.textContent ?? "").includes(text.slice(0, 20)), exampleStatus);
+  // A tool that only inspects has nothing more to run.
+  if (!(await page.evaluate(`!!${T(tool)}.config.cells.compute`))) {
+    await page.waitForTimeout(800);
+    await idle(page);
+    return;
+  }
   await page.getByRole("button", { name: computeLabel }).click();
   await waitStatus(page, /✓ Done|failed|Error/);
   await page.waitForTimeout(800);
@@ -86,7 +92,9 @@ console.log(`Tool: ${tool}  (${url})`);
 const initialStats = await stats(page);
 
 await loadAndCompute(page, tool);
-check("example + compute finish with ✓ Done", /✓ Done/.test(await status(page)), await status(page));
+const inspectOnly = await page.evaluate(`!${T(tool)}.config.cells.compute`);
+check(inspectOnly ? "example loaded and inspected" : "example + compute finish with ✓ Done",
+  inspectOnly ? !/failed|Error|⚠/.test(await status(page)) : /✓ Done/.test(await status(page)), await status(page));
 check("config: no unknown or missing fields", warnings.length === 0, warnings);
 
 // A raster layer counts as one "feature" when it has a raster.
@@ -102,7 +110,7 @@ check(`layers with data are on the map (${withData.map((l) => l.id).join(", ")})
   withData.length > 0 && onMap.every(([, shown, expected]) => shown === expected), onMap);
 
 const statText = await stats(page);
-check("stat card filled with the result", statText.length > 0 && statText !== initialStats, statText);
+check(inspectOnly ? "stat card filled by the inspection" : "stat card filled with the result", statText.length > 0 && statText !== initialStats, statText);
 
 const hasCategories = await page.evaluate(`!!${T(tool)}.config.categories`);
 if (hasCategories) {

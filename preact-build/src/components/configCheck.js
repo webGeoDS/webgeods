@@ -6,7 +6,7 @@ const TOP = ["tool", "cells", "example", "autoCompute", "uploadKind", "languages
   "inputs", "computeLabel", "busyLabel", "map", "fit", "selectable", "categories", "layers",
   "side", "tables", "stats", "legend", "legendExtra"];
 const KNOWN = {
-  input: ["kind", "name", "label", "min", "max", "step", "value", "options", "onPick", "width"],
+  input: ["kind", "name", "label", "min", "max", "step", "value", "options", "onPick", "width", "placeholder", "size"],
   layer: ["id", "label", "type", "data", "paint", "selectBy", "raster", "render"],
   selectable: ["id", "from", "layer", "paint", "fit"],
   categories: ["field", "values", "label"],

@@ -24,7 +24,10 @@
 //                               options: [] | (data) => [] (strings or { value, label }),
 //                               onPick: (value, inputs) => inputs (a preset setting others) }
 //                           | { kind: "number", name, label, step, width, value }
-//                           | { kind: "checkbox", name, label, value }]
+//                           | { kind: "checkbox", name, label, value }
+//                           | { kind: "text", name, label, placeholder, size, value }]
+//   download.withInputs    a download through a cell (useToolData.js) shown in
+//                          the inputs row, as that row's action, not the top row
 //   computeLabel, busyLabel
 //   map                    { center, zoom, height,
 //                            onClick: (lngLat, inputs, data) => inputs to change }
@@ -75,8 +78,8 @@
  * @property {"vector" | "raster"} [uploadKind]
  * @property {string} [exampleStatus]
  * @property {(inspect: any, inputs: Object) => Object} [inputsFromInspect]
- * @property {{ getFeatures?: Function, filenameSuffix?: string, defaultFilename?: string, shapefile?: Object, cell?: string, label?: string, filename?: Function, mimeType?: string, after?: "result" | "inspect", inputs?: Function }} [download]
- * @property {Array<{ kind: "slider" | "select" | "number" | "checkbox", name: string, label: string, value: any, min?: number, max?: number, step?: number, width?: string, options?: any[] | ((data: ToolData) => any[]), onPick?: Function }>} [inputs]
+ * @property {{ getFeatures?: Function, filenameSuffix?: string, defaultFilename?: string, shapefile?: Object, cell?: string, label?: string, filename?: Function, file?: Function, mimeType?: string, after?: "result" | "inspect", enabled?: Function, inputs?: Function, withInputs?: boolean }} [download]
+ * @property {Array<{ kind: "slider" | "select" | "number" | "checkbox" | "text", name: string, label: string, value: any, min?: number, max?: number, step?: number, width?: string, placeholder?: string, size?: number, options?: any[] | ((data: ToolData) => any[]), onPick?: Function }>} [inputs]
  * @property {string} [computeLabel]
  * @property {string} [busyLabel]
  * @property {{ center?: [number, number], zoom?: number, height?: string, onClick?: Function }} [map]
@@ -97,7 +100,7 @@ import { MapView } from "./MapView.js";
 import { ForceGraph } from "./ForceGraph.js";
 import { VegaChart } from "./VegaChart.js";
 import { DataTable, featureRows, featureKey } from "./DataTable.js";
-import { ControlPanel, SelectInput, SliderInput, NumberInput, CheckboxInput, ComputeButton } from "./ControlPanel.js";
+import { ControlPanel, SelectInput, SliderInput, NumberInput, CheckboxInput, TextInput, ComputeButton } from "./ControlPanel.js";
 import { Carousel } from "./Carousel.js";
 import { StatCard, Legend, MapWithSidePanel, Tabs, DEFAULT_MAP_HEIGHT } from "./Layout.js";
 import { makeCategories, barsPanel } from "./categories.js";
@@ -258,12 +261,16 @@ export function ToolDashboard({ config }) {
   const defaultLegend = categories && result ? [...categories.legend, ...(config.legendExtra?.(data, ctx) ?? [])] : [];
   const legend = config.legend ? config.legend(data, ctx) : defaultLegend.length ? defaultLegend : null;
 
+  const rowDownload = config.download?.withInputs ? toolData.panelProps.cellDownload : null;
+
   return (
     <div class="webgeods-dashboard">
-      <ControlPanel {...toolData.panelProps}>
+      <ControlPanel {...toolData.panelProps} cellDownload={rowDownload ? undefined : toolData.panelProps.cellDownload}>
         {inputSpecs.map((spec) => renderInput(spec, tool, data, inputs, setInput, setInputs, busy))}
         {config.cells.compute &&
           <ComputeButton label={computeLabel} disabled={!toolData.canCompute} onClick={toolData.compute} />}
+        {rowDownload &&
+          <ComputeButton label={rowDownload.label} disabled={busy || !rowDownload.enabled} onClick={rowDownload.onClick} />}
       </ControlPanel>
 
       <StatCard rows={statRows} />
@@ -295,6 +302,10 @@ function renderInput(spec, tool, data, inputs, setInput, setInputs, busy) {
   }
   if (spec.kind === "number") {
     return <NumberInput id={id} label={spec.label} step={spec.step} width={spec.width}
+      value={inputs[spec.name]} onChange={setInput(spec.name)} disabled={busy} />;
+  }
+  if (spec.kind === "text") {
+    return <TextInput id={id} label={spec.label} placeholder={spec.placeholder} size={spec.size}
       value={inputs[spec.name]} onChange={setInput(spec.name)} disabled={busy} />;
   }
   if (spec.kind === "checkbox") {
