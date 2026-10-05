@@ -38,36 +38,8 @@ spanning multiple UTM zones or very large areas.
 
 ## 2. Upload your points
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; }
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles);
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 No file uploaded? Both cells below fall back to the same small
 built-in example: two tight groups of six points, and two points far
@@ -80,20 +52,8 @@ both as adjustable controls.
 
 ## 3. Same spatial question, two languages
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.45, 41.9], zoom: 10, height: "420px" });
-  await map.ready();
-  return map;
-}
-```
-
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
+::: {#lab-map style="min-height: 440px;"}
+:::
 
 ::: {.panel-tabset}
 
@@ -244,181 +204,14 @@ jsonlite::fromJSON(jsonlite::toJSON(result, null = "null"), simplifyVector = FAL
 
 :::
 
-```{ojs}
-//| echo: false
-mutable pySummary = null
-```
+::: {#lab-crs}
+:::
 
-```{ojs}
-//| echo: false
-mutable rSummary = null
-```
+::: {#lab-stats}
+:::
 
-```{ojs}
-//| echo: false
-mutable crsWarning = null
-```
-
-```{ojs}
-//| echo: false
-// Warm-palette hues from _brand.yml, same palette/roles as the
-// Spatial Clustering Explorer tool -- reused here rather than
-// invented fresh, so a reader who's seen the tool recognizes the
-// same visual language.
-CLUSTER_PALETTE = ["#ab502b", "#42583c", "#3d5a73", "#c48a2e", "#8b2f24"]
-```
-
-```{ojs}
-//| echo: false
-NOISE_COLOR = "#766851"
-```
-
-```{ojs}
-//| echo: false
-// The map shows Python's own partition/coloring only -- not because
-// R's result is somehow secondary, but because both languages agree
-// on WHICH points group together (that's the whole point of section
-// 4 below); drawing the same partition twice, in two different label
-// numberings, would just be two circle layers stacked on identical
-// coordinates with one hiding the other.
-clusterPaint = (clusterIds) => {
-  // Same real edge case handled in the standalone tool: sparse data at
-  // fixed ε/min points can come back as all noise, zero real clusters
-  // -- an empty clusterIds would build an invalid MapLibre "match"
-  // expression (it needs at least one pair before its fallback).
-  if (clusterIds.length === 0) {
-    return {
-      "circle-color": NOISE_COLOR,
-      "circle-radius": 6,
-      "circle-stroke-width": 1,
-      "circle-stroke-color": "#2a2117"
-    };
-  }
-  const expr = ["match", ["get", "cluster"]];
-  clusterIds.forEach((id, i) => {
-    expr.push(id, CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]);
-  });
-  expr.push(NOISE_COLOR);
-  return {
-    "circle-color": expr,
-    "circle-radius": 6,
-    "circle-stroke-width": 1,
-    "circle-stroke-color": "#2a2117"
-  };
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-pyResult = WebGeoDS.getCellValue("spatial-clustering-py", Generators)
-{
-  if (pyResult) {
-    await sharedMap.setGeoJSON("spatial-clustering-map", pyResult.features, {
-      paint: clusterPaint(pyResult.uniqueLabels.filter((l) => l !== -1))
-    });
-    await sharedMap.fitToData(pyResult.features);
-    mutable pySummary = pyResult;
-    mutable crsWarning = pyResult.crsWarning;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-rResult = WebGeoDS.getCellValue("spatial-clustering-r", Generators)
-{
-  if (rResult) mutable rSummary = rResult;
-}
-```
-
-```{ojs}
-//| echo: false
-crsWarningEl = {
-  const div = document.createElement("div");
-  div.className = "webgeods-panel-status";
-  if (crsWarning) div.textContent = `⚠️ ${crsWarning}`;
-  return div;
-}
-```
-
-${crsWarningEl}
-
-```{ojs}
-//| echo: false
-// Same "two cards side by side, seeing them agree or diverge IS the
-// point" reasoning as this site's CRS Mismatch article.
-statCard = (label, s) => {
-  const wrap = document.createElement("div");
-  wrap.style.flex = "1";
-  wrap.style.minWidth = "260px";
-
-  const heading = document.createElement("div");
-  heading.className = "webgeods-label";
-  heading.textContent = label;
-  wrap.appendChild(heading);
-
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  wrap.appendChild(box);
-
-  const row = (rowLabel, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = rowLabel;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-
-  if (!s) {
-    row("Calculation CRS", "—");
-    return wrap;
-  }
-
-  row("Calculation CRS", s.calculationCrs);
-  row("Labels used", s.uniqueLabels.join(", "));
-  row("Noise points", s.noiseCount);
-
-  return wrap;
-}
-```
-
-```{ojs}
-//| echo: false
-statCardsRow = {
-  const row = document.createElement("div");
-  row.style.display = "flex";
-  row.style.flexWrap = "wrap";
-  row.style.gap = "16px";
-  row.append(statCard("Python", pySummary), statCard("R", rSummary));
-  return row;
-}
-```
-
-${statCardsRow}
-
-```{ojs}
-//| echo: false
-resetClustering = async () => {
-  if (sharedMap.getGeoJSON("spatial-clustering-map")) {
-    await sharedMap.setGeoJSON("spatial-clustering-map", { type: "FeatureCollection", features: [] });
-  }
-  mutable pySummary = null;
-  mutable rSummary = null;
-  mutable crsWarning = null;
-}
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-resetMapButton = WebGeoDS.resetButton(resetClustering, "🔄 Reset map and cards")
-```
-
-${resetMapButton}
+::: {#lab-reset}
+:::
 
 ## 4. A label is not a name
 
@@ -442,45 +235,8 @@ Two separate reasons, easy to conflate:
   starts real clusters at `1`. Every non-noise label is shifted by
   exactly one.
 
-```{ojs}
-//| echo: false
-labelTable = {
-  const wrap = document.createElement("div");
-  if (!pySummary || !rSummary) {
-    wrap.textContent = "Run both cells above to compare.";
-    return wrap;
-  }
-  const table = document.createElement("table");
-  table.className = "webgeods-stat-grid";
-  table.style.display = "table";
-  table.style.width = "100%";
-
-  const headRow = document.createElement("tr");
-  ["Point #", "Python label", "R label"].forEach((h) => {
-    const th = document.createElement("th");
-    th.className = "webgeods-stat-label";
-    th.textContent = h;
-    headRow.appendChild(th);
-  });
-  table.appendChild(headRow);
-
-  pySummary.labels.forEach((pyLabel, i) => {
-    const tr = document.createElement("tr");
-    [String(i + 1), String(pyLabel), String(rSummary.labels[i])].forEach((text) => {
-      const td = document.createElement("td");
-      td.className = "webgeods-stat-value";
-      td.textContent = text;
-      tr.appendChild(td);
-    });
-    table.appendChild(tr);
-  });
-
-  wrap.appendChild(table);
-  return wrap;
-}
-```
-
-${labelTable}
+::: {#lab-labels}
+:::
 
 Read down the table: every point Python calls `0`, R calls `1`; every
 point Python calls `1`, R calls `2`; every point Python calls `-1`
@@ -512,5 +268,7 @@ partitions, not numbers that were never meant to match.
   instead of finding groups from scratch?** →
   [Predicting Spatial Classes with Random Forest](spatial-classification.qmd)
   is this family's supervised counterpart to DBSCAN.
+
+{{< webgeods-tool spatial-clustering-lab id=lab-root >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

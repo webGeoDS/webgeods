@@ -23,6 +23,8 @@ import { NetworkFromLinesTool } from "./pages/NetworkFromLinesTool.js";
 import { NetworkFromLinesLab } from "./pages/NetworkFromLinesLab.js";
 import { BufferProximityTool } from "./pages/BufferProximityTool.js";
 import { BufferProximityLab } from "./pages/BufferProximityLab.js";
+import { SpatialClusteringTool } from "./pages/SpatialClusteringTool.js";
+import { SpatialClusteringLab } from "./pages/SpatialClusteringLab.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
@@ -47,7 +49,9 @@ const PAGES = {
   "network-from-lines-tool": NetworkFromLinesTool,
   "network-from-lines-lab": NetworkFromLinesLab,
   "buffer-proximity-tool": BufferProximityTool,
-  "buffer-proximity-lab": BufferProximityLab
+  "buffer-proximity-lab": BufferProximityLab,
+  "spatial-clustering-tool": SpatialClusteringTool,
+  "spatial-clustering-lab": SpatialClusteringLab
 };
 
 function mount(name, target, props = {}) {

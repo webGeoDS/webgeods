@@ -57,14 +57,15 @@
 //   legend(data, ctx)      legend items or null; by default the categories, then
 //   legendExtra(data, ctx) any extra items
 //
-// data is { inspect, result }; ctx is { selection, selected, categories }
+// data is { inspect, result, resultInputs } (the inputs result was
+// computed with); ctx is { selection, selected, categories }
 // (selected: the matched features). Unknown fields are reported in the
 // console (configCheck.js); the ToolConfig type below gives VS Code
 // autocompletion in a page that declares
 //   /** @type {import("../components/ToolDashboard.js").ToolConfig} */
 
 /**
- * @typedef {{ inspect: any, result: any }} ToolData
+ * @typedef {{ inspect: any, result: any, resultInputs: Object }} ToolData
  * @typedef {Object} ToolConfig
  * @property {string} tool
  * @property {{ inspect?: string, compute?: string, exportShp?: string, example?: string }} cells
@@ -139,8 +140,8 @@ export function ToolDashboard({ config }) {
     computeLabel: busyLabel,
     download: config.download
   });
-  const { inspect, result, inputs, setInput, setInputs, busy } = toolData;
-  const data = useMemo(() => ({ inspect, result }), [inspect, result]);
+  const { inspect, result, resultInputs, inputs, setInput, setInputs, busy } = toolData;
+  const data = useMemo(() => ({ inspect, result, resultInputs }), [inspect, result]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [selection, setSelection] = useState(null);
   const [fitTo, setFitTo] = useState(null);
@@ -252,9 +253,10 @@ export function ToolDashboard({ config }) {
 
   const statRows = result ? statRowsOf(stats.result, result, data) : inspect ? statRowsOf(stats.inspect, inspect, data) : stats.empty;
 
-  const legend = config.legend
-    ? config.legend(data, ctx)
-    : categories?.values.length ? [...categories.legend, ...(config.legendExtra?.(data, ctx) ?? [])] : null;
+  // Default legend, once there is a result: the categories, then any
+  // extra items (which may be all there is: every point noise, say).
+  const defaultLegend = categories && result ? [...categories.legend, ...(config.legendExtra?.(data, ctx) ?? [])] : [];
+  const legend = config.legend ? config.legend(data, ctx) : defaultLegend.length ? defaultLegend : null;
 
   return (
     <div class="webgeods-dashboard">

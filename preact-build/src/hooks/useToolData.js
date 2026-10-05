@@ -23,6 +23,7 @@
 //                 after: "result" | "inspect", inputs: (data, inputs) => extra injected values }
 //   });
 //   tool.inspect / tool.result   latest inspect / compute cell values
+//   tool.resultInputs            the inputs that result was computed with
 //   tool.inputs, tool.setInput(name)(value), tool.setInputs(fn)
 //   tool.compute(), tool.canCompute, tool.busy
 //   <ControlPanel {...tool.panelProps}>...inputs...</ControlPanel>
@@ -55,6 +56,7 @@ export function useToolData({
   const runner = useCellRunner();
   const [inspect, setInspect] = useState(null);
   const [result, setResult] = useState(null);
+  const [resultInputs, setResultInputs] = useState(null);
   const [files, setFiles] = useState(null);
   const [kind, setKind] = useState(null);
   const [inputs, setInputs] = useState(initialInputs);
@@ -67,7 +69,9 @@ export function useToolData({
 
   // Inputs reach the cells through `#| inject:` (window[name]).
   const runCompute = async (currentInputs) => {
-    setResult(await runner.runCell(cells.compute, currentInputs));
+    const value = await runner.runCell(cells.compute, currentInputs);
+    setResultInputs(currentInputs);
+    setResult(value);
     window.WebGeoDS.track?.("validation_completed", { tool });
   };
 
@@ -164,6 +168,7 @@ export function useToolData({
   return {
     inspect,
     result,
+    resultInputs,
     inputs,
     setInput,
     setInputs,
