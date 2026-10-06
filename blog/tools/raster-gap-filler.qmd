@@ -206,6 +206,9 @@ if (!has_covariate) {
     stop(paste0("Could not fit a ", variogramModel, " variogram model to this band's known pixels."))
   }
 
+  # Fixed seed: gstat.cv() splits the points into random folds, so the
+  # RMSE would otherwise change a little on every run.
+  set.seed(1)
   cv <- tryCatch(gstat.cv(gstat(id = "target", formula = target ~ 1, data = fit_pts, model = v_model), nfold = 5, verbose = FALSE), error = function(e) NULL)
   rmse <- if (!is.null(cv)) sqrt(mean(cv$residual^2, na.rm = TRUE)) else NA
 
@@ -323,6 +326,7 @@ if (!has_covariate) {
   # (cv$target.residual doesn't exist and silently produced NaN/null
   # instead of erroring, since `$` on a missing data.frame column
   # returns NULL rather than raising).
+  set.seed(1)  # fixed folds, as above
   cv <- tryCatch(gstat.cv(g_fit, nfold = 5, verbose = FALSE), error = function(e) NULL)
   rmse <- if (!is.null(cv)) sqrt(mean(cv$residual^2, na.rm = TRUE)) else NA
 

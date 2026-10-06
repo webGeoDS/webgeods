@@ -1,6 +1,4 @@
-// The data lifecycle every tool shares, the part WebGeoDS.Dashboard
-// handled for Dashboard tools (shared/dashboard.js loadExample,
-// handleFiles, _runInspectInner, runCompute, reset): load the example or
+// The data lifecycle every tool shares: load the example or
 // an upload, run the inspect cell on it, run the compute cell with the
 // current inputs, reset. A tool page keeps only what is its own (layers,
 // stats, charts, selection) and spreads `panelProps` onto ControlPanel.

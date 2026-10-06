@@ -1,6 +1,4 @@
-// Runs the page's hidden Python/R cells for a page component, the same
-// way WebGeoDS.Dashboard does (shared/dashboard.js _cell() and
-// _queue()), so a migrated tool behaves exactly like a Dashboard one:
+// Runs the page's hidden Python/R cells for a page component:
 //
 // - one queue: a click arriving while a run is still in flight waits its
 //   turn instead of hitting CodeCell's "already running" error;
@@ -11,7 +9,7 @@ import { useCallback, useRef, useState } from "preact/hooks";
 
 // A cell is constructed by webgeods-cells.lua's own DOMContentLoaded
 // listener, which can run after the page component mounts: resolved
-// lazily, at first use, like Dashboard._cell().
+// lazily, at first use.
 export async function findCell(id) {
 
   let cell = window.WebGeoDS.CodeCell.find(id);

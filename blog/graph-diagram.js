@@ -17,16 +17,10 @@
  * timeout) before switching, not just assumed risky. A spring-model
  * force layout is conceptually the same idea Graphviz's own
  * neato/fdp engines use anyway, and d3-force needs none of that
- * WASM/worker machinery — plain, reliable, and already exactly the
- * D3 selection/data-join substrate the rest of this project's future
- * cross-linking (map, table, Vega-Lite) will want to speak.
+ * WASM/worker machinery — plain and reliable.
  *
- * Deliberately kept separate from WebGeoDS.Dashboard (dashboard.js):
- * Dashboard owns the map/stats/legend/download/reset skeleton every
- * tool needs, but a diagram panel is optional and tool-specific.
- * Dashboard's own `compute.diagram` field wires the two together
- * declaratively for the common case; a tool with unusual needs can
- * still drive this module directly from `compute.onResult` instead.
+ * Used through the ForceGraph component
+ * (preact-build/src/components/ForceGraph.js).
  *
  * Usage:
  *
@@ -126,8 +120,8 @@
     // d3-force mutates its inputs (adds x/y/vx/vy, and replaces a
     // link's string source/target with a direct node-object
     // reference) -- copied here so the caller's own data (typically a
-    // Dashboard compute value, read elsewhere for stats/download) is
-    // never touched.
+    // cell's result, read elsewhere for stats/download) is never
+    // touched.
     const nodeData =
       asFeatureArray(nodes).map((f) => ({ __id: String(nodeId(f)), __feature: f }));
 
@@ -218,16 +212,11 @@
     // ONCE, at render time, from the container's clientWidth/
     // clientHeight. That's stale the moment something else changes
     // the container's actual size AFTER this render call already
-    // returned -- concretely, Dashboard's own sidePanel: the diagram
-    // slot is measured BEFORE a tool's onResult has had a chance to
-    // add a sibling (e.g. a chart) below it, so the very first
-    // measurement is always "the whole panel", not "my actual share
-    // of it" -- found live: the rendered SVG kept its ORIGINAL
-    // (full-panel) height attribute, visibly overlapping the chart
-    // slot beneath it despite the diagram's own container box having
-    // correctly shrunk. Dashboard calls this from a ResizeObserver on
-    // the container instead of guessing when such a sibling might
-    // show up.
+    // returned -- e.g. a side panel where a chart appears below the
+    // diagram after it was drawn, so the first measurement was "the
+    // whole panel" and the SVG would overlap the chart. ForceGraph
+    // calls this from a ResizeObserver on the container instead of
+    // guessing when that happens.
     function resize(newWidth, newHeight) {
 
       svg

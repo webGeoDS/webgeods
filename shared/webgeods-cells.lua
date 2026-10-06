@@ -13,26 +13,14 @@
       <initialCode>
       ```
 
-  into a `<div>` + `<script>` that instantiates `WebGeoDS.CodeCell`
-  directly, not a reactive `{ojs}` block. Deliberate
-  design choice, not a temporary limitation: see below.
+  into a `<div>` + `<script>` that instantiates `WebGeoDS.CodeCell`.
 
   **Dot-prefixed class is mandatory** — `.webgeods-python`/
-  `.webgeods-r`, never the bare `{python}`/`{r}`/`{ojs}` form. Quarto
+  `.webgeods-r`, never the bare `{python}`/`{r}` form. Quarto
   recognizes those bare forms as registered execution engines
   (Jupyter/knitr), a dispatch mechanism a user Lua filter has no
   access to; without the dot, Pandoc never assigns the class to
   `el.classes` and CodeBlock() below never sees the cell at all.
-
-  **Boilerplate-only by design:** an earlier version of this filter
-  generated a `<div>` plus a reactive `{ojs}` block via
-  `Generators.observe()`. It worked structurally — the OJS source
-  really was there in the rendered page — but Quarto never executed
-  it: `{ojs}` block extraction doesn't operate generically on any
-  CodeBlock a user Lua filter tags with an "ojs" class; it depends on
-  recognizing the `.qmd` source itself, independently of the filter
-  pipeline. So a cell generated here is an isolated, non-reactive cell
-  by default, same as a hand-written one.
 
   **Reading a cell's value from page code:**
   `WebGeoDSCodeCell.run()` (code-cell.js) unconditionally sets
@@ -103,10 +91,7 @@
     leading underscore, fine in Python, is a syntax error in R
     ("unexpected input"; R's own docs call `_abc` invalid). Pick a
     name valid in whichever language(s) actually use it.
-  - Only values reachable as `window[name]` — an OJS module-scoped
-    variable (`sharedMap` etc.) has to be exposed there first
-    (`window.__x = ...`, same escape hatch already used elsewhere on
-    pages in this project for reasons unrelated to injection).
+  - Only values reachable as `window[name]`.
   - Only JSON-serializable DATA — a live object instance with methods
     (a `WebGeoDSMap`, say) will either serialize to a near-empty `{}`
     (own enumerable data properties only, no methods) or throw on a
@@ -133,7 +118,7 @@
   special recognition — a raw HTML block targeting `html` is always
   reproduced verbatim, the same mechanism that already makes every
   hand-written `<script>` block work. There is therefore no dependency on filter
-  ordering or on the OJS recognition discussed above.
+  ordering.
 ]]
 
 local LANGUAGES = {

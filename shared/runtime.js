@@ -274,12 +274,12 @@
     };
 
     // Text representation shown in the cell's output box, kept
-    // separate from the value toTransferable() converts for
-    // onRun/OJS — so the box can show the familiar column-aligned
+    // separate from the value toTransferable() converts for the
+    // page — so the box can show the familiar column-aligned
     // table (.toString() on a DataFrame/GeoDataFrame PyProxy calls
     // Python's str()) while the returned value stays the
-    // JS-structured form (records / GeoJSON) usable for reactivity
-    // and mapping. Called on the original value, before
+    // JS-structured form (records / GeoJSON) usable for maps and
+    // tables. Called on the original value, before
     // toTransferable() replaces it. See result() in code-cell.js for
     // where displayText is consumed.
     const captureDisplayText = (value) => {
@@ -604,9 +604,8 @@
     // ----------------------------------------------------------
     // Observable state
     //
-    // Every transition emits a "statuschange" event — enables
-    // building a reactive gate (e.g. Generators.observe in OJS)
-    // instead of polling status(). python.js relies on this same
+    // Every transition emits a "statuschange" event, so nobody has
+    // to poll status(). python.js relies on this same
     // event to notice when the Python worker gets terminated and
     // clean up any pending requests.
     // ----------------------------------------------------------

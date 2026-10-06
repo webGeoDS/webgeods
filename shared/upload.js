@@ -149,8 +149,8 @@
   // ============================================================
   // load(value, { languages }) — validates the selected file(s) and
   // QUEUES them to be written into the given runtimes' virtual
-  // filesystems, returning { ok, kind, message } ready to assign
-  // straight to a page's `mutable uploadStatus`.
+  // filesystems, returning { ok, kind, message }, the message ready
+  // to show as the upload status.
   //
   // Lazy by design (added 2026-09-06): the actual write (reading the
   // File's bytes, deleting stale candidate paths, calling
@@ -384,10 +384,7 @@
   // baseName(value) — the original uploaded filename, extension
   // stripped, for naming a downloaded result after it (e.g.
   // "parcels.geojson" -> "parcels"). Used by every standalone tool's
-  // download button, not just one, so it lives here rather than
-  // being copy-pasted per tool (same threshold already applied to
-  // downloadGeoJSON itself, still tool-local since only one uses it
-  // so far).
+  // download button.
   //
   // Prefers the "main" file (.geojson/.json/.zip/.shp) over a
   // shapefile's sidecars (.dbf/.shx/.prj) when several were selected

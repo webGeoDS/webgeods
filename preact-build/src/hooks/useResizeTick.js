@@ -1,8 +1,7 @@
 // A counter that increases 300 ms after the window stops resizing.
 // Vega-Lite charts measure their container once, at render time, so a
 // chart drawn in portrait stays sized for portrait after a phone is
-// rotated; Dashboard re-runs its onResult on resize for the same reason
-// (shared/dashboard.js _init()). Components put this in their effect
+// rotated. Components put this in their effect
 // dependencies to redraw at the new size.
 import { useEffect, useState } from "preact/hooks";
 

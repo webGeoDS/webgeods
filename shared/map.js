@@ -75,130 +75,36 @@
   let mapLibrePromise = null;
 
 
-  // Loads the vendored UMD build and runs it so it sets
-  // `window.maplibregl`. A UMD wrapper does that only when no global
-  // AMD loader is present: it checks `typeof define === "function" &&
-  // define.amd` first and, if found, registers itself as an AMD module
-  // instead, leaving `window.maplibregl` undefined.
-  //
-  // Every page with Quarto's OJS runtime has exactly that problem: OJS
-  // exposes a global `define` (with `define.amd`) while it starts up and
-  // removes it afterwards. Measured 2026-10-04 (globals recorded at each
-  // script's `load` event, then a 5ms timeline of `define.amd`): the
-  // script was appended at 1788ms with no `define`, OJS created it at
-  // 1844ms while the file was still downloading, the script ran at
-  // 2327ms and got captured; only a later attempt, after `define` was
-  // gone, worked. With a plain <script src>, the moment the code RUNS
-  // can't be controlled, so the old retry loop re-downloaded the whole
-  // file (207 KB gz, cache-busted) 5-7 times per page load on 24 pages.
-  // (Its comment blamed "an unexplained Chromium quirk": wrong.)
-  //
-  // So the file is fetched once as text, and executed as an inline
-  // script, which runs synchronously when appended: checking that no AMD
-  // loader is present and running the code happen in the same tick, with
-  // nothing able to slip in between. OJS's own `define` is never touched,
-  // only waited out. Fetching is same-origin on every page (blog/ uses
-  // "/", lessons/ a sibling relative path, see ASSET_BASE above), the
-  // same way alidade_smooth.json is already fetched.
-  const AMD_WAIT_MS = 15000;
-  const AMD_POLL_MS = 25;
-  const MAX_RUN_ATTEMPTS = 5;
-
-  let mapLibreSourcePromise = null;
-
-  function amdLoaderPresent() {
-    return typeof window.define === "function" && !!window.define.amd;
-  }
-
-  function waitForNoAmdLoader() {
-
-    if (!amdLoaderPresent()) {
-      return Promise.resolve(true);
-    }
-
-    return new Promise((resolve) => {
-
-      const started = Date.now();
-
-      const timer = setInterval(() => {
-
-        if (!amdLoaderPresent()) {
-          clearInterval(timer);
-          resolve(true);
-        } else if (Date.now() - started > AMD_WAIT_MS) {
-          clearInterval(timer);
-          resolve(false);
-        }
-
-      }, AMD_POLL_MS);
-
-    });
-
-  }
-
-  function fetchMapLibreSource() {
-
-    if (!mapLibreSourcePromise) {
-
-      mapLibreSourcePromise = fetch(MAPLIBRE_JS_URL)
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`WebGeoDS.Map: failed to load ${MAPLIBRE_JS_URL} (HTTP ${response.status}).`);
-          }
-          return response.text();
-        })
-        .catch((error) => {
-          // Allow a later call to try the download again.
-          mapLibreSourcePromise = null;
-          throw error;
-        });
-
-    }
-
-    return mapLibreSourcePromise;
-
-  }
-
-  async function loadMapLibreScript() {
+  // Loads the vendored UMD build, which sets `window.maplibregl`. (A
+  // UMD wrapper registers itself as an AMD module instead when a global
+  // `define.amd` exists, as it did while Quarto's OJS runtime started:
+  // no page loads OJS any more, so a plain script is enough.)
+  function loadMapLibreScript() {
 
     if (window.maplibregl) {
-      return window.maplibregl;
+      return Promise.resolve(window.maplibregl);
     }
 
-    // Download starts right away, in parallel with any wait below.
-    const source =
-      await fetchMapLibreSource();
-
-    for (let attempt = 1; attempt <= MAX_RUN_ATTEMPTS; attempt++) {
-
-      if (window.maplibregl) {
-        return window.maplibregl;
-      }
-
-      // Re-running the same text costs nothing to download; a capture
-      // can only happen if the wait below timed out with the loader
-      // still present (not observed), hence the bounded loop.
-      await waitForNoAmdLoader();
+    return new Promise((resolve, reject) => {
 
       const script =
         document.createElement("script");
 
-      // sourceURL keeps the file's own name in devtools stack traces.
-      script.textContent =
-        `${source}
-//# sourceURL=${MAPLIBRE_JS_URL}`;
+      script.src =
+        MAPLIBRE_JS_URL;
+
+      script.onload = () => window.maplibregl
+        ? resolve(window.maplibregl)
+        : reject(new Error(`WebGeoDS.Map: ${MAPLIBRE_JS_URL} loaded but window.maplibregl is not set.`));
+
+      script.onerror = () => {
+        script.remove();
+        reject(new Error(`WebGeoDS.Map: failed to load ${MAPLIBRE_JS_URL}.`));
+      };
 
       document.head.appendChild(script);
 
-      if (window.maplibregl) {
-        return window.maplibregl;
-      }
-
-    }
-
-    throw new Error(
-      `WebGeoDS.Map: ${MAPLIBRE_JS_URL} ran ${MAX_RUN_ATTEMPTS} time(s) but window.maplibregl never became available (a global AMD loader kept capturing it).`
-    );
+    });
 
   }
 

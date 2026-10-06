@@ -358,6 +358,9 @@ n_still_na <- sum(is.na(filled))
 # "target.residual" -- found empirically (a multivariate gstat.cv()
 # result names target.pred/target.var with the id prefix, but
 # residual/observed/zscore/fold without it).
+# Fixed seed: the folds are random, so the RMSE would otherwise
+# change a little on every run.
+set.seed(1)
 cv <- tryCatch(gstat.cv(g_fit, nfold = 5, verbose = FALSE), error = function(e) NULL)
 rmse <- if (!is.null(cv)) sqrt(mean(cv$residual^2, na.rm = TRUE)) else NA
 

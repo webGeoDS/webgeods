@@ -441,7 +441,7 @@
         // own str() text — the aligned table a real REPL would print
         // — captured before `result` was converted to its JS-usable
         // form. Only changes what this box displays; `result` itself
-        // (returned below, used by onRun/OJS) stays the converted
+        // (returned below, read by the page) stays the converted
         // value.
         lines.push(
           `Output: ${
@@ -1010,8 +1010,8 @@
     // Run
     //
     // Exposed (not only reachable via click) so execution can also
-    // be triggered programmatically, e.g. from an OJS cell tied to
-    // an external trigger.
+    // be triggered programmatically (tool components run their
+    // hidden cells this way).
     // ==========================================================
 
     async run() {
@@ -1082,13 +1082,13 @@
           );
 
 
-        // Observable/OJS convention: an element with a .value that
-        // emits "input" can be wired to a reactive variable with
-        // Generators.input(...). Unconditional: if a new execution
-        // produces undefined (e.g. code that now only prints, with
-        // no final expression), the OJS graph must know about it
-        // regardless — otherwise the previous run's now-stale
-        // reactive value would stay visible.
+        // The result as the element's .value plus an "input" event:
+        // how a page hears about a run (useCellValue,
+        // preact-build/src/hooks/useCellValue.js). Unconditional: if
+        // a new execution produces undefined (e.g. code that now only
+        // prints, with no final expression), the page must know
+        // regardless — otherwise the previous run's now-stale value
+        // would stay visible.
         this.element.value =
           result;
 
@@ -1142,7 +1142,7 @@
 
 
     // ==========================================================
-    // Value (for viewof/Generators.input in OJS)
+    // Value (the last run's result, see run())
     // ==========================================================
 
     get value() {
