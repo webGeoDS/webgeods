@@ -26,5 +26,5 @@ Edit the version in `package.json` **and** the matching comment in
 `../shared/code-cell.js` (nothing enforces these staying in sync
 automatically). Delete `package-lock.json` first if you want npm to
 re-resolve transitive dependencies instead of reusing the locked ones.
-Then run `./build.sh` and verify with `../run-smoke-test.sh` against a
+Then run `./build.sh` and verify with `../tool-smoke.mjs` against a
 real render before committing.

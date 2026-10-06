@@ -7,7 +7,6 @@ project:
     - "code-cell.js"
     - "map.js"
     - "map-raster.js"
-    - "map-table.js"
     - "styles.css"
     - "alidade_smooth.json"
     - "maplibre-gl.js"
@@ -44,7 +43,6 @@ format:
           <script src="code-cell.js"></script>
           <script src="map.js"></script>
           <script src="map-raster.js"></script>
-          <script src="map-table.js"></script>
     toc: false # narrow iframe space, no internal table of contents
 
 filters:

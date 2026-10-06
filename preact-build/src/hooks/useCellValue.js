@@ -3,8 +3,7 @@
 // its return value instead).
 //
 // Every cell sets element.value and dispatches a bubbling "input" event
-// after each run (shared/code-cell.js run()); the same signal OJS's
-// getCellValue() listens to, read here without OJS. The value can also
+// after each run (shared/code-cell.js run()). The value can also
 // be cleared from outside (a Reset button), hence the setter.
 //
 // ids: one cell id, or several (a diagnose and a repair cell for the same

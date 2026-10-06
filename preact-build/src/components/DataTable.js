@@ -4,8 +4,8 @@
 // onRowClick; this component owns no state, so a map, a chart and this
 // table can all follow the same `selection` held by the page.
 //
-// rows: plain objects; each needs a `__key` for selection (the same
-// convention shared/map-table.js uses: "<sourceId>:<featureId>").
+// rows: plain objects; each needs a `__key` for selection
+// ("<sourceId>:<featureId>").
 import { useEffect, useRef } from "preact/hooks";
 
 export function DataTable({ columns, rows, selectedKeys, onRowClick, rowClassName, iconColumns, emptyMessage = "No results yet" }) {

@@ -750,8 +750,7 @@
         // see roadmap-acquisizione.md, 2026-09-10). Once Pyodide
         // itself is fatally wrecked, this worker can never complete
         // another request — the only way out is exactly what the
-        // manual "Terminate Python" button already does and this
-        // project already tests (§12 of test-architettura.qmd): kill
+        // manual "Terminate Python" button already does: kill
         // the worker and let the next run() transparently create a
         // fresh one, instead of leaving the caller's Promise (and
         // that cell's Run button) hung forever.

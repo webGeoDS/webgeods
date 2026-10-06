@@ -3,11 +3,10 @@
  *
  * MapLibre GL JS wrapper: constructor/lifecycle, vector geometry CRUD
  * (addGeoJSON/setGeoJSON/getGeoJSON/removeGeoJSON), highlight/bounds/
- * fit, markers. Raster rendering (setRasterImage() and friends) and
- * the table/cross-link engine (table()/tableCell()) are separate
- * files that extend this same class via prototype augmentation --
- * see shared/map-raster.js and shared/map-table.js, both of which
- * must load AFTER this file.
+ * fit, markers. Raster rendering (setRasterImage() and friends) is a
+ * separate file that extends this same class via prototype
+ * augmentation -- see shared/map-raster.js, which must load AFTER
+ * this file.
  *
  * Exposes:
  *
@@ -304,15 +303,6 @@
 
   let _autoIdCounter = 0;
 
-  // _tableCellCounter/_tableSelections used to live here too, but
-  // both are read AND written from shared/map-table.js (tableCell())
-  // as well as from this class's own static findTableSelection() --
-  // promoted to real static class fields (WebGeoDSMap._tableCellCounter
-  // / WebGeoDSMap._tableSelections, declared in the class body below)
-  // so both files see the exact same state, not two independent
-  // copies by accident.
-
-
   // ============================================================
   // designToken(name, fallback) — read a CSS custom property
   // ============================================================
@@ -359,75 +349,6 @@
       return _instances.get(id);
 
     }
-
-
-    // ----------------------------------------------------------
-    // _tableCellCounter/_tableSelections — state for shared/
-    // map-table.js's tableCell(), which lives in a separate file but
-    // reads/writes these as WebGeoDSMap._tableCellCounter/
-    // WebGeoDSMap._tableSelections. Declared here (not there) because
-    // findTableSelection() below needs them to exist even on a page
-    // that never loads map-table.js at all.
-    //
-    // _tableCellCounter: one per tableCell() call, not per
-    // WebGeoDSMap instance -- keys a per-call selection overlay
-    // source so two tableCell() calls on the SAME map (e.g. one per
-    // language, each tracking its own source) don't share one
-    // overlay and clobber each other's highlight; also auto-names a
-    // call's own _tableSelections entry when the caller doesn't give
-    // one an explicit id.
-    //
-    // _tableSelections: the public entry point for an external
-    // consumer (a Vega-Lite chart, built for the map<->table
-    // cross-link work -- see roadmap-acquisizione.md) to join a
-    // SPECIFIC tableCell() call's row selection: keyed by that call's
-    // id (explicit `options.id`, or an auto-generated one), not
-    // global, because a page can have more than one tableCell() live
-    // at once (e.g. one per language) each with its own independent
-    // selection. Populated/cleared by tableCell() itself, looked up
-    // via findTableSelection() below -- same find-by-id idiom as
-    // _instances/find() above, deliberately, for a consumer that
-    // isn't itself an {ojs} cell able to just reference a variable.
-    // ----------------------------------------------------------
-
-    static _tableCellCounter = 0;
-    static _tableSelections = new Map();
-
-
-    // ----------------------------------------------------------
-    // findTableSelection(id) — look up a live tableCell() call's
-    // selection controller by its id (see tableCell()'s own doc
-    // comment for the full story). Returns
-    // { select(key), selectMany(keys), getSelectedKey(),
-    // getSelectedKeys(), element } or undefined if no tableCell() with
-    // that id is currently mounted. `select(key)` mirrors clicking
-    // that row/feature by hand — same toggle-off-if-already-selected
-    // behavior; `selectMany(keys)` is the same mechanism for selecting
-    // several features at once (e.g. every point in a class); `element`
-    // is the same container tableCell() returned, the thing to
-    // addEventListener() SELECTION_CHANGE_EVENT on.
-    // ----------------------------------------------------------
-
-    static findTableSelection(id) {
-
-      return WebGeoDSMap._tableSelections.get(id);
-
-    }
-
-
-    // ----------------------------------------------------------
-    // Event name dispatched on a tableCell() call's container
-    // whenever ITS selection changes, from ANY cause (a map click, a
-    // table row click, or another consumer calling .select()/
-    // .selectMany()) — event detail is `{ key, keys }`: `key` is the
-    // single selected key, or null when the selection is empty OR
-    // holds more than one (kept for existing single-select-only
-    // consumers); `keys` is the full array either way.
-    // A named constant instead of a bare string literal so a distant
-    // caller (a Vega-Lite chart cell) doesn't have to retype/guess it.
-    // ----------------------------------------------------------
-
-    static SELECTION_CHANGE_EVENT = "webgeods:selectionchange";
 
 
     // DEFAULT_RASTER_RAMP / MAX_RASTER_PREVIEW_DIM: see
@@ -728,30 +649,6 @@
 
 
         this.map.resize();
-
-
-        // ------------------------------------------------------
-        // Snapshot the basemap's OWN source ids, right after "load"
-        // (confirmed to fire only once the style — and everything it
-        // declares, including its sources — has fully loaded, so this
-        // can't race a basemap source that's still being registered).
-        // Lets tableCell()'s "auto" mode (below) tell "a source the
-        // basemap style already came with" apart from "a source a
-        // caller added afterwards", without needing every caller to
-        // route their addGeoJSON()/setGeoJSON() calls through some
-        // extra registration step. Verified empirically that the
-        // default OpenFreeMap Positron style alone already has two
-        // (`openmaptiles`, `ne2_shaded`), not zero — a naive "just
-        // listen for any new source" would otherwise misfire on those.
-        // ------------------------------------------------------
-
-        this._basemapSourceIds =
-          new Set(
-            Object.keys(
-              this.map.getStyle().sources ??
-              {}
-            )
-          );
 
 
         return this;
@@ -1174,12 +1071,6 @@
         null;
 
     }
-
-
-    // table()/tableCell(): see shared/map-table.js, which adds
-    // them to this class via prototype augmentation -- the map<->
-    // table cross-link engine, split out as the single largest
-    // block in this file.
 
 
     // ==========================================================

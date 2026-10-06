@@ -14,8 +14,7 @@
       ```
 
   into a `<div>` + `<script>` that instantiates `WebGeoDS.CodeCell`
-  directly — the same boilerplate hand-written elsewhere in
-  test-architettura.qmd, not a reactive `{ojs}` block. Deliberate
+  directly, not a reactive `{ojs}` block. Deliberate
   design choice, not a temporary limitation: see below.
 
   **Dot-prefixed class is mandatory** — `.webgeods-python`/
@@ -35,17 +34,11 @@
   pipeline. So a cell generated here is an isolated, non-reactive cell
   by default, same as a hand-written one.
 
-  **Optional reactivity, without touching the filter:**
+  **Reading a cell's value from page code:**
   `WebGeoDSCodeCell.run()` (code-cell.js) unconditionally sets
-  `this.element.value` and fires an "input" event after every Run,
-  for any cell — hand-built or filter-generated. To make a
-  `{.webgeods-python #my-id}` cell reactive, add one hand-written OJS
-  line to the `.qmd` (written directly there, not filter-synthesized,
-  so Quarto runs it normally — no dependency on the limitation above):
-
-      ```{ojs}
-      myId = WebGeoDS.getCellValue("my-id", Generators)
-      ```
+  `this.element.value` and fires an "input" event after every Run, for
+  any cell — hand-built or filter-generated. Preact pages read it with
+  useCellValue (preact-build/src/hooks/useCellValue.js).
 
   **Packages to load (`#| package:`):** the cell body's leading lines
   can declare packages to load before execution, using the same `#|`
@@ -139,8 +132,7 @@
   populates it, passed through Pandoc/Quarto with no need for any
   special recognition — a raw HTML block targeting `html` is always
   reproduced verbatim, the same mechanism that already makes every
-  hand-written `<script>` block work throughout the rest of
-  test-architettura.qmd. There is therefore no dependency on filter
+  hand-written `<script>` block work. There is therefore no dependency on filter
   ordering or on the OJS recognition discussed above.
 ]]
 

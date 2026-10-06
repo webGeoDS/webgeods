@@ -1,7 +1,6 @@
 // The selection overlay shared by ToolDashboard and ArticleLab: the
 // selected features drawn on top in the selection yellow, as a fill, a
-// line or circles depending on their geometry (what shared/map-table.js's
-// tableCell overlay did for the pages before them).
+// line or circles depending on their geometry.
 
 export const SELECTION_YELLOW = "#ffeb3b";
 

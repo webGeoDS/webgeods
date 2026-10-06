@@ -57,10 +57,9 @@
    * `row.names` attributes it doesn't include here.
    *
    * For an sf object the "geometry" column stays raw coordinates,
-   * with no geometry type or CRS attached — see the
-   * conv-r-sf-geojson cell in test-architettura.qmd §16 for the
-   * recommended pattern (explicit conversion on the R side) when
-   * clean GeoJSON is needed instead.
+   * with no geometry type or CRS attached — convert explicitly on
+   * the R side (sf::st_write to GeoJSON) when clean GeoJSON is
+   * needed instead.
    *
    * @param {*} raw The value returned by RObject.toJs() (or a nested
    *   descriptor within it).

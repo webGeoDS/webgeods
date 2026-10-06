@@ -20,8 +20,7 @@
 #
 # Run this BEFORE a series of heavy checks (to start from a clean
 # state) and/or after, if a script was interrupted manually. Already
-# called automatically by run-smoke-test.sh and by
-# map-tests/run-map-tests.sh.
+# called automatically by map-tests/run-map-tests.sh.
 #
 # Implementation: the PowerShell script that does the actual work
 # lives in a separate .ps1 file (instead of inline in a -Command

@@ -8,8 +8,8 @@
  * see check-file-size-budget.mjs's own long-standing note that map.js
  * had accumulated unrelated concerns) because this block is fully
  * self-contained — verified before splitting: it references no
- * module-private helper of map.js's own IIFE (designToken,
- * _tableSelections, the MapLibre bootstrap), only `this.*` and its own
+ * module-private helper of map.js's own IIFE (designToken, the
+ * MapLibre bootstrap), only `this.*` and its own
  * parameters — so plain prototype augmentation is enough, no new
  * shared state to expose.
  *

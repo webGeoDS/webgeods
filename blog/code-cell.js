@@ -802,8 +802,8 @@
       // --------------------------------------------------------
       //
       // Plain "webgeods-*" classes only, styled entirely by
-      // styles.css — no Bootstrap dependency. smoke-test.mjs selects
-      // these same classes directly (e.g. `#{cellId} .webgeods-run-btn`).
+      // styles.css — no Bootstrap dependency. Tests select these
+      // same classes directly (e.g. `#{cellId} .webgeods-run-btn`).
 
       const toolbar =
         document.createElement("div");
@@ -1207,75 +1207,6 @@
 
 
   // ============================================================
-  // getCellValue(cellId, Generators)
-  //
-  // Makes a cell reactive toward OJS without hand-writing the
-  // Generators.observe() bridge each time. Works because run() above
-  // always sets this.element.value and dispatches a real "input"
-  // event on the container after every execution — for any cell,
-  // hand-built or Lua-filter-generated, since that code lives inside
-  // run(), not at construction. This is just a wrapper over that
-  // existing `.value` + "input" convention (the same one `viewof`
-  // relies on), useful when the caller has only the cell's id, not a
-  // direct reference to the CodeCell instance.
-  //
-  // Use in an OJS cell (`Generators` is only available there — an
-  // implicit identifier Quarto/Observable injects into {ojs} cells,
-  // not a global — so it must be passed explicitly):
-  //
-  //   myValue = WebGeoDS.getCellValue("my-id", Generators)
-  //
-  // Uses Generators.observe(), not viewof/Generators.input: without
-  // an explicit initial value (even undefined), the OJS graph would
-  // stay stuck until the first real "input" event — i.e. until the
-  // first Run.
-  // ============================================================
-
-  function getCellValue(cellId, Generators) {
-
-    if (
-      !Generators ||
-      typeof Generators.observe !== "function"
-    ) {
-
-      throw new TypeError(
-        "WebGeoDS.getCellValue: missing or invalid second argument Generators — pass the Generators available in the calling {ojs} cell, e.g. WebGeoDS.getCellValue(\"my-id\", Generators)."
-      );
-
-    }
-
-    return Generators.observe(function(change) {
-
-      const el =
-        document.getElementById(cellId);
-
-      if (!el) {
-
-        throw new Error(
-          `WebGeoDS.getCellValue: element "${cellId}" not found.`
-        );
-
-      }
-
-      change(el.value);
-
-      const handler =
-        () => change(el.value);
-
-      el.addEventListener(
-        "input",
-        handler
-      );
-
-      return () =>
-        el.removeEventListener("input", handler);
-
-    });
-
-  }
-
-
-  // ============================================================
   // loadExampleButton(label, { pyId, rId, pyCode, rCode })
   //
   // A "Load example" button for a bilingual panel-tabset: swaps both
@@ -1341,10 +1272,6 @@
 
   window.WebGeoDS.CodeCell =
     WebGeoDSCodeCell;
-
-
-  window.WebGeoDS.getCellValue =
-    getCellValue;
 
 
   window.WebGeoDS.loadExampleButton =
