@@ -1,58 +1,31 @@
-// The tool control panel, with the same markup and classes as
-// WebGeoDS.Dashboard's (shared/dashboard-dom.js _buildDom()): a row with
-// upload / example / download / reset, a status row, then the page's own
-// inputs and Compute button as children. Upload, download, reset and the
-// status line are the site's existing helpers, placed with DomNode.
-import { useRef } from "preact/hooks";
-import { DomNode } from "./DomNode.js";
+// The tool control panel: a row with upload / example / download /
+// reset, a status row, then the page's own inputs and Compute button as
+// children. Classes from shared/styles.css.
+import { useState } from "preact/hooks";
+import { downloadFeatures } from "./downloads.js";
 
 export function ControlPanel({ upload, example, download, cellDownload, onReset, resetLabel = "🔄 Reset", status, busy, children }) {
-
-  // Helpers are built once; their callbacks read the latest props here.
-  const latest = useRef({});
-  latest.current = { upload, download, onReset };
 
   return (
     <div class="webgeods-panel">
       <div class="webgeods-panel-row">
-        <DomNode build={() => window.WebGeoDS.Upload.createControl({
-          label: upload?.label ?? "📁 Upload",
-          kind: upload?.kind ?? "vector",
-          onChange: (files) => latest.current.upload?.onFiles(files)
-        })} />
+        <UploadButton label={upload?.label ?? "📁 Upload"} kind={upload?.kind ?? "vector"} onFiles={(files) => upload?.onFiles(files)} />
         {example && (
           <button type="button" class="webgeods-panel-btn" data-variant="outline" disabled={busy} onClick={example.onClick}>
             {example.label ?? "📋 Load example"}
           </button>
         )}
-        {download && (
-          <DomNode
-            build={() => window.WebGeoDS.downloadButton({
-              getFeatures: () => latest.current.download.getFeatures(),
-              getBaseName: () => latest.current.download.getBaseName?.() ?? null,
-              filenameSuffix: download.filenameSuffix,
-              defaultFilename: download.defaultFilename,
-              ...(download.mimeType ? { mimeType: download.mimeType } : {}),
-              enabled: false,
-              tool: download.tool,
-              shapefile: download.shapefile ? {
-                ...download.shapefile,
-                get uploadKind() { return latest.current.download.uploadKind; }
-              } : undefined
-            })}
-            update={(button) => { button.disabled = busy || !download.enabled; }}
-          />
-        )}
+        {download && <DownloadButton disabled={busy || !download.enabled} onDownload={() => downloadFeatures(download)} />}
         {cellDownload && (
           <button type="button" class="webgeods-panel-btn" data-variant="outline"
             disabled={busy || !cellDownload.enabled} onClick={cellDownload.onClick}>
             {cellDownload.label}
           </button>
         )}
-        <DomNode build={() => window.WebGeoDS.resetButton(() => latest.current.onReset?.(), resetLabel)} />
+        <ResetButton label={resetLabel} onClick={() => onReset?.()} />
       </div>
       <div class="webgeods-panel-row">
-        <DomNode build={() => window.WebGeoDS.uploadStatusEl(status, busy)} deps={[status, busy]} />
+        <StatusText status={status} busy={busy} />
       </div>
       {children && <div class="webgeods-panel-row">{children}</div>}
     </div>
@@ -60,8 +33,45 @@ export function ControlPanel({ upload, example, download, cellDownload, onReset,
 
 }
 
-// Same markup as Dashboard's select input. options: strings, or
-// { value, label } objects.
+// The upload "button": a native file input inside a <label> styled as a
+// button, so a click on the label opens the picker with no script (the
+// input itself is hidden by CSS). onFiles gets the input's FileList on
+// every change (empty if the picker is cancelled).
+export function UploadButton({ label = "Upload", variant, kind = "vector", onFiles }) {
+  const { accept, rasterAccept } = window.WebGeoDS.Upload;
+  return (
+    <label class="webgeods-panel-btn" data-variant={variant}>
+      {label}
+      <input type="file" multiple accept={kind === "raster" ? rasterAccept : accept}
+        onChange={(e) => onFiles(e.currentTarget.files)} />
+    </label>
+  );
+}
+
+export function ResetButton({ label = "🔄 Reset", onClick }) {
+  return <button class="webgeods-panel-btn" data-variant="outline" onClick={onClick}>{label}</button>;
+}
+
+// onDownload: async; the button shows "⌛ Preparing..." until it settles.
+export function DownloadButton({ label = "⬇ Download", disabled, onDownload }) {
+  const [preparing, setPreparing] = useState(false);
+  const click = async () => {
+    setPreparing(true);
+    try { await onDownload(); } finally { setPreparing(false); }
+  };
+  return (
+    <button class="webgeods-panel-btn" data-variant="outline" disabled={disabled || preparing} onClick={click}>
+      {preparing ? "⌛ Preparing..." : label}
+    </button>
+  );
+}
+
+// The status line next to the panel's controls; pulses while busy.
+export function StatusText({ status, busy }) {
+  return <span class={"webgeods-panel-status" + (busy ? " webgeods-btn-loading" : "")}>{status}</span>;
+}
+
+// options: strings, or { value, label } objects.
 export function SelectInput({ id, label, options, value, onChange, disabled }) {
   return (
     <>
@@ -76,7 +86,6 @@ export function SelectInput({ id, label, options, value, onChange, disabled }) {
   );
 }
 
-// Same markup as WebGeoDS.createSlider (shared/upload.js).
 export function SliderInput({ id, label, min, max, step = 1, value, onChange, disabled }) {
   return (
     <span class="webgeods-slider">
@@ -94,7 +103,6 @@ export function ComputeButton({ label = "▶ Compute", disabled, onClick }) {
   );
 }
 
-// Same markup as the number inputs of the OJS tools (viewshed-calculator.qmd).
 export function NumberInput({ id, label, step, width = "95px", value, onChange, disabled }) {
   return (
     <>
@@ -106,7 +114,6 @@ export function NumberInput({ id, label, step, width = "95px", value, onChange, 
   );
 }
 
-// Same markup as buffer-proximity.qmd's "Dissolve" checkbox.
 export function CheckboxInput({ id, label, value, onChange, disabled }) {
   return (
     <label class="webgeods-panel-status">
@@ -117,7 +124,6 @@ export function CheckboxInput({ id, label, value, onChange, disabled }) {
   );
 }
 
-// Same markup as crs-inspector.qmd's target-CRS field.
 export function TextInput({ id, label, placeholder, size = 10, value, onChange, disabled }) {
   return (
     <>

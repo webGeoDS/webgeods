@@ -153,8 +153,8 @@ from shapely.validation import make_valid
 # untouched), False (still invalid — make_valid() failing to produce
 # a valid result would be a bug in Shapely itself, not expected, but
 # handled rather than assumed away), or the string "fixed" (was
-# invalid, make_valid() repaired it) — WebGeoDS.Table's iconColumns
-# (shared/table.js) renders that third state as a green "✓ fixed",
+# invalid, make_valid() repaired it) — the table's iconColumns
+# renders that third state as a green "✓ fixed",
 # visibly distinct from an always-valid row's plain "✓". VALIDITY_PAINT
 # above treats "fixed" the same as true (green) on the map.
 was_valid = gdf["valid"].copy()
@@ -180,7 +180,7 @@ for col in gdf.columns:
 ```
 
 ```{.webgeods-python #geometry-export-shp-py .tool-cell}
-# Only run on demand (see downloadButton below), not on every
+# Only run on demand (by the Download button), not on every
 # diagnose/repair: writes the CURRENT gdf, reprojected back to the CRS
 # it was uploaded in (export_crs(), defined in geometry-diagnose-py —
 # gdf itself stays in WGS84, the working CRS the map/diagnosis use), as

@@ -1,20 +1,63 @@
-// Layout pieces matching WebGeoDS.Dashboard's DOM (shared/dashboard-dom.js),
-// so a migrated tool looks the same: stat card, map with an optional side
-// panel, legend, tabs, and Portal for article pages that place components
-// between paragraphs.
+// Layout pieces: stat card, legend, map with an optional side panel,
+// tabs, and Portal for article pages that place components between
+// paragraphs. Classes from shared/styles.css.
 import { createPortal } from "preact/compat";
 import { useState } from "preact/hooks";
-import { DomNode } from "./DomNode.js";
 
 export const DEFAULT_MAP_HEIGHT = "clamp(320px, 55vh, 480px)";
 
+// rows: [[label, value], ...], conditional rows already filtered out.
 export function StatCard({ rows }) {
-  return <DomNode build={() => window.WebGeoDS.statCard(rows)} deps={[JSON.stringify(rows)]} />;
+  return (
+    <div class="webgeods-stat-grid">
+      {rows.map(([label, value]) => (
+        <>
+          <div class="webgeods-stat-label">{label}</div>
+          <div class="webgeods-stat-value">{value}</div>
+        </>
+      ))}
+    </div>
+  );
 }
 
-// options: WebGeoDS.legend's own (e.g. { swatchWidth: 32 }).
-export function Legend({ items, options }) {
-  return <DomNode build={() => window.WebGeoDS.legend(items, options)} deps={[JSON.stringify(items), JSON.stringify(options)]} />;
+// items: [{ color, label, outline?, shape? }, ...] for discrete swatches,
+// or { gradient: [[t, r, g, b], ...], minLabel, maxLabel } for a
+// continuous bar (the colorRamp format setRasterImage() takes). Empty
+// or null: the legend is hidden, not drawn empty.
+// options.swatchWidth: px, default 24 (Buffer & Proximity uses 32).
+//   outline: true/"dashed" draws a hollow swatch, for an entry about a
+//   drawing style rather than a category; shape: "circle" a round one,
+//   for how points are drawn.
+export function Legend({ items, options = {} }) {
+  const swatchWidth = options.swatchWidth ?? 24;
+  const isGradient = items && !Array.isArray(items) && items.gradient;
+  if (!items || (!isGradient && items.length === 0)) return <div class="webgeods-legend" hidden />;
+  if (isGradient) {
+    const stops = items.gradient.map(([t, r, g, b]) => `rgb(${r},${g},${b}) ${t * 100}%`).join(", ");
+    return (
+      <div class="webgeods-legend" style={{ flexWrap: "wrap", rowGap: "8px" }}>
+        <span class="webgeods-legend-label">{items.minLabel ?? ""}</span>
+        <div class="webgeods-legend-bar" style={{ background: `linear-gradient(to right, ${stops})` }} />
+        <span class="webgeods-legend-label">{items.maxLabel ?? ""}</span>
+      </div>
+    );
+  }
+  return (
+    <div class="webgeods-legend" style={{ flexWrap: "wrap", rowGap: "8px" }}>
+      {items.map(({ color, label, outline, shape }) => {
+        const circle = shape === "circle";
+        const swatch = { flex: circle ? "0 0 14px" : `0 0 ${swatchWidth}px`, ...(circle ? { borderRadius: "50%" } : {}),
+          ...(outline ? { background: "transparent", border: `2px ${outline === "dashed" ? "dashed" : "solid"} ${color}` } : { background: color }) };
+        // Swatch and label in one flex item, so a wrap never separates them.
+        return (
+          <div style="display: inline-flex; align-items: center; gap: 12px; flex: 0 0 auto;">
+            <div class="webgeods-legend-bar" style={swatch} />
+            <span class="webgeods-legend-label">{label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // Map and side panel side by side, wrapping on narrow screens: same

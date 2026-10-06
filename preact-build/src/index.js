@@ -45,14 +45,13 @@ import { KrigingInterpolatorTool } from "./pages/KrigingInterpolatorTool.js";
 import { KrigingSoilSamplingLab } from "./pages/KrigingSoilSamplingLab.js";
 import { RasterGapFillerTool } from "./pages/RasterGapFillerTool.js";
 import { CokrigingLab } from "./pages/CokrigingLab.js";
-import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
 import { VegaChart } from "./components/VegaChart.js";
 import { ForceGraph } from "./components/ForceGraph.js";
 import { ToolDashboard } from "./components/ToolDashboard.js";
-import { ArticleLab, StatGrid, SideBySide, LabeledBox } from "./components/ArticleLab.js";
-import { ControlPanel, SelectInput, SliderInput, NumberInput, CheckboxInput, ComputeButton } from "./components/ControlPanel.js";
+import { ArticleLab, SideBySide, LabeledBox } from "./components/ArticleLab.js";
+import { ControlPanel, UploadButton, ResetButton, DownloadButton, StatusText, SelectInput, SliderInput, NumberInput, CheckboxInput, ComputeButton } from "./components/ControlPanel.js";
 import { Carousel } from "./components/Carousel.js";
 import { StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT } from "./components/Layout.js";
 import { useCellRunner, findCell } from "./hooks/useCellRunner.js";
@@ -127,8 +126,8 @@ window.WebGeoDS.Preact = {
   // console; pages themselves import them directly.
   lib: {
     h, render, hooks,
-    DomNode, MapView, DataTable, featureRows, featureKey, VegaChart, ForceGraph, ToolDashboard, ArticleLab, StatGrid, SideBySide, LabeledBox,
-    ControlPanel, SelectInput, SliderInput, NumberInput, CheckboxInput, ComputeButton, Carousel,
+    MapView, DataTable, featureRows, featureKey, VegaChart, ForceGraph, ToolDashboard, ArticleLab, SideBySide, LabeledBox,
+    ControlPanel, UploadButton, ResetButton, DownloadButton, StatusText, SelectInput, SliderInput, NumberInput, CheckboxInput, ComputeButton, Carousel,
     StatCard, Legend, MapWithSidePanel, Tabs, Portal, DEFAULT_MAP_HEIGHT,
     useCellRunner, findCell, useToolData, useCellValue, useResizeTick
   }

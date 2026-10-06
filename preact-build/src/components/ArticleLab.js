@@ -43,8 +43,8 @@ import { useCellValue } from "../hooks/useCellValue.js";
 import { MapView } from "./MapView.js";
 import { DataTable, featureRows, featureKey } from "./DataTable.js";
 import { selectionLayer } from "./selection.js";
-import { DomNode } from "./DomNode.js";
-import { Portal } from "./Layout.js";
+import { UploadButton, ResetButton } from "./ControlPanel.js";
+import { Portal, StatCard } from "./Layout.js";
 
 const LANGUAGE_LABELS = { py: "Python", r: "R" };
 const SELECTION_LAYER = "lab-selection";
@@ -124,14 +124,10 @@ export function ArticleLab({ config }) {
   const parts = {
     "#lab-upload": () => (
       <>
-        <DomNode build={() => window.WebGeoDS.Upload.createControl({
-          label: "Upload",
-          kind: uploadKind,
-          onChange: async (selected) => {
-            setFiles(selected);
-            setUploadStatus((await window.WebGeoDS.Upload.load(selected, upload)).message);
-          }
-        })} />
+        <UploadButton label="Upload" kind={uploadKind} onFiles={async (selected) => {
+          setFiles(selected);
+          setUploadStatus((await window.WebGeoDS.Upload.load(selected, upload)).message);
+        }} />
         <p>{uploadStatus}</p>
       </>
     ),
@@ -146,12 +142,12 @@ export function ArticleLab({ config }) {
     "#lab-stats": () => (
       <SideBySide>
         {languages.map((lang) => (
-          <LabeledBox label={LANGUAGE_LABELS[lang]}><StatGrid rows={stats(results[lang])} /></LabeledBox>
+          <LabeledBox label={LANGUAGE_LABELS[lang]}><StatCard rows={stats(results[lang])} /></LabeledBox>
         ))}
       </SideBySide>
     ),
     "#lab-reset": () => (
-      <DomNode build={() => window.WebGeoDS.resetButton(() => reset(), resetLabel)} />
+      <ResetButton label={resetLabel} onClick={() => reset()} />
     ),
     ...Object.fromEntries(tableList.map(({ target, table, rows }) => [target, () => (
       <DataTable columns={rows.columns} rows={rows.rows} rowClassName={table.rowClassName}
@@ -170,19 +166,6 @@ export function ArticleLab({ config }) {
     </>
   );
 
-}
-
-export function StatGrid({ rows }) {
-  return (
-    <div class="webgeods-stat-grid">
-      {rows.map(([label, value]) => (
-        <>
-          <div class="webgeods-stat-label">{label}</div>
-          <div class="webgeods-stat-value">{String(value)}</div>
-        </>
-      ))}
-    </div>
-  );
 }
 
 export function SideBySide({ children }) {

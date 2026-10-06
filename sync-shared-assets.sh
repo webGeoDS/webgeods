@@ -19,7 +19,6 @@ FILES=(
   code-cell.js
   map.js
   map-raster.js
-  table.js
   upload.js
   download.js
   ui.js

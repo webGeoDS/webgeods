@@ -1,35 +1,61 @@
-// Controlled table: renders with WebGeoDS.Table.render (shared/table.js:
-// scrollable box, sticky header, icon columns, row classes) on every
-// render. The selection is a prop and a click is reported through
-// onRowClick; this component owns no state, so a map, a chart and this
-// table can all follow the same `selection` held by the page.
+// Controlled table: a scrollable box with a sticky header (styles.css,
+// .webgeods-table-scroll), a leading "#" row number, optional icon
+// columns and row classes. The selection is a prop and a click is
+// reported through onRowClick; this component owns no state, so a map,
+// a chart and this table can all follow the same `selection` held by the
+// page. Values are rendered as text, never as HTML (they come from
+// uploaded files).
 //
 // rows: plain objects; each needs a `__key` for selection
 // ("<sourceId>:<featureId>").
-import { useEffect, useRef } from "preact/hooks";
+// iconColumns: these columns show "true" as ✓, "false" as ✗ and "fixed"
+// as ✓ fixed (a repaired row), colored by class; rowClassName still
+// sees the raw values.
 
-export function DataTable({ columns, rows, selectedKeys, onRowClick, rowClassName, iconColumns, emptyMessage = "No results yet" }) {
+const ICON_TEXT = { true: "✓", false: "✗", fixed: "✓ fixed" };
+const ICON_CLASS = { true: "webgeods-icon-valid", false: "webgeods-icon-invalid", fixed: "webgeods-icon-valid" };
 
-  const container = useRef(null);
+export function DataTable({ columns, rows, selectedKeys, onRowClick, rowClassName, iconColumns = [], emptyMessage = "No results yet" }) {
 
-  useEffect(() => {
-    window.WebGeoDS.Table.render(container.current, {
-      columns,
-      data: rows ?? [],
-      selectedKeys: selectedKeys ? new Set(selectedKeys) : null,
-      onRowClick,
-      rowClassName,
-      iconColumns,
-      emptyMessage
-    });
-  });
+  const data = rows ?? [];
+  if (data.length === 0) {
+    return <div class="webgeods-table-scroll"><div class="webgeods-table-empty">{emptyMessage}</div></div>;
+  }
 
-  return <div ref={container} />;
+  const selected = selectedKeys ? new Set(selectedKeys) : null;
+
+  return (
+    <div class="webgeods-table-scroll">
+      <table class="webgeods-table">
+        <thead>
+          <tr><th>#</th>{columns.map((col) => <th>{col}</th>)}</tr>
+        </thead>
+        <tbody>
+          {data.map((row, index) => {
+            const classes = [
+              rowClassName?.(row) || "",
+              row.__key !== undefined && selected?.has(row.__key) ? "webgeods-row-selected" : "",
+              onRowClick ? "webgeods-row-clickable" : ""
+            ].filter(Boolean).join(" ");
+            return (
+              <tr class={classes || undefined} onClick={onRowClick ? () => onRowClick(row) : undefined}>
+                <td>{index + 1}</td>
+                {columns.map((col) => {
+                  const value = row[col] === undefined || row[col] === null ? "" : String(row[col]);
+                  const icon = iconColumns.includes(col) && Object.prototype.hasOwnProperty.call(ICON_TEXT, value);
+                  return <td class={icon ? ICON_CLASS[value] : undefined}>{icon ? ICON_TEXT[value] : value}</td>;
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 
 }
 
-// Same columns/rows a WebGeoDS.Map table() derives from a source: the
-// union of every feature's property keys, values stringified (row class
+// A feature collection as table columns and rows: the union of every feature's property keys, values stringified (row class
 // callbacks across the site compare against strings), plus `__key`.
 export function featureRows(sourceId, collection) {
 

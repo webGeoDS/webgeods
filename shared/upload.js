@@ -2,13 +2,10 @@
  * WebGeoDS.Upload
  *
  * Shared "upload a vector or raster file into both runtimes' virtual
- * filesystems" helper, plus createControl() (the upload button
- * itself — a native <input type="file"> wrapped in a <label>, see
- * below) and createSlider() (see further below — lives here for the
- * same reason createControl() does: a small shared UI primitive with
- * no bigger natural home, used by topology-checker.qmd's threshold
- * sliders and, from here on, any tool needing a distance/threshold
- * slider). What's shared and non-trivial is load()/baseName(): they
+ * filesystems" helper. The upload button itself is a component
+ * (UploadButton, preact-build/src/components/ControlPanel.js), which
+ * reads `accept`/`rasterAccept` from here. What's shared and
+ * non-trivial is load()/baseName(): they
  * accept a shapefile (several sidecar files, or a single .zip
  * bundling them) or a single raster file, in addition to a single
  * GeoJSON.
@@ -117,124 +114,6 @@
     python: null,
     r: null
   };
-
-
-  // ============================================================
-  // createSlider([min, max], { value, step, label, id }) — a plain
-  // native <input type="range"> with a label and a live value
-  // display, in one wrapper element (shared/styles.css:
-  // .webgeods-slider). Replaces Observable Inputs' Inputs.range()
-  // (removed 2026-09-11, along with its vendored runtime dependency
-  // htl.min.js — both existed in this project only to support this
-  // one widget, unused anywhere else by the time this was written):
-  // no async load step before the control can be created, no extra
-  // library, same "vanilla DOM, no library" choice table.js already
-  // made for its own table renderer.
-  //
-  // The wrapper's inner <input> carries `id` directly (not set by
-  // the caller afterward) — read its live value exactly like any
-  // other input, e.g. `document.getElementById(id).value`, same
-  // read-by-id pattern every caller already used with Inputs.range().
-  // ============================================================
-
-  function createSlider([min, max], { value, step = 1, label, id } = {}) {
-
-    const wrapper =
-      document.createElement("span");
-
-    wrapper.className =
-      "webgeods-slider";
-
-    const labelEl =
-      document.createElement("span");
-
-    labelEl.className =
-      "webgeods-slider-label";
-
-    labelEl.textContent =
-      `${label}:`;
-
-    const input =
-      document.createElement("input");
-
-    input.type = "range";
-    input.id = id;
-    input.min = String(min);
-    input.max = String(max);
-    input.step = String(step);
-    input.value = String(value);
-
-    const valueEl =
-      document.createElement("span");
-
-    valueEl.className =
-      "webgeods-slider-value";
-
-    valueEl.textContent =
-      String(value);
-
-    input.addEventListener("input", () => {
-      valueEl.textContent = input.value;
-    });
-
-    wrapper.append(labelEl, input, valueEl);
-
-    return wrapper;
-
-  }
-
-
-  // ============================================================
-  // createControl({ label, variant, onChange }) — the upload button
-  // itself: a native <input type="file"> wrapped in a <label>
-  // styled as a .webgeods-panel-btn (shared/styles.css). A <label>
-  // wrapping its own <input> associates with it natively (no
-  // `for`/`id` needed) and opens the file picker on click with no
-  // JS, so the <label> becomes the visible "button" and the actual
-  // <input> is hidden by CSS. onChange(files) fires with the
-  // input's FileList on every "change" (an empty FileList if the
-  // picker is cancelled — load() above already treats that as "no
-  // selection", unchanged).
-  //
-  // Previously each page built this itself as `viewof uploadedFiles
-  // = { await WebGeoDS.loadObservableInputs(); return
-  // window.Inputs.file(...); }` — Observable Inputs' widget, styled
-  // to LOOK native via CSS overrides on its own build-hashed
-  // markup. Switched away from that: a `viewof` cell turned out to
-  // be unsafe to so much as move in Quarto's OJS runtime (see
-  // geojson-shapefile-validator.qmd's long comment on this, from
-  // when the widget still needed relocating into its panel) — a
-  // plain `mutable` + native control, the same pattern already used
-  // for every other page-level control here, doesn't have that
-  // fragility to begin with, so callers now do
-  // `mutable uploadedFiles = null` + `WebGeoDS.Upload.createControl({
-  // onChange: (files) => { mutable uploadedFiles = files; } })`
-  // instead.
-  // ============================================================
-
-  function createControl({ label = "Upload", variant = null, onChange, kind = "vector" } = {}) {
-
-    const wrapper =
-      document.createElement("label");
-
-    wrapper.className = "webgeods-panel-btn";
-    if (variant) wrapper.dataset.variant = variant;
-    wrapper.textContent = label;
-
-    const input =
-      document.createElement("input");
-
-    input.type = "file";
-    input.multiple = true;
-    input.accept = kind === "raster" ? RASTER_ACCEPT : VECTOR_ACCEPT;
-
-    input.addEventListener("change", () => onChange(input.files));
-
-    wrapper.appendChild(input);
-
-    return wrapper;
-
-  }
 
 
   // ============================================================
@@ -546,18 +425,11 @@
     load,
     ensurePending,
     baseName,
-    createControl,
     accept: VECTOR_ACCEPT,
     rasterAccept: RASTER_ACCEPT,
     defaultStatus: DEFAULT_STATUS
   };
 
-  // Top-level, not namespaced under .Upload: createSlider() is a
-  // generic UI primitive, not an upload-specific concern — just
-  // implemented here since this file already needed one first (see
-  // its own doc comment above).
-  window.WebGeoDS.createSlider =
-    createSlider;
 
 
 })();

@@ -2,7 +2,8 @@
 // around its Python and R cells (which the reader runs). An ArticleLab
 // config: the standard slots plus #lab-nofactor, the result card of the
 // R regression-switch cell.
-import { ArticleLab, StatGrid } from "../components/ArticleLab.js";
+import { ArticleLab } from "../components/ArticleLab.js";
+import { StatCard } from "../components/Layout.js";
 
 // Same palette and roles as the Spatial Classifier tool, so a reader who
 // has seen the tool recognizes them.
@@ -41,7 +42,7 @@ const CONFIG = {
   stats: summaryRows,
   slots: {
     "#lab-nofactor": ({ extra: { noFactor } }) => (
-      <StatGrid rows={noFactor
+      <StatCard rows={noFactor
         ? [
           ["model$type", noFactor.modelType],
           [`predict() on a point labeled ${noFactor.sampleTrueClass}`, noFactor.samplePrediction.toFixed(3)]

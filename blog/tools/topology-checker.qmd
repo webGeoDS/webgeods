@@ -243,7 +243,7 @@ result
 ```
 
 ```{.webgeods-python #topology-export-shp-py .tool-cell}
-# Only run on demand (see downloadButton below), not on every check:
+# Only run on demand (by the Download button), not on every check:
 # re-exports gdf (the just-checked features, already available from
 # topology-diagnose-py above) reprojected back to the CRS the file
 # was UPLOADED in, as an actual shapefile (geopandas.to_file()), zips

@@ -11,7 +11,7 @@
  *
  * `bytesOrString` — a string (e.g. `JSON.stringify(geojson)`) or
  * binary content (a Uint8Array — e.g. a zipped shapefile decoded from
- * base64, see geojson-shapefile-validator.qmd's downloadButton).
+ * base64 by a page's shapefile export cell).
  * Passed straight to `new Blob([bytesOrString], { type: mimeType })`.
  *
  * `options.tool` — included in the "download_clicked" tracking event
@@ -79,10 +79,7 @@
   //
   // Decodes a base64 string (e.g. a zipped shapefile returned from a
   // Python cell — the only way to get binary bytes out of a cell
-  // value) into bytes ready for downloadBlob() above. Was copy-pasted
-  // in five separate tools before downloadButton()'s own shapefile
-  // option (see shared/ui.js) needed it too — promoted here instead
-  // of becoming a sixth copy.
+  // value) into bytes ready for downloadBlob() above.
   // ============================================================
 
   function base64ToBytes(base64Str) {

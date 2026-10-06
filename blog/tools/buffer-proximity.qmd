@@ -191,7 +191,7 @@ ring_gdf_wgs84 = ring_gdf.to_crs("EPSG:4326")
 ```
 
 ```{.webgeods-python #buffer-export-shp-py .tool-cell}
-# Only run on demand (see downloadButton below), not on every Compute:
+# Only run on demand (by the Download button), not on every Compute:
 # re-exports ring_gdf_wgs84 (the just-computed buffer rings, already
 # available from buffer-compute-py above) reprojected back to the
 # CRS the file was UPLOADED in, as an actual shapefile

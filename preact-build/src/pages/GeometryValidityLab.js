@@ -11,7 +11,8 @@
 import { useEffect } from "preact/hooks";
 import { ArticleLab } from "../components/ArticleLab.js";
 import { StatCard } from "../components/Layout.js";
-import { DomNode } from "../components/DomNode.js";
+import { ResetButton, DownloadButton } from "../components/ControlPanel.js";
+import { downloadFeatures } from "../components/downloads.js";
 
 const VALID = "#2ea44f";
 const INVALID = "#e05252";
@@ -77,19 +78,16 @@ const CONFIG = {
     "#lab-controls": ({ latest, files, reset }) => {
       const exportFeatures = latest?.originalCrsFeatures;
       return (
-        <DomNode
-          build={() => window.WebGeoDS.controlPanelRow([
-            window.WebGeoDS.resetButton(reset, "🔄 Reset map and table"),
-            window.WebGeoDS.downloadButton({
-              getFeatures: () => (exportFeatures?.features?.length ? exportFeatures : null),
-              getBaseName: () => window.WebGeoDS.Upload.baseName(files),
-              filenameSuffix: "-validated.geojson",
-              defaultFilename: "validated-geojson.geojson",
-              enabled: (exportFeatures?.features?.length ?? 0) > 0,
-              tool: "geometry-validity-article"
-            })
-          ])}
-          deps={[exportFeatures, files]} />
+        <div class="webgeods-panel-row">
+          <ResetButton label="🔄 Reset map and table" onClick={reset} />
+          <DownloadButton disabled={!exportFeatures?.features?.length} onDownload={() => downloadFeatures({
+            getFeatures: () => (exportFeatures?.features?.length ? exportFeatures : null),
+            getBaseName: () => window.WebGeoDS.Upload.baseName(files),
+            filenameSuffix: "-validated.geojson",
+            defaultFilename: "validated-geojson.geojson",
+            tool: "geometry-validity-article"
+          })} />
+        </div>
       );
     }
   }

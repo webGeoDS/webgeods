@@ -134,7 +134,7 @@ n_noise = int((labels == -1).sum())
 ```
 
 ```{.webgeods-python #spatial-clustering-export-shp-py .tool-cell}
-# Only run on demand (see downloadButton below), not on every Compute:
+# Only run on demand (by the Download button), not on every Compute:
 # re-exports gdf_calc (the just-computed clustered points, already
 # available from spatial-clustering-compute-py above) reprojected
 # back to the CRS the file was UPLOADED in, as an actual shapefile

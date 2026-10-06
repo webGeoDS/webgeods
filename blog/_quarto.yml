@@ -14,7 +14,6 @@ project:
     - "code-cell.js"
     - "map.js"
     - "map-raster.js"
-    - "table.js"
     - "upload.js"
     - "download.js"
     - "ui.js"
@@ -217,7 +216,6 @@ format:
           <script src="/code-cell.js"></script>
           <script src="/map.js"></script>
           <script src="/map-raster.js"></script>
-          <script src="/table.js"></script>
           <script src="/upload.js"></script>
           <script src="/download.js"></script>
           <script src="/ui.js"></script>

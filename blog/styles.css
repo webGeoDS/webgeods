@@ -366,8 +366,8 @@
   margin-top: 0;
 }
 
-/* WebGeoDS.Table (shared/table.js) — plain hand-built table, no
-   library. Same "Field Atlas" palette/sharp-corner language as the
+/* DataTable (preact-build/src/components/DataTable.js) — plain table,
+   no library. Same "Field Atlas" palette/sharp-corner language as the
    rest of the page (.webgeods-editor-container above). */
 .webgeods-table {
   min-width: 100%; /* NOT width: 100% — that caps the table at the
@@ -456,7 +456,7 @@
 .webgeods-row-invalid { background-color: rgba(224, 82, 82, 0.15); } /* --dataviz-invalid at 15% */
 .webgeods-row-fixed   { background-color: rgba(46, 164, 79, 0.15); } /* --dataviz-valid at 15% */
 
-/* WebGeoDS.Table's iconColumns (shared/table.js) — ✓/✗/✓ fixed text,
+/* DataTable's iconColumns — ✓/✗/✓ fixed text,
    colored with the same dataviz tones as the row classes above (and
    the map's own VALIDITY_PAINT fill), so a green ✓ in the table and a
    green polygon on the map read as the same "valid" signal. */
@@ -528,7 +528,7 @@
   margin-left: auto;
 }
 
-/* WebGeoDS.createSlider() (shared/upload.js) — a native <input
+/* SliderInput (preact-build/src/components/ControlPanel.js) — a native <input
    type="range">, label and live value in one inline group. Doesn't
    reuse .webgeods-panel-status above for its own label/value text:
    that class's margin-left:auto (meant to push a lone status span to
@@ -606,7 +606,7 @@ input[type="range"] {
   background: rgba(90, 79, 62, 0.1); /* --inchiostro-tenue at 10% */
 }
 
-/* The upload control (WebGeoDS.Upload.createControl(), shared/upload.js)
+/* The upload control (UploadButton, preact-build/src/components/ControlPanel.js)
    is a native <input type="file"> wrapped in a <label
    class="webgeods-panel-btn"> — the label already gets the full
    button look from the rule above for free, so only the actual
