@@ -78,7 +78,22 @@
       pending.delete(msg.id);
 
       if (msg.type === "error") {
-        reject(new Error(msg.message));
+
+        const error =
+          new Error(msg.message);
+
+        // Pyodide's own fatal trap ("RuntimeError: null function"
+        // and the like), reported through runPythonAsync's rejection
+        // rather than as a worker "error" event: this worker can
+        // never run anything again, so recreate it like runtime.js
+        // does for a worker-level crash.
+        if (isFatal(msg.message)) {
+          error.crashed = true;
+          window.WebGeoDS.Runtime.terminatePython({ crashed: true });
+        }
+
+        reject(error);
+
       } else {
         resolve({
           result: msg.result,
@@ -90,6 +105,57 @@
     });
 
   };
+
+
+  // Pyodide's own wording, not just "fatal": a user's exception text
+  // passes through here too.
+  const isFatal = (message) =>
+    /Pyodide has suffered a fatal error|Pyodide already fatally failed/.test(message || "");
+
+
+  // Files written into the worker's filesystem (uploads), kept here
+  // so a worker recreated after a crash gets them back before the
+  // retried run reads them: otherwise a cell's "try the upload, else
+  // the example" read would quietly fall back to the example.
+  const files =
+    new Map();
+
+
+  // The current worker, its listener attached; a worker seen for the
+  // first time (the first one, or a fresh one after a terminate) gets
+  // the kept files written first. Same queue as run(), so they land
+  // before anything sent after them.
+  const currentWorker = async () => {
+
+    const worker =
+      await window.WebGeoDS.Runtime.python();
+
+    if (attachedWorker !== worker) {
+
+      ensureListener(worker);
+
+      for (const [path, data] of files) {
+        worker.postMessage({ type: "writeFile", id: nextRequestId++, path, data });
+      }
+
+    }
+
+    return worker;
+
+  };
+
+
+  const send = (worker, message) =>
+    new Promise((resolve, reject) => {
+
+      const id =
+        nextRequestId++;
+
+      pending.set(id, { resolve, reject });
+
+      worker.postMessage({ ...message, id });
+
+    });
 
 
   // If the Python worker gets terminated
@@ -113,8 +179,13 @@
 
       const error =
         new Error(
-          "Python worker terminated before execution completed."
+          event.detail.crashed ?
+            "The Python engine crashed and was restarted: run the cell again." :
+            "Python worker terminated before execution completed."
         );
+
+      error.crashed =
+        event.detail.crashed === true;
 
       for (const { reject } of pending.values()) {
         reject(error);
@@ -210,32 +281,32 @@
    */
   async function run(code, { packages, micropip } = {}) {
 
-    const worker =
-      await window.WebGeoDS.Runtime.python();
-
-    ensureListener(worker);
-
-    const id =
-      nextRequestId++;
-
     const micropipUrls =
       micropip && micropip.length
         ? resolveMicropipUrls(micropip)
         : undefined;
 
-    return new Promise((resolve, reject) => {
+    const message =
+      { type: "run", code, packages, micropipUrls };
 
-      pending.set(id, { resolve, reject });
+    try {
 
-      worker.postMessage({
-        type: "run",
-        id,
-        code,
-        packages,
-        micropipUrls
-      });
+      return await send(await currentWorker(), message);
 
-    });
+    } catch (err) {
+
+      // Pyodide crashed (an intermittent fatal WASM trap, not this
+      // code's fault): the worker has already been recreated, so try
+      // once more there, files restored. A second crash is reported.
+      if (!err.crashed) {
+        throw err;
+      }
+
+      console.warn("WebGeoDS.Python: the Python engine crashed — retrying on a fresh one.", err.message);
+
+      return await send(await currentWorker(), message);
+
+    }
 
   }
 
@@ -258,26 +329,9 @@
    */
   async function writeFile(path, data) {
 
-    const worker =
-      await window.WebGeoDS.Runtime.python();
+    await send(await currentWorker(), { type: "writeFile", path, data });
 
-    ensureListener(worker);
-
-    const id =
-      nextRequestId++;
-
-    await new Promise((resolve, reject) => {
-
-      pending.set(id, { resolve, reject });
-
-      worker.postMessage({
-        type: "writeFile",
-        id,
-        path,
-        data
-      });
-
-    });
+    files.set(path, data);
 
   }
 
@@ -298,25 +352,9 @@
    */
   async function deleteFile(path) {
 
-    const worker =
-      await window.WebGeoDS.Runtime.python();
+    files.delete(path);
 
-    ensureListener(worker);
-
-    const id =
-      nextRequestId++;
-
-    await new Promise((resolve, reject) => {
-
-      pending.set(id, { resolve, reject });
-
-      worker.postMessage({
-        type: "deleteFile",
-        id,
-        path
-      });
-
-    });
+    await send(await currentWorker(), { type: "deleteFile", path });
 
   }
 

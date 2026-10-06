@@ -454,6 +454,18 @@
             pyodide =
               await pyodideModule.loadPyodide(msg.config);
 
+            // Pyodide's own hook for its fatal errors (pyodide.asm.js,
+            // API.fatal_error): the only signal of a WASM trap that
+            // leaves the running code's Promise pending forever.
+            if (pyodide._api) {
+              pyodide._api.on_fatal = (err) => {
+                self.postMessage({
+                  type: "fatal",
+                  message: err && err.message ? err.message : String(err)
+                });
+              };
+            }
+
             self.postMessage({ type: "ready" });
 
           } catch (err) {
@@ -601,7 +613,8 @@
 
     _setStatus(
       runtime,
-      status
+      status,
+      extra = {}
     ) {
 
       this._status[runtime] =
@@ -609,7 +622,7 @@
 
       this.dispatchEvent(
         new CustomEvent("statuschange", {
-          detail: { runtime, status }
+          detail: { runtime, status, ...extra }
         })
       );
 
@@ -754,12 +767,28 @@
         // the worker and let the next run() transparently create a
         // fresh one, instead of leaving the caller's Promise (and
         // that cell's Run button) hung forever.
-        worker.addEventListener("error", (event) => {
+        //
+        // Pyodide's fatal trap mostly arrives as a "fatal" message,
+        // not a worker "error" event: Pyodide catches it itself and
+        // the running runPythonAsync() then never settles (reproduced
+        // 2026-10-06 with three article pages running at once) — the
+        // worker reports it through Pyodide's on_fatal hook instead
+        // (see pythonWorkerEntry()). Both lead to the same recovery.
+        const onCrash = (message) => {
+          if (this._python !== worker) {
+            return;
+          }
           console.error(
             "WebGeoDS.Runtime: Python worker hit a fatal error after init — recreating it.",
-            event.message
+            message
           );
-          this.terminatePython();
+          this.terminatePython({ crashed: true });
+        };
+        worker.addEventListener("error", (event) => onCrash(event.message));
+        worker.addEventListener("message", (event) => {
+          if (event.data && event.data.type === "fatal") {
+            onCrash(event.data.message);
+          }
         });
 
         return worker;
@@ -908,7 +937,10 @@
     // TERMINATE PYTHON
     // ==========================================================
 
-    terminatePython() {
+    // crashed: true when Pyodide itself died (a fatal WASM trap), not
+    // a user's Terminate: python.js then retries the interrupted run
+    // once on the fresh worker (see run() there).
+    terminatePython({ crashed = false } = {}) {
 
       if (!this._python) {
         return;
@@ -930,7 +962,8 @@
 
       this._setStatus(
         "python",
-        "idle"
+        "idle",
+        { crashed }
       );
 
     }
