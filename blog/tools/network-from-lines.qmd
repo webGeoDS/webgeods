@@ -201,5 +201,5 @@ total_m = sum(lengths)
 *First run loads the Python engine — expect about a minute. Instant
 after that, and again each time you come back to this page.*
 
-{{< webgeods-tool network-from-lines-tool id=nfl-root min-height=760px vega=true >}}
+{{< webgeods-tool network-from-lines-tool id=nfl-root min-height=760px vega=true d3=true >}}
 

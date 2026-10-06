@@ -11,6 +11,8 @@
                     mounts it, so the page doesn't jump
     vega=true       also loads the Vega scripts, for a page with a chart:
                     page-local, not site-wide (see blog/_quarto.yml)
+    d3=true         also loads d3 and graph-diagram.js, for a force
+                    diagram (ForceGraph): page-local too
 
   The page's code cells stay in the Markdown; `.tool-cell` on each one
   hides it (styles.css).
@@ -42,6 +44,10 @@ return {
       for _, src in ipairs({ "/vega.min.js", "/vega-lite.min.js", "/vega-embed.min.js", "/vega-chart.js" }) do
         table.insert(scripts, "<script src=\"" .. src .. "\"></script>")
       end
+    end
+    if option(kwargs, "d3", "false") == "true" then
+      table.insert(scripts, "<script src=\"/d3.min.js\"></script>")
+      table.insert(scripts, "<script src=\"/graph-diagram.js\"></script>")
     end
     table.insert(scripts, "<script src=\"/webgeods-preact.js\"></script>")
 

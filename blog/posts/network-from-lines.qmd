@@ -428,16 +428,6 @@ real analytical decision, not a technicality to skip past.
   [Coordinate Reference Systems](crs-mismatch.qmd) covers the
   geographic/projected distinction this article leaned on in section 2.
 
-<!-- The interactive parts of this page (upload, map, stat cards, the two
-     graph diagrams, reset) are one Preact component,
-     preact-build/src/pages/NetworkFromLinesLab.js, rendered into the empty
-     #lab-* slots above. It reads the Python/R cells' results; the cells
-     themselves are unchanged. -->
-<div id="lab-root"></div>
-<script src="/webgeods-preact.js"></script>
-<script>
-document.addEventListener("DOMContentLoaded", () =>
-  WebGeoDS.Preact.mount("network-from-lines-lab", "#lab-root"));
-</script>
+{{< webgeods-tool network-from-lines-lab id=lab-root d3=true >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

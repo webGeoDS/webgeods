@@ -736,16 +736,6 @@ class you instantiate *is* the decision, made once, up front.
   [Finding Spatial Clusters with DBSCAN](spatial-clustering.qmd) is
   this family's entry point, unsupervised rather than supervised.
 
-<!-- The interactive parts of this page (upload, map, stat cards, reset,
-     the regression-switch card) are one Preact component,
-     preact-build/src/pages/SpatialClassificationLab.js, rendered into the
-     empty #lab-* slots above. It reads the Python/R cells' results; the
-     cells themselves are unchanged. -->
-<div id="lab-root"></div>
-<script src="/webgeods-preact.js"></script>
-<script>
-document.addEventListener("DOMContentLoaded", () =>
-  WebGeoDS.Preact.mount("spatial-classification-lab", "#lab-root"));
-</script>
+{{< webgeods-tool spatial-classification-lab id=lab-root >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>
