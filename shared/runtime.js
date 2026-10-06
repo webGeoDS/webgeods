@@ -759,8 +759,8 @@
         // fatal error during actual execution (observed in
         // production: Pyodide's own WASM runtime can hit an
         // unrecoverable trap — "RuntimeError: null function" — under
-        // memory/CPU pressure, unrelated to any specific cell's code;
-        // see roadmap-acquisizione.md, 2026-09-10). Once Pyodide
+        // memory/CPU pressure, unrelated to any specific cell's code).
+        // Once Pyodide
         // itself is fatally wrecked, this worker can never complete
         // another request — the only way out is exactly what the
         // manual "Terminate Python" button already does: kill

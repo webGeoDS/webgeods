@@ -46,10 +46,10 @@
      and validity row coloring, chosen for legibility against a
      MapLibre basemap, not for brand consistency. terracotta doesn't
      become "the invalid-feature color" just because it's the brand
-     accent — see roadmap-acquisizione.md's design-tokens entry. */
+     accent. */
   --dataviz-invalid: #e05252;
   --dataviz-valid: #2ea44f;
-  --dataviz-selection: #ffeb3b; /* not in _brand.yml — map.js's row-selection/highlight() yellow, promoted from a literal repeated 6 times with no token at all (see roadmap-acquisizione.md's "Field Atlas" audit) */
+  --dataviz-selection: #ffeb3b; /* not in _brand.yml — the map/table selection yellow */
 }
 
 /* The wordmark's "Geo" segment, wherever "webGeoDs" is written out by

@@ -12,7 +12,7 @@
 //
 // Only the rendered site is touched: the committed bundle
 // (shared/webgeods-preact.js, minified) still comes from ./build.sh, and
-// the blog/ and lessons/ copies from ../sync-shared-assets.sh. A change
+// the blog/ copies from ../sync-shared-assets.sh. A change
 // to a .qmd page still needs `quarto render` of that page.
 import * as esbuild from "esbuild";
 import { copyFileSync, existsSync, watch } from "node:fs";

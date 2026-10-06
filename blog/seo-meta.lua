@@ -7,8 +7,7 @@
   WebSite for the homepage) -- none of this has a native `_quarto.yml`
   option (checked the installed schema directly: no `canonical` key
   anywhere in it), and `open-graph: true` on its own only emits
-  og:title/og:description/og:site_name. See roadmap-acquisizione.md's
-  SEO/navigability audit, 2026-09-06.
+  og:title/og:description/og:site_name.
 
   SITE_URL is a literal here, not read from `website.site-url` --
   quarto.doc doesn't expose project website metadata to a filter (only

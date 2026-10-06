@@ -380,12 +380,7 @@
 
   // ============================================================
   // uploadStatusEl(status, busy) -- the status <span> next to the
-  // upload control. Only reads its two arguments (never assigns a
-  // `mutable` binding), so unlike the rest of the upload wiring this
-  // one has no OJS reactivity constraint stopping it from moving here
-  // -- see roadmap-acquisizione.md's "shared/ui.js" entries for why
-  // the mutable declarations/uploadControl/onChange handler stay in
-  // each tool's own .qmd instead.
+  // upload control.
   // ============================================================
 
   function uploadStatusEl(status, busy) {
@@ -530,100 +525,10 @@
 
 
   // ============================================================
-  // rasterDownloadButton(options) -- the "⬇ Download ..." button for
-  // tools that export a raster (GeoTIFF) rather than GeoJSON. Kept as
-  // its own function rather than a branch of downloadButton() above:
-  // the payload doesn't just serialize in-memory data, it comes from
-  // running a hidden export CodeCell and reading back a base64 value,
-  // which needs a distinct sequence (prepare -> run cell -> read ->
-  // decode -> download). Splitting it out means downloadButton()'s
-  // existing GeoJSON callers are untouched by this addition, same
-  // reasoning as keeping buffer-proximity's ringPaint separate from
-  // matchPaint().
-  //
-  // options: { label, enabled, prepare, cellId, decode, getBaseName,
-  // getFilename, tool, mimeType }.
-  //
-  // `prepare` is the one tool-specific step: a function that sets the
-  // `window.*` globals the export cell reads via `#| inject:`, and
-  // doubles as the live readiness check -- returning `false` aborts
-  // before anything else runs (same as each tool's own
-  // `if (!resultSummary) return;` guard did, checked live at click
-  // time against the tool's own reactive state, not a value closed
-  // over once at button-creation time). `decode` is the caller's own
-  // base64-to-bytes function (already needed locally in every raster
-  // tool to render the live preview overlay, so not worth a second
-  // copy in here). `getFilename(base)` returns the final filename;
-  // `enabled` only drives the initial disabled/enabled look, same
-  // caveat as downloadButton() above.
-  // ============================================================
-
-  function rasterDownloadButton({
-    label = "⬇ Download",
-    enabled,
-    prepare,
-    cellId,
-    decode,
-    getBaseName,
-    getFilename,
-    tool,
-    mimeType = "image/tiff"
-  }) {
-
-    const button =
-      document.createElement("button");
-
-    button.className =
-      "webgeods-panel-btn";
-
-    button.dataset.variant =
-      "outline";
-
-    button.textContent =
-      label;
-
-    button.disabled =
-      !enabled;
-
-    button.onclick =
-      async () => {
-        if (prepare() === false) return;
-        button.disabled = true;
-        const originalText = button.textContent;
-        button.textContent = "⌛ Preparing...";
-        try {
-          await window.WebGeoDS.CodeCell.find(cellId).run();
-          const b64 = document.getElementById(cellId).value;
-          const bytes = decode(b64);
-          const base = getBaseName ? getBaseName() : null;
-          window.WebGeoDS.downloadBlob(
-            bytes,
-            getFilename(base),
-            mimeType,
-            { tool }
-          );
-        } finally {
-          button.disabled = false;
-          button.textContent = originalText;
-        }
-      };
-
-    return button;
-
-  }
-
-
-  // ============================================================
   // createSharedMap({ tool, center, zoom, height }) -- the
-  // WebGeoDS.Map instantiate-and-ready sequence, byte-identical
-  // across every tool except the tracked `tool` name. Not blocked by
-  // any `mutable`/reactivity constraint (it's a plain async factory,
-  // no `mutable` assignment inside it) -- it just hadn't been checked
-  // for duplication yet. Kept top-level here rather than moved into
-  // map.js: this is boilerplate a *caller* of WebGeoDS.Map repeats,
-  // not a change to the Map class itself, and map.js stays untouched
-  // until the Vega-Lite cross-link spec exists (see
-  // roadmap-acquisizione.md).
+  // WebGeoDS.Map instantiate-and-ready sequence (MapView uses it).
+  // Here rather than in map.js: it's what a *caller* of
+  // WebGeoDS.Map does, not part of the class.
   // ============================================================
 
   async function createSharedMap({ tool, center = [12.45, 41.9], zoom = 4, height = "480px" }) {
@@ -673,7 +578,6 @@
   window.WebGeoDS.uploadStatusEl = uploadStatusEl;
   window.WebGeoDS.resetButton = resetButton;
   window.WebGeoDS.downloadButton = downloadButton;
-  window.WebGeoDS.rasterDownloadButton = rasterDownloadButton;
   window.WebGeoDS.createSharedMap = createSharedMap;
   window.WebGeoDS.controlPanelRow = controlPanelRow;
 

@@ -3,13 +3,7 @@
  * Flags shared/*.js files that have grown past a reviewed size
  * budget -- not a hard architectural rule, just a tripwire so a file
  * accumulating unrelated concerns gets a deliberate look before it
- * grows further, instead of drifting unnoticed. shared/map.js is the
- * file this already happened to once (raster rendering and the
- * table/cross-link engine split into map-raster.js/map-table.js,
- * 2026-09-14, after it crossed 2,875 lines) -- still the largest file
- * here (constructor/lifecycle, vector geometry CRUD, highlight/
- * bounds/fit, markers), so still worth a custom, lower budget below
- * rather than the default.
+ * grows further, instead of drifting unnoticed.
  *
  * Budgets are set close to each file's current size (some headroom
  * for normal growth, not so much that real drift goes unflagged). A
@@ -27,17 +21,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const SHARED_DIR = "shared";
-const DEFAULT_BUDGET = 1600; // above code-cell.js's current 1,252, generous for any file not called out below
+const DEFAULT_BUDGET = 1600; // above the largest file (map.js, ~1,480 lines) with some headroom
 
-const BUDGETS = {
-  // map.js was 2,875 lines (99% of a 2,900 budget) before its raster
-  // (map-raster.js) and table/cross-link (map-table.js) methods were
-  // split into their own files, 2026-09-14 -- see roadmap-acquisizione.md.
-  // Still the largest shared/*.js file after the split (constructor/
-  // lifecycle, vector geometry CRUD, highlight/bounds/fit, markers),
-  // so it keeps a custom, still-generous-but-much-smaller budget.
-  "map.js": 2000,
-};
+// Per-file overrides, each with a one-line reason.
+const BUDGETS = {};
 
 function lineCount(filePath) {
   const text = readFileSync(filePath, "utf8");

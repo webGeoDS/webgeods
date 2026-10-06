@@ -2,8 +2,8 @@
  * WebGeoDS.Map
  *
  * MapLibre GL JS wrapper: constructor/lifecycle, vector geometry CRUD
- * (addGeoJSON/setGeoJSON/getGeoJSON/removeGeoJSON), highlight/bounds/
- * fit, markers. Raster rendering (setRasterImage() and friends) is a
+ * (addGeoJSON/setGeoJSON/getGeoJSON/removeGeoJSON), bounds and
+ * fit. Raster rendering (setRasterImage() and friends) is a
  * separate file that extends this same class via prototype
  * augmentation -- see shared/map-raster.js, which must load AFTER
  * this file.
@@ -310,16 +310,12 @@
   // MapLibre's paint expressions need a real color string, not a CSS
   // var() reference — it renders via WebGL/canvas, not the DOM/CSSOM,
   // so it never resolves var() itself the way a stylesheet rule
-  // would. Before this, the palette below was duplicated as literal
-  // hex, hand-copied from shared/styles.css's :root block and already
-  // found to have drifted from it in one spot (addMarkers()'s default
-  // marker color happened to still match --dataviz-invalid, by luck,
-  // not by reference) — see roadmap-acquisizione.md's "Field Atlas"
-  // audit. Reading the custom property directly, on every call rather
-  // than caching, means a future dark-mode toggle (redefining these
+  // would. It reads the custom property itself (not a hex copy of
+  // shared/styles.css's :root block, which can drift), on every call
+  // rather than cached, so a future dark-mode toggle (redefining these
   // under prefers-color-scheme/a [data-theme] attribute) needs no
   // extra invalidation here — this always sees the value that's live
-  // right now. Falls back to the pre-fix literal only if the property
+  // right now. Falls back to the given literal only if the property
   // is somehow unset (styles.css not loaded yet).
   function designToken(name, fallback) {
 
@@ -1011,43 +1007,6 @@
 
 
     // ==========================================================
-    // Update GeoJSON
-    // ==========================================================
-
-    async updateGeoJSON(
-      sourceId,
-      data
-    ) {
-
-      await this.ready();
-
-
-      const source =
-        this.map.getSource(
-          sourceId
-        );
-
-
-      if (!source) {
-
-        throw new Error(
-          `WebGeoDS.Map: source "${sourceId}" not found.`
-        );
-
-      }
-
-
-      source.setData(
-        data
-      );
-
-
-      return this;
-
-    }
-
-
-    // ==========================================================
     // Get GeoJSON
     //
     // Reads a geojson source's CURRENT data (post any setData()
@@ -1265,215 +1224,6 @@
     // see shared/map-raster.js, which adds them to this class via
     // prototype augmentation -- fully self-contained, no shared
     // state needed with the rest of this file.
-
-    // ==========================================================
-    // addMarkers(sourceId, options) / clearMarkers(sourceId)
-    //
-    // Part of the JS-first visualization layer: R/Python answer "what
-    // is this data" (plain GeoJSON, optionally with WebGeoDS diagnostic
-    // properties like `valid`/`reason`/`location` — a convention, not
-    // a requirement `map.js` enforces anywhere), JS/OJS answers "what
-    // should the user see". Deliberately generic — NOT
-    // "showErrors()": this method has no notion of "error", the
-    // calling page decides what a marker means via `options.filter`.
-    //
-    // options.property — shorthand: use `properties[property]` as the
-    // marker's [lng, lat] (a marker is placed for every feature where
-    // that property isn't null/undefined). options.filter/position —
-    // functions, for anything the shorthand doesn't cover:
-    // filter(feature) => bool, position(feature) => [lng, lat].
-    // options.color — passed straight to `maplibregl.Marker`.
-    //
-    // Clears this source's own previous markers first (not other
-    // sources') — same "create if missing, else replace" shape used
-    // throughout this class, so a reactive OJS cell can call this on
-    // every update without accumulating stale markers.
-    // ==========================================================
-
-    addMarkers(
-      sourceId,
-      options = {}
-    ) {
-
-      const {
-        property,
-        filter,
-        position,
-        color = designToken("--dataviz-invalid", "#e05252")
-      } = options;
-
-      const pos =
-        position ??
-        (property ?
-          (feature) => feature.properties?.[property] :
-          null);
-
-      if (!pos) {
-
-        throw new Error(
-          "WebGeoDS.Map: addMarkers() needs options.property or options.position."
-        );
-
-      }
-
-      const filterFn =
-        filter ??
-        ((feature) => pos(feature) != null);
-
-      this.clearMarkers(sourceId);
-
-      const features =
-        this.getGeoJSON(sourceId)?.features ??
-        [];
-
-      const markers =
-        features
-          .filter(filterFn)
-          .map((feature) =>
-            new window.maplibregl.Marker({ color })
-              .setLngLat(pos(feature))
-              .addTo(this.map)
-          );
-
-      this._markers ??=
-        new Map();
-
-      this._markers.set(
-        sourceId,
-        markers
-      );
-
-      return this;
-
-    }
-
-    clearMarkers(
-      sourceId
-    ) {
-
-      const markers =
-        this._markers?.get(sourceId);
-
-      if (markers) {
-
-        markers.forEach(
-          (marker) => marker.remove()
-        );
-
-        this._markers.delete(sourceId);
-
-      }
-
-      return this;
-
-    }
-
-
-    // ==========================================================
-    // highlight(sourceId, featureIds, options) / clearHighlights(sourceId)
-    //
-    // A DEDICATED overlay layer (`${sourceId}__highlight`), not a
-    // mutation of the base layer's own paint/filter — undoing a paint
-    // override in place would mean reconstructing whatever the paint
-    // was before, which this class doesn't track. An extra layer
-    // needs no such bookkeeping: clearHighlights() just removes it.
-    //
-    // Matches features by their GeoJSON top-level `id` (MapLibre's own
-    // `["id"]` expression), not a properties key — the standard
-    // MapLibre way to identify a feature, not a WebGeoDS convention.
-    // Layer type/paint default to whatever `_detectGeometryType()`
-    // already infers for this source's data (fill/line/circle), same
-    // as `addGeoJSON()` uses — overridable via options.paint.
-    // ==========================================================
-
-    highlight(
-      sourceId,
-      featureIds,
-      options = {}
-    ) {
-
-      const highlightLayerId =
-        `${sourceId}__highlight`;
-
-      const layerType =
-        options.type ??
-        this._detectGeometryType(
-          this.getGeoJSON(sourceId)
-        );
-
-      const selection =
-        designToken("--dataviz-selection", "#ffeb3b");
-
-      const paint =
-        options.paint ??
-        (layerType === "line" ?
-          { "line-color": selection, "line-width": 6 } :
-          layerType === "circle" ?
-            { "circle-color": selection, "circle-radius": 8 } :
-            { "fill-color": selection, "fill-opacity": 0.6 });
-
-      const filter =
-        ["in", ["id"], ["literal", featureIds]];
-
-      if (
-        this.map.getLayer(
-          highlightLayerId
-        )
-      ) {
-
-        this.map.setFilter(
-          highlightLayerId,
-          filter
-        );
-
-      } else {
-
-        this.map.addLayer({
-
-          id:
-            highlightLayerId,
-
-          type:
-            layerType,
-
-          source:
-            sourceId,
-
-          paint,
-
-          filter
-
-        });
-
-      }
-
-      return this;
-
-    }
-
-    clearHighlights(
-      sourceId
-    ) {
-
-      const highlightLayerId =
-        `${sourceId}__highlight`;
-
-      if (
-        this.map.getLayer(
-          highlightLayerId
-        )
-      ) {
-
-        this.map.removeLayer(
-          highlightLayerId
-        );
-
-      }
-
-      return this;
-
-    }
-
 
     // ==========================================================
     // Calculate GeoJSON bounds

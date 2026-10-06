@@ -155,7 +155,7 @@ website:
       - about.qmd
     # Five groups per dropdown: "Vector" (renamed 2026-09-11 from
     # "Spatial Data Quality" once Buffer joined it as this group's
-    # first non-quality-check tool — see roadmap-acquisizione.md),
+    # first non-quality-check tool),
     # "Raster" (started 2026-09-06), "GeoML" (started 2026-09-09),
     # "Network" (started 2026-09-12), and "GeoStatistics" (started
     # 2026-09-17) —
@@ -179,8 +179,7 @@ format:
     # `quarto render` that embed-resources:true silently suppresses
     # RSS feed generation (feed: true on the index.qmd listing then
     # produces no index.xml, no warning). It also isn't needed here —
-    # per piano-separazione-blog-lezioni.md §3, embed-resources:true
-    # is a lessons/-only requirement (single self-contained HTML for
+    # embed-resources:true is a lessons/-only requirement (single self-contained HTML for
     # a cross-origin Teachable iframe); the blog is meant to be
     # discoverable/shareable, the opposite goal, so separate files
     # (shared via _site/site_libs across pages) are the correct

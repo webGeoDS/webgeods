@@ -7,7 +7,7 @@
 # Usage: ./build.sh
 #
 # After building: run ../sync-shared-assets.sh (copies the bundle into
-# blog/ and lessons/) before rendering, like any other shared/ file.
+# blog/) before rendering, like any other shared/ file.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

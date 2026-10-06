@@ -69,11 +69,11 @@
   // Safari, never treated as "low" when absent) reports a coarse,
   // ROUNDED device-capability tier (0.25/0.5/1/2/4/8 GB), not live
   // available RAM — it can't detect transient pressure from other
-  // open tabs/apps (that's what actually caused the fatal Pyodide
-  // crash investigated 2026-09-10, see roadmap-acquisizione.md), only
-  // flag a genuinely low-spec device up front. Complementary to, not
-  // a fix for, that crash — real recovery from it is
-  // runtime.js's post-init worker error listener. <= 2 catches the
+  // open tabs/apps (what triggers Pyodide's intermittent fatal
+  // crash), only flag a genuinely low-spec device up front.
+  // Complementary to, not a fix for, that crash — recovery from it is
+  // runtime.js's fatal-crash handling (worker recreated, run retried
+  // by python.js). <= 2 catches the
   // three lowest reported tiers (0.25/0.5/1/2).
   const LOW_DEVICE_MEMORY_GB = 2;
   const lowMemoryWarning =

@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Copies the files from shared/ into blog/ and lessons/ before rendering.
+# Copies the files from shared/ into blog/ (and lessons/, once it has
+# lessons) before rendering.
 # shared/ is not a Quarto project: it's just the single source of truth.
 # Run this every time a file in shared/ is modified, before
-# `quarto render` (see piano-separazione-blog-lezioni.md §4).
+# `quarto render`.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHARED_DIR="$SCRIPT_DIR/shared"
-TARGET_DIRS=("$SCRIPT_DIR/blog" "$SCRIPT_DIR/lessons")
+# lessons/ has no lessons yet: add "$SCRIPT_DIR/lessons" back here with
+# the first one (lessons/_quarto.yml already lists what it loads).
+TARGET_DIRS=("$SCRIPT_DIR/blog")
 
 FILES=(
   runtime.js

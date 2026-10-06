@@ -219,7 +219,7 @@
 
     // Live elapsed-time counter instead of a static "this usually
     // takes 30-40s" prediction: a cold engine boot measured 40-220s+
-    // in real testing (see roadmap-acquisizione.md, 2026-09-10), and
+    // in real testing, and
     // any single number is wrong for someone — a first-time Pyodide/
     // webR boot is genuinely one of the slower things this site does,
     // varying by device/network far more than a typical page load.

@@ -36,8 +36,6 @@
 // as if they were page content (confirmed empirically: e.g. a search
 // on "topology" surfacing raw source like "topology-checker.qmd's
 // sliders -- referencing this OJS variable ... targetCrsControl").
-// See roadmap-acquisizione.md's SEO/navigability audit, 2026-09-06.
-//
 // No Quarto config exists for this (no per-cell search-exclude
 // option; `search: false` in front matter excludes the WHOLE page).
 // This script re-derives each section's indexed text directly from

@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 /**
- * Enforces the site's own tool/article convention (see
- * roadmap-acquisizione.md, 2026-09-09 entry, and the site's own
- * architecture review): every tool in blog/tools/ ships fixed,
+ * Enforces the site's own tool/article convention: every tool in blog/tools/ ships fixed,
  * single-language code; every article in blog/posts/ shows both
  * Python and R as real, editable, executable cells, side by side.
  *

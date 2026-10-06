@@ -169,7 +169,7 @@ async function main() {
     if (!ok) throw new Error("find() still returned the failed instance");
   });
 
-  console.log("\naddGeoJSON / updateGeoJSON / setGeoJSON / removeGeoJSON");
+  console.log("\naddGeoJSON / setGeoJSON / removeGeoJSON");
 
   await check("addGeoJSON — autodetect circle/line/fill", async () => {
     const result = await page.evaluate(async (fixtures) => {
@@ -202,20 +202,6 @@ async function main() {
       }
     }, POINT);
     if (!threw) throw new Error("did not throw on duplicate source");
-  });
-
-  await check("updateGeoJSON — updates, throws if the source doesn't exist", async () => {
-    const { updated, threw } = await page.evaluate(async (fixtures) => {
-      const m = new window.WebGeoDS.Map({});
-      await m.ready();
-      await m.addGeoJSON("upd", fixtures.point);
-      await m.updateGeoJSON("upd", fixtures.line);
-      let threw = false;
-      try { await m.updateGeoJSON("non-esiste", fixtures.point); } catch { threw = true; }
-      return { updated: m.map.getSource("upd") !== undefined, threw };
-    }, { point: POINT, line: LINE });
-    if (!updated) throw new Error("source not found after the update");
-    if (!threw) throw new Error("did not throw on nonexistent source");
   });
 
   await check("setGeoJSON — creates if absent, updates if present", async () => {
