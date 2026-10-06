@@ -17,7 +17,7 @@
 //   extra     { name: cellId }: other cells whose values slots read
 //   upload    options for WebGeoDS.Upload.load (e.g. { languages: ["python", "r"] })
 //   uploadKind "vector" (default) or "raster": what the upload control accepts
-//   map       { center, zoom, height, layers: (value, lang) => [...], fit: (value) => FC,
+//   map       { center, zoom, height, layers: (value, lang, state) => [...], fit: (value) => FC,
 //               mode: "latest" (only the language that ran last) | "both" (each on
 //               its own layers, the one that ran last on top) | "py" or "r" (that
 //               language only, when the other would just draw the same shapes) }
@@ -108,7 +108,7 @@ export function ArticleLab({ config }) {
       : ranLanguages.slice(-1);
   const onMap = shown.length ? results[shown.at(-1)] : null;
   const tableIds = new Set(Object.values(tables).map((t) => t.id));
-  const layers = shown.flatMap((lang) => map.layers(results[lang], lang)).map((layer) => (
+  const layers = shown.flatMap((lang) => map.layers(results[lang], lang, state)).map((layer) => (
     tableIds.has(layer.id) ? { ...layer, onClick: (feature) => select(layer.id, featureKey(layer.id, feature, -1)) } : layer
   ));
   if (tableIds.size) layers.push(selectionLayer(SELECTION_LAYER, selectedFeature ? [selectedFeature] : []));

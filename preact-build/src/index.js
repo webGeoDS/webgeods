@@ -41,6 +41,10 @@ import { NdviCalculatorTool } from "./pages/NdviCalculatorTool.js";
 import { RasterNdviLab } from "./pages/RasterNdviLab.js";
 import { ViewshedCalculatorTool } from "./pages/ViewshedCalculatorTool.js";
 import { RasterViewshedLab } from "./pages/RasterViewshedLab.js";
+import { KrigingInterpolatorTool } from "./pages/KrigingInterpolatorTool.js";
+import { KrigingSoilSamplingLab } from "./pages/KrigingSoilSamplingLab.js";
+import { RasterGapFillerTool } from "./pages/RasterGapFillerTool.js";
+import { CokrigingLab } from "./pages/CokrigingLab.js";
 import { DomNode } from "./components/DomNode.js";
 import { MapView } from "./components/MapView.js";
 import { DataTable, featureRows, featureKey } from "./components/DataTable.js";
@@ -83,7 +87,11 @@ const PAGES = {
   "ndvi-calculator-tool": NdviCalculatorTool,
   "raster-ndvi-lab": RasterNdviLab,
   "viewshed-calculator-tool": ViewshedCalculatorTool,
-  "raster-viewshed-lab": RasterViewshedLab
+  "raster-viewshed-lab": RasterViewshedLab,
+  "kriging-interpolator-tool": KrigingInterpolatorTool,
+  "kriging-soil-sampling-lab": KrigingSoilSamplingLab,
+  "raster-gap-filler-tool": RasterGapFillerTool,
+  "cokriging-lab": CokrigingLab
 };
 
 function mount(name, target, props = {}) {

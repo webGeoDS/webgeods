@@ -34,6 +34,25 @@ const EMPTY = { type: "FeatureCollection", features: [] };
 
 const RASTER_METHODS = { ramp: "setRasterImage", rgb: "setRasterRGBImage", bicolor: "setRasterBicolorImage" };
 
+// Two rasters are the same when their typed arrays are the same objects
+// and every other setting is equal.
+function sameRaster(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    const [x, y] = [a[key], b[key]];
+    if (x === y) continue;
+    if (ArrayBuffer.isView(x) || ArrayBuffer.isView(y)) return false;
+    if (x && y && typeof x === "object" && typeof y === "object" && (x.values || y.values)) {
+      if (!sameRaster(x, y)) return false; // an RGB / bicolor channel
+      continue;
+    }
+    if (JSON.stringify(x) !== JSON.stringify(y)) return false;
+  }
+  return true;
+}
+
 // Whether a layer has anything to draw (and so a checkbox).
 export const hasData = (layer) =>
   layer.type === "raster" ? !!layer.raster : !!layer.data?.features?.length;
@@ -119,7 +138,9 @@ export function MapView({ tool, height, center, zoom, layers = [], fitTo, onRead
 
         if (layer.type === "raster") {
           const previous = pushed.current.get(layer.id);
-          if (previous?.data !== layer.raster) {
+          // Same arrays and settings: nothing to redraw, even if the
+          // raster object itself was rebuilt.
+          if (!sameRaster(previous?.data, layer.raster) || previous?.render !== layer.render) {
             if (layer.raster) {
               const method = RASTER_METHODS[layer.render ?? "ramp"];
               if (!method) throw new Error(`MapView: unknown raster render "${layer.render}" (ramp, rgb or bicolor).`);
@@ -127,7 +148,7 @@ export function MapView({ tool, height, center, zoom, layers = [], fitTo, onRead
             } else {
               await map.removeRasterImage(layer.id);
             }
-            pushed.current.set(layer.id, { data: layer.raster ?? null, type: "raster" });
+            pushed.current.set(layer.id, { data: layer.raster ?? null, render: layer.render, type: "raster" });
           }
           continue;
         }

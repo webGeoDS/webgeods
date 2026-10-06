@@ -28,38 +28,8 @@ A point file (`.geojson`, or a shapefile as a single `.zip` or as
 `.shp`/`.dbf`/`.shx` selected together) with a numeric column: soil
 moisture, pH, anything measured at scattered locations.
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; },
-  kind: "vector"
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["r"] });
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 ## 2. Why fit a variogram, instead of just averaging nearby points?
 
@@ -106,81 +76,11 @@ Kriging asks it, in three steps this article builds up one at a time:
 
 ## 3. Shared map
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.45, 41.885], zoom: 13, height: "480px" });
-  await map.ready();
-  return map;
-}
-```
+::: {#lab-map style="min-height: 500px;"}
+:::
 
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
-
-```{ojs}
-//| echo: false
-legendEl = {
-  // predictResult's own raster min/max once it exists (the actual
-  // post-kriging range); until then, modelResult's valueMin/valueMax
-  // (the raw sample range the R cell already computed to color points
-  // with) -- shown from the moment points are colored, not held back
-  // until the second cell (predicting the surface) has also run.
-  const p = predictResult;
-  const m = modelResult;
-  const range = p ? p.raster : (m ? { min: m.summary.valueMin, max: m.summary.valueMax } : null);
-  if (!range) {
-    const wrap = document.createElement("div");
-    wrap.className = "webgeods-legend";
-    wrap.hidden = true;
-    return wrap;
-  }
-  // A continuous gradient bar (WebGeoDS.legend()'s {gradient, minLabel,
-  // maxLabel} shape, same convention raster-ndvi.qmd's own article
-  // uses), not discrete swatches: both the points and the surface are
-  // colored by an interpolated ramp, so a handful of fixed categories
-  // would misrepresent it.
-  return WebGeoDS.legend({ gradient: KRIGE_RAMP, minLabel: `${range.min}%`, maxLabel: `${range.max}%` });
-}
-```
-
-${legendEl}
-
-```{ojs}
-//| echo: false
-//| output: false
-KRIGE_RAMP = [
-  [0.00, 166, 97, 26],
-  [0.25, 223, 194, 125],
-  [0.50, 245, 245, 245],
-  [0.75, 128, 205, 193],
-  [1.00, 1, 133, 113]
-]
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-base64ToBytes = (base64Str) => {
-  const binary = atob(base64Str);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-```
-
-```{ojs}
-//| echo: false
-mutable modelResult = null
-```
-
-```{ojs}
-//| echo: false
-mutable predictResult = null
-```
+::: {#lab-legend}
+:::
 
 ## 4. Compute: fit the model in R — runnable here; Python — reference only
 
@@ -348,84 +248,8 @@ print(ok.variogram_model_parameters)  # [sill, range, nugget]
 
 :::
 
-```{ojs}
-//| echo: false
-//| output: false
-aCompute = WebGeoDS.getCellValue("kriging-model-r", Generators)
-{
-  if (aCompute && aCompute.summary) {
-    const s = aCompute.summary;
-    // Same 5-stop ramp as KRIGE_RAMP above (not a crude 3-stop linear
-    // version) so a point's fill is the exact color the surface would
-    // show at that spot -- a 3-stop version made most points (anything
-    // near the middle of the range) render almost pure white, which
-    // read as "not colored at all" against the light basemap. The
-    // heavier stroke keeps every point visible as a distinct marker
-    // even at that near-white midpoint.
-    const valueStep = (s.valueMax - s.valueMin) / 4;
-    await sharedMap.setGeoJSON("kriging-r-points", aCompute.samplePoints, {
-      type: "circle",
-      paint: {
-        "circle-radius": 6,
-        "circle-color": [
-          "interpolate", ["linear"], ["get", "value"],
-          s.valueMin, "rgb(166,97,26)",
-          s.valueMin + valueStep, "rgb(223,194,125)",
-          s.valueMin + valueStep * 2, "rgb(245,245,245)",
-          s.valueMin + valueStep * 3, "rgb(128,205,193)",
-          s.valueMax, "rgb(1,133,113)"
-        ],
-        "circle-stroke-color": "#2a2117",
-        "circle-stroke-width": 1.5
-      }
-    });
-    await sharedMap.fitToData(aCompute.samplePoints);
-    mutable modelResult = aCompute;
-    // A freshly fit model invalidates any surface predicted from a
-    // PREVIOUS model (re-running this cell with different data, say)
-    // -- same reasoning every hand-wired tool's own upload handler
-    // uses when new data arrives.
-    await sharedMap.removeRasterImage("kriging-r-surface");
-    mutable predictResult = null;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-statCardPart1 = {
-  const m = modelResult;
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-
-  if (!m) {
-    row("Result", "—");
-    return box;
-  }
-
-  const s = m.summary;
-  row("Points used", s.count.toLocaleString());
-  row("Calculation CRS", s.calculationCrs);
-  row("Value column", s.valueColumn);
-  row("Nugget", s.nugget);
-  row("Partial sill", s.partialSill);
-  row("Range (m)", s.range);
-
-  return box;
-}
-```
-
-${statCardPart1}
+::: {#lab-model}
+:::
 
 ## 5. The variogram, and predicting the surface
 
@@ -435,147 +259,8 @@ halving is why the axis says *semivariance*, not just *variance*). The
 line is the spherical model fit to them, with its own nugget, sill,
 and range marked directly on the chart.
 
-```{ojs}
-//| echo: false
-variogramChart = {
-  const m = modelResult;
-  const width = 640, height = 220, margin = { top: 20, right: 20, bottom: 36, left: 46 };
-
-  const svg = d3.create("svg")
-    .attr("viewBox", [0, 0, width, height])
-    .attr("width", "100%")
-    .attr("height", height);
-
-  if (!m) {
-    svg.append("text")
-      .attr("x", width / 2).attr("y", height / 2)
-      .attr("text-anchor", "middle")
-      .attr("fill", "#8a8378")
-      .text("Run the R cell above to see the variogram.");
-    return svg.node();
-  }
-
-  const s = m.summary;
-  const nugget = s.nugget;
-  const sill = s.nugget + s.partialSill;
-  const range = s.range;
-
-  const emp = m.variogram.empirical.dist.map((d, i) => ({ dist: d, gamma: m.variogram.empirical.gamma[i], npairs: m.variogram.empirical.npairs[i] }));
-  const fit = m.variogram.fitted.dist.map((d, i) => ({ dist: d, gamma: m.variogram.fitted.gamma[i] }));
-
-  const x = d3.scaleLinear()
-    .domain([0, d3.max([...emp, ...fit, { dist: range }], (d) => d.dist)])
-    .range([margin.left, width - margin.right]);
-  const y = d3.scaleLinear()
-    .domain([0, d3.max([...emp, ...fit, { gamma: sill }], (d) => d.gamma) * 1.1])
-    .range([height - margin.bottom, margin.top]);
-
-  svg.append("g")
-    .attr("transform", `translate(0,${height - margin.bottom})`)
-    .call(d3.axisBottom(x).ticks(6))
-    .append("text")
-    .attr("x", width - margin.right).attr("y", 32)
-    .attr("fill", "#2a2117").attr("text-anchor", "end")
-    .text("Distance (m)");
-
-  svg.append("g")
-    .attr("transform", `translate(${margin.left},0)`)
-    .call(d3.axisLeft(y).ticks(5))
-    .append("text")
-    .attr("x", -margin.left).attr("y", margin.top - 6)
-    .attr("fill", "#2a2117").attr("text-anchor", "start")
-    .text("Semivariance");
-
-  // Reference lines for the three numbers the stat card above also
-  // reports -- nugget/sill as flat dashed horizontals, range as a
-  // dashed vertical. Drawn BEFORE the curve/points below, so they sit
-  // behind the data like a normal gridline; their text labels are
-  // drawn LAST instead (after the curve/points), each on a small pale
-  // pill (measured via getBBox() once the text exists, then a <rect>
-  // inserted just before it) so the number stays legible even where
-  // the fitted curve or a point would otherwise cross right through
-  // it.
-  const refLine = (x1, y1, x2, y2) => {
-    svg.append("line")
-      .attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2)
-      .attr("stroke", "#8a8378").attr("stroke-dasharray", "4,3");
-  };
-  refLine(margin.left, y(nugget), width - margin.right, y(nugget));
-  refLine(margin.left, y(sill), width - margin.right, y(sill));
-  refLine(x(range), margin.top, x(range), height - margin.bottom);
-
-  svg.append("path")
-    .datum(fit)
-    .attr("fill", "none")
-    .attr("stroke", "#ab502b")
-    .attr("stroke-width", 2)
-    .attr("d", d3.line().x((d) => x(d.dist)).y((d) => y(d.gamma)));
-
-  svg.append("g")
-    .selectAll("circle")
-    .data(emp)
-    .join("circle")
-    .attr("cx", (d) => x(d.dist))
-    .attr("cy", (d) => y(d.gamma))
-    .attr("r", 5)
-    .attr("fill", "#42583c")
-    .append("title")
-    .text((d) => `distance ${d.dist}m, semivariance ${d.gamma}, ${d.npairs} pairs`);
-
-  const pillLabel = (px, py, anchor, text) => {
-    const t = svg.append("text")
-      .attr("x", px).attr("y", py)
-      .attr("text-anchor", anchor)
-      .attr("dominant-baseline", "middle")
-      .attr("fill", "#5b5347").attr("font-size", 11).attr("font-weight", 600)
-      .text(text);
-    const box = t.node().getBBox();
-    // White, not the page's own #eee5d2 cream -- that matched the
-    // surrounding background almost exactly, so the "pill" was really
-    // there but provided zero contrast, leaving the text sitting
-    // directly on the gridline/curve with nothing to separate it,
-    // exactly the "not well formatted" problem this was meant to fix.
-    svg.insert("rect", () => t.node())
-      .attr("x", box.x - 4).attr("y", box.y - 2)
-      .attr("width", box.width + 8).attr("height", box.height + 4)
-      .attr("rx", 3)
-      .attr("fill", "#fffdf8").attr("stroke", "#d8cdb8").attr("stroke-width", 1);
-  };
-
-  // d3.create() built a DETACHED svg -- getBBox() inside pillLabel()
-  // above returns all zeros in that state (found live: every pill
-  // rendered 8x4px near the origin instead of wrapping its own text,
-  // which is what actually made the labels unreadable), because
-  // nothing detached from the document has a real layout yet.
-  // Attached off-screen for these three calls only, then detached
-  // again immediately after -- OJS's own mount of the node this
-  // function returns (${variogramChart} below) is a separate, later
-  // append() that will show it in the right place regardless.
-  document.body.appendChild(svg.node());
-  svg.style("position", "absolute").style("visibility", "hidden").style("left", "-9999px");
-
-  // Nugget at the LEFT edge (it's defined AT distance zero) and sill
-  // at the RIGHT edge -- opposite corners, so the two never collide
-  // even when close together in value.
-  pillLabel(margin.left + 6, y(nugget), "start", `nugget ${nugget}`);
-  pillLabel(width - margin.right - 6, y(sill), "end", `sill ${sill}`);
-
-  // Range's label sits just above the x-axis rather than near the
-  // top, so it never competes with the sill label above -- anchored
-  // away from whichever edge the line itself is closest to, so it
-  // never runs off the chart.
-  const rangeAnchor = x(range) > width - margin.right - 60 ? "end" : "start";
-  const rangeDx = rangeAnchor === "end" ? -6 : 6;
-  pillLabel(x(range) + rangeDx, height - margin.bottom - 12, rangeAnchor, `range ${range}m`);
-
-  svg.node().remove();
-  svg.style("position", null).style("visibility", null).style("left", null);
-
-  return svg.node();
-}
-```
-
-${variogramChart}
+::: {#lab-variogram}
+:::
 
 Once the model above looks right, predict the surface itself:
 
@@ -678,59 +363,8 @@ z, variance = ok.execute("grid", grid_lon, grid_lat)
 
 :::
 
-```{ojs}
-//| echo: false
-//| output: false
-bCompute = WebGeoDS.getCellValue("kriging-predict-r", Generators)
-{
-  if (bCompute && bCompute.raster) {
-    const r = bCompute.raster;
-    await sharedMap.setRasterImage("kriging-r-surface", {
-      bounds: r.wgs84Bounds,
-      width: r.width,
-      height: r.height,
-      values: new Float32Array(base64ToBytes(r.data).buffer),
-      min: r.min,
-      max: r.max,
-      colorRamp: KRIGE_RAMP
-    });
-    // Points on top of the surface -- see the tool's own moveLayer()
-    // comment: setRasterImage() always adds its layer above whatever
-    // already exists, which would otherwise hide the actual
-    // measurements under the interpolated colors.
-    sharedMap.map.moveLayer("kriging-r-points");
-    mutable predictResult = bCompute;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-statCardPart2 = {
-  const p = predictResult;
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  if (!p) {
-    box.hidden = true;
-    return box;
-  }
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-  const s = p.summary;
-  row("Grid cells", s.gridCellCount.toLocaleString());
-  row("Mean prediction variance", s.meanVariance);
-  return box;
-}
-```
-
-${statCardPart2}
+::: {#lab-prediction}
+:::
 
 ## 6. Why Python is reference-only here {#why-python-is-reference-only-here}
 
@@ -770,5 +404,7 @@ page.
   holes, optionally using a second band as a covariate.
 
 First tool in the GeoStatistics family; more are planned.
+
+{{< webgeods-tool kriging-soil-sampling-lab id=lab-root vega=true >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

@@ -12,7 +12,7 @@ const KNOWN = {
   categories: ["field", "values", "label"],
   side: ["id", "placeholder", "panels"],
   diagram: ["kind", "nodes", "links", "color", "idField", "height"],
-  chart: ["kind", "spec", "selectParams", "externalParam", "keyField", "toKey", "fromKey", "height"],
+  chart: ["kind", "spec", "selectParams", "externalParam", "keyField", "toKey", "fromKey", "height", "onRender"],
   bars: ["kind", "title", "counts", "tick", "axis", "height"],
   carousel: ["kind", "items", "height"],
   note: ["kind", "text", "height"],

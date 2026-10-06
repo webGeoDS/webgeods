@@ -48,7 +48,8 @@
 //   side                   { id, placeholder, panels: [
 //                            { kind: "diagram", nodes, links, color, idField, height }
 //                            | { kind: "chart", spec, selectParams, externalParam, keyField,
-//                                toKey: (selection, features) => key, fromKey: (key) => selection, height }
+//                                toKey: (selection, features) => key, fromKey: (key) => selection, height,
+//                                onRender: (container) => void }
 //                            | { kind: "bars", title, counts: (data) => [one per category],
 //                                tick: (value) => axis label, axis: { x, y }, height }
 //                            | { kind: "carousel", items: (data) => [{ title, spec }], height }
@@ -68,7 +69,8 @@
 //   legendExtra(data, ctx) any extra items
 //
 // data is { inspect, result, resultInputs } (the inputs result was
-// computed with); ctx is { selection, selected, categories }
+// computed with); ctx is { selection, selected, categories, inputs } (the
+// inputs as set now: a preview that follows them before any compute)
 // (selected: the matched features). Unknown fields are reported in the
 // console (configCheck.js); the ToolConfig type below gives VS Code
 // autocompletion in a page that declares
@@ -168,7 +170,7 @@ export function ToolDashboard({ config }) {
   const selectedCollection = useMemo(() => ({ type: "FeatureCollection", features: selected }), [selected]);
   const selectedKeys = selected.map((f) => featureKey(selectable.id, f, pool.features.indexOf(f)));
   const categories = useMemo(() => makeCategories(config.categories, data), [data]); // eslint-disable-line react-hooks/exhaustive-deps
-  const ctx = { selection, selected, categories };
+  const ctx = { selection, selected, categories, inputs };
 
   useEffect(() => {
     if (selectable?.fit && selected.length) setFitTo(selectedCollection);
@@ -188,7 +190,7 @@ export function ToolDashboard({ config }) {
     // Drawn as a fill, a line or circles by the selected geometry.
     if (selectable) list.push(selectionLayer(selectable.layer, selected, selectable.paint?.(data, ctx)));
     return list;
-  }, [data, selection, selectedCollection]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, selection, selectedCollection, inputs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // What tool-smoke.mjs reads to test any tool from its own config.
   const exposed = (window.WebGeoDS.Preact.tools ??= {});
@@ -376,7 +378,7 @@ function renderPanel(panel, chart, data, { selection, selected, select, setSelec
     height: panel.height,
     node: (
       <VegaChart spec={chart.spec} selectParams={chart.selectParams} externalParam={chart.externalParam}
-        keyField={chart.keyField} style={panel.height ? { height: "100%" } : undefined}
+        keyField={chart.keyField} onRender={panel.onRender} style={panel.height ? { height: "100%" } : undefined}
         selected={selection ? chart.toKey(selection, selected) : null}
         // The chart's own point selection already toggles: a second click
         // on the same bar reports null.

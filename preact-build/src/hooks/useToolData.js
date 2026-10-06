@@ -46,8 +46,17 @@ import { useCellRunner } from "./useCellRunner.js";
 
 export const base64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
-// A raster band sent by a cell as base64 float32 bytes.
-export const base64ToFloat32 = (b64) => new Float32Array(base64ToBytes(b64).buffer);
+// A raster band sent by a cell as base64 float32 bytes. The last few
+// are kept: layers are rebuilt on every input change, and the same band
+// must decode to the same array (MapView then knows nothing changed).
+const decoded = new Map();
+export const base64ToFloat32 = (b64) => {
+  if (!decoded.has(b64)) {
+    decoded.set(b64, new Float32Array(base64ToBytes(b64).buffer));
+    if (decoded.size > 8) decoded.delete(decoded.keys().next().value);
+  }
+  return decoded.get(b64);
+};
 
 export function useToolData({
   tool,

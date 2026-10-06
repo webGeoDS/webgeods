@@ -30,38 +30,8 @@ want filled (has real gaps, NoData cells), one that doesn't. That
 second band is the covariate: elevation, another spectral band,
 anything correlated with the first.
 
-```{ojs}
-//| echo: false
-mutable uploadedFiles = null
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-uploadControl = WebGeoDS.Upload.createControl({
-  label: "Upload",
-  onChange: (files) => { mutable uploadedFiles = files; },
-  kind: "raster"
-})
-```
-
-${uploadControl}
-
-```{ojs}
-//| echo: false
-mutable uploadStatus = WebGeoDS.Upload.defaultStatus
-```
-
-${uploadStatus}
-
-```{ojs}
-//| echo: false
-//| output: false
-{
-  const result = await WebGeoDS.Upload.load(uploadedFiles, { languages: ["r"] });
-  mutable uploadStatus = result.message;
-}
-```
+::: {#lab-upload}
+:::
 
 ## 2. Why a covariate band helps
 
@@ -89,71 +59,11 @@ the standalone tool) leaves those cells empty rather than guessing.
 
 ## 3. Shared map
 
-```{ojs}
-//| echo: false
-//| output: false
-sharedMap = {
-  const map = new window.WebGeoDS.Map({ center: [12.45, 41.91], zoom: 13, height: "480px" });
-  await map.ready();
-  return map;
-}
-```
+::: {#lab-map style="min-height: 500px;"}
+:::
 
-```{ojs}
-//| echo: false
-sharedMapEl = sharedMap.element
-```
-
-```{ojs}
-//| echo: false
-legendEl = {
-  const p = predictResult;
-  const f = fitResult;
-  const range = p ? p.raster : (f ? f.raster : null);
-  if (!range) {
-    const wrap = document.createElement("div");
-    wrap.className = "webgeods-legend";
-    wrap.hidden = true;
-    return wrap;
-  }
-  return WebGeoDS.legend({ gradient: FILL_RAMP, minLabel: `${range.min}`, maxLabel: `${range.max}` });
-}
-```
-
-${legendEl}
-
-```{ojs}
-//| echo: false
-//| output: false
-FILL_RAMP = [
-  [0.00, 68, 1, 84],
-  [0.25, 59, 82, 139],
-  [0.50, 33, 144, 140],
-  [0.75, 94, 201, 98],
-  [1.00, 253, 231, 37]
-]
-```
-
-```{ojs}
-//| echo: false
-//| output: false
-base64ToBytes = (base64Str) => {
-  const binary = atob(base64Str);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-```
-
-```{ojs}
-//| echo: false
-mutable fitResult = null
-```
-
-```{ojs}
-//| echo: false
-mutable predictResult = null
-```
+::: {#lab-legend}
+:::
 
 ## 4. Compute: fit the model in R — runnable here; Python — reference only
 
@@ -385,65 +295,8 @@ here](#why-python-takes-a-different-approach-here).
 
 :::
 
-```{ojs}
-//| echo: false
-//| output: false
-aFit = WebGeoDS.getCellValue("cokriging-fit-r", Generators)
-{
-  if (aFit && aFit.raster) {
-    const r = aFit.raster;
-    await sharedMap.setRasterImage("cokriging-target-raw", {
-      bounds: r.wgs84Bounds,
-      width: r.width,
-      height: r.height,
-      values: new Float32Array(base64ToBytes(r.data).buffer),
-      min: r.min,
-      max: r.max,
-      colorRamp: FILL_RAMP
-    });
-    mutable fitResult = aFit;
-    // A freshly fit model invalidates any fill predicted from a
-    // PREVIOUS one -- same reasoning the kriging article's own upload
-    // handler uses when new data arrives.
-    await sharedMap.removeRasterImage("cokriging-target-filled");
-    mutable predictResult = null;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-statCardPart1 = {
-  const f = fitResult;
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-  if (!f) {
-    row("Result", "—");
-    return box;
-  }
-  const s = f.summary;
-  row("Target band", s.targetBand);
-  row("Covariate band", s.covariateBand);
-  row("Pixels used to fit", s.coFitPixels.toLocaleString());
-  row("Nugget", s.nugget);
-  row("Partial sill", s.partialSill);
-  row("Range", s.range);
-  row("Sample mean", s.sampleMean);
-  row("Sample variance", s.sampleVariance);
-  return box;
-}
-```
-
-${statCardPart1}
+::: {#lab-fit}
+:::
 
 ## 5. The target's own variogram
 
@@ -457,122 +310,8 @@ separately here. But it's the piece that carries over directly from
 ordinary kriging, and the one place this article's chart can show
 something the reader already knows how to read.
 
-```{ojs}
-//| echo: false
-variogramChart = {
-  const f = fitResult;
-  const width = 640, height = 220, margin = { top: 20, right: 20, bottom: 36, left: 46 };
-
-  const svg = d3.create("svg")
-    .attr("viewBox", [0, 0, width, height])
-    .attr("width", "100%")
-    .attr("height", height);
-
-  if (!f) {
-    svg.append("text")
-      .attr("x", width / 2).attr("y", height / 2)
-      .attr("text-anchor", "middle")
-      .attr("fill", "#8a8378")
-      .text("Run the R cell above to see the variogram.");
-    return svg.node();
-  }
-
-  const s = f.summary;
-  const nugget = s.nugget;
-  // Both operands already rounded to 4dp on the R side -- re-rounding
-  // the sum catches the odd binary-float artifact (e.g. "14.9639999999999999")
-  // that adding two such numbers in JS can still produce.
-  const sill = Math.round((s.nugget + s.partialSill) * 10000) / 10000;
-  const range = s.range;
-
-  const emp = f.variogram.empirical.dist.map((d, i) => ({ dist: d, gamma: f.variogram.empirical.gamma[i], npairs: f.variogram.empirical.npairs[i] }));
-  const fit = f.variogram.fitted.dist.map((d, i) => ({ dist: d, gamma: f.variogram.fitted.gamma[i] }));
-
-  const x = d3.scaleLinear()
-    .domain([0, d3.max([...emp, ...fit, { dist: range }], (d) => d.dist)])
-    .range([margin.left, width - margin.right]);
-  const y = d3.scaleLinear()
-    .domain([0, d3.max([...emp, ...fit, { gamma: sill }], (d) => d.gamma) * 1.1])
-    .range([height - margin.bottom, margin.top]);
-
-  svg.append("g")
-    .attr("transform", `translate(0,${height - margin.bottom})`)
-    .call(d3.axisBottom(x).ticks(6))
-    .append("text")
-    .attr("x", width - margin.right).attr("y", 32)
-    .attr("fill", "#2a2117").attr("text-anchor", "end")
-    .text("Distance");
-
-  svg.append("g")
-    .attr("transform", `translate(${margin.left},0)`)
-    .call(d3.axisLeft(y).ticks(5))
-    .append("text")
-    .attr("x", -margin.left).attr("y", margin.top - 6)
-    .attr("fill", "#2a2117").attr("text-anchor", "start")
-    .text("Semivariance");
-
-  const refLine = (x1, y1, x2, y2) => {
-    svg.append("line")
-      .attr("x1", x1).attr("y1", y1).attr("x2", x2).attr("y2", y2)
-      .attr("stroke", "#8a8378").attr("stroke-dasharray", "4,3");
-  };
-  refLine(margin.left, y(nugget), width - margin.right, y(nugget));
-  refLine(margin.left, y(sill), width - margin.right, y(sill));
-  refLine(x(range), margin.top, x(range), height - margin.bottom);
-
-  svg.append("path")
-    .datum(fit)
-    .attr("fill", "none")
-    .attr("stroke", "#ab502b")
-    .attr("stroke-width", 2)
-    .attr("d", d3.line().x((d) => x(d.dist)).y((d) => y(d.gamma)));
-
-  svg.append("g")
-    .selectAll("circle")
-    .data(emp)
-    .join("circle")
-    .attr("cx", (d) => x(d.dist))
-    .attr("cy", (d) => y(d.gamma))
-    .attr("r", 5)
-    .attr("fill", "#42583c")
-    .append("title")
-    .text((d) => `distance ${d.dist}, semivariance ${d.gamma}, ${d.npairs} pairs`);
-
-  const pillLabel = (px, py, anchor, text) => {
-    const t = svg.append("text")
-      .attr("x", px).attr("y", py)
-      .attr("text-anchor", anchor)
-      .attr("dominant-baseline", "middle")
-      .attr("fill", "#5b5347").attr("font-size", 11).attr("font-weight", 600)
-      .text(text);
-    const box = t.node().getBBox();
-    svg.insert("rect", () => t.node())
-      .attr("x", box.x - 4).attr("y", box.y - 2)
-      .attr("width", box.width + 8).attr("height", box.height + 4)
-      .attr("rx", 3)
-      .attr("fill", "#fffdf8").attr("stroke", "#d8cdb8").attr("stroke-width", 1);
-  };
-
-  // d3.create() built a DETACHED svg -- getBBox() inside pillLabel()
-  // returns all zeros in that state, so it's attached off-screen for
-  // these three calls only, then detached again immediately after.
-  document.body.appendChild(svg.node());
-  svg.style("position", "absolute").style("visibility", "hidden").style("left", "-9999px");
-
-  pillLabel(margin.left + 6, y(nugget), "start", `nugget ${nugget}`);
-  pillLabel(width - margin.right - 6, y(sill), "end", `sill ${sill}`);
-  const rangeAnchor = x(range) > width - margin.right - 60 ? "end" : "start";
-  const rangeDx = rangeAnchor === "end" ? -6 : 6;
-  pillLabel(x(range) + rangeDx, height - margin.bottom - 12, rangeAnchor, `range ${range}`);
-
-  svg.node().remove();
-  svg.style("position", null).style("visibility", null).style("left", null);
-
-  return svg.node();
-}
-```
-
-${variogramChart}
+::: {#lab-variogram}
+:::
 
 Once the model above looks right, predict the gaps themselves:
 
@@ -668,59 +407,8 @@ would actually predict. Same caveat as above.
 
 :::
 
-```{ojs}
-//| echo: false
-//| output: false
-bPredict = WebGeoDS.getCellValue("cokriging-predict-r", Generators)
-{
-  if (bPredict && bPredict.raster) {
-    const r = bPredict.raster;
-    await sharedMap.setRasterImage("cokriging-target-filled", {
-      bounds: r.wgs84Bounds,
-      width: r.width,
-      height: r.height,
-      values: new Float32Array(base64ToBytes(r.data).buffer),
-      min: r.min,
-      max: r.max,
-      colorRamp: FILL_RAMP
-    });
-    mutable predictResult = bPredict;
-  }
-}
-```
-
-```{ojs}
-//| echo: false
-statCardPart2 = {
-  const p = predictResult;
-  const box = document.createElement("div");
-  box.className = "webgeods-stat-grid";
-  if (!p) {
-    box.hidden = true;
-    return box;
-  }
-  const row = (label, value) => {
-    const dt = document.createElement("div");
-    dt.className = "webgeods-stat-label";
-    dt.textContent = label;
-    const dd = document.createElement("div");
-    dd.className = "webgeods-stat-value";
-    dd.textContent = value;
-    box.append(dt, dd);
-  };
-  const s = p.summary;
-  row("Pixels filled", s.pixelsFilled.toLocaleString());
-  if (s.crossValidationRmse !== null && s.crossValidationRmse !== undefined) {
-    row("Cross-validation RMSE", s.crossValidationRmse);
-  }
-  if (s.pixelsStillEmpty > 0) {
-    row("Still empty", `${s.pixelsStillEmpty.toLocaleString()} (no covariate data there either)`);
-  }
-  return box;
-}
-```
-
-${statCardPart2}
+::: {#lab-prediction}
+:::
 
 ## 6. Why Python takes a different approach here {#why-python-takes-a-different-approach-here}
 
@@ -757,5 +445,7 @@ teaching a technique this project hasn't actually checked.
   half of the pipeline works on its own.
 
 Second tool in the GeoStatistics family.
+
+{{< webgeods-tool cokriging-lab id=lab-root vega=true >}}
 
 <script async data-uid="31051e3ca1" src="https://webgeods.kit.com/31051e3ca1/index.js"></script>

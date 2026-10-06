@@ -5,10 +5,11 @@
 // its container once; see useResizeTick).
 //
 // spec: a Vega-Lite spec, or null to show nothing.
+// onRender(container): after each draw, for touches Vega-Lite can't express.
 import { useEffect, useRef } from "preact/hooks";
 import { useResizeTick } from "../hooks/useResizeTick.js";
 
-export function VegaChart({ spec, selectParams, externalParam, keyField, selected, onSelect, style }) {
+export function VegaChart({ spec, selectParams, externalParam, keyField, selected, onSelect, onRender, style }) {
 
   const container = useRef(null);
   const chart = useRef(null);
@@ -37,6 +38,7 @@ export function VegaChart({ spec, selectParams, externalParam, keyField, selecte
       }
       chart.current = rendered;
       rendered.setSelected(latest.current.selected ?? null);
+      onRender?.(container.current);
     }).catch((err) => console.error("WebGeoDS.Preact VegaChart: render failed", err));
 
     return () => {
