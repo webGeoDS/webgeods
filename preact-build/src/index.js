@@ -12,7 +12,7 @@
 //
 // Page components live in src/pages/ and are registered in PAGES below.
 // Everything else the components need from the site (WebGeoDS.Map,
-// CodeCell, Upload, Table, renderVegaChart...) is the existing shared/
+// CodeCell, Upload, renderVegaChart...) is the existing shared/
 // JavaScript, read from window.WebGeoDS at runtime, not bundled here.
 import { h, render } from "preact";
 import * as hooks from "preact/hooks";
