@@ -1074,4 +1074,46 @@
     };
 
 
+  // A duration as a coarse band ("10-20"), so events group into a few
+  // readable rows in GoatCounter instead of one row per second.
+  window.WebGeoDS.secondsBand =
+    function secondsBand(ms) {
+      const s = ms / 1000;
+      const bands = [[5, "<5"], [10, "5-10"], [20, "10-20"], [40, "20-40"], [60, "40-60"], [120, "60-120"]];
+      for (const [limit, label] of bands) {
+        if (s < limit) return label;
+      }
+      return ">120";
+    };
+
+
+  // Whether to download an engine (30-60 MB) before the visitor runs
+  // anything: not when they asked the browser to save data, nor on a
+  // slow connection, where the download would compete with the page.
+  window.WebGeoDS.canPreload =
+    function canPreload() {
+      const connection = navigator.connection;
+      if (!connection) return true;
+      return !connection.saveData && !/(^|-)2g$|^3g$/.test(connection.effectiveType ?? "");
+    };
+
+
+  // How long each engine takes to start on visitors' devices
+  // (engine_ready). Package loading comes after, inside the first run:
+  // code_run_completed carries that run's own duration.
+  const engineLoadStart = {};
+  window.WebGeoDS.Runtime.addEventListener("statuschange", (event) => {
+    const { runtime, status } = event.detail;
+    if (status === "loading") {
+      engineLoadStart[runtime] = performance.now();
+    } else if (status === "ready" && engineLoadStart[runtime] !== undefined) {
+      window.WebGeoDS.track("engine_ready", {
+        engine: runtime,
+        s: window.WebGeoDS.secondsBand(performance.now() - engineLoadStart[runtime])
+      });
+      delete engineLoadStart[runtime];
+    }
+  });
+
+
 })();

@@ -46,6 +46,7 @@ project:
     - "downloads/*.pdf"
     - "examples/*.geojson"
     - "examples/*.tif"
+    - "examples/precomputed/*.json"
 
 website:
   title: "webGeoDs"

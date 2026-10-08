@@ -9,7 +9,8 @@
  * Serve the rendered site first (`node static-server.mjs blog/_site 4801`,
  * or `npm run dev` in preact-build/). Checks, in order:
  *   - the config has no unknown or missing fields (configCheck warnings)
- *   - example -> compute: every layer with data is on the map
+ *   - example -> compute: every layer with data is on the map (the example
+ *     may come from blog/examples/precomputed; compute always runs live)
  *   - stat card filled, legend shown when the config has categories
  *   - each labeled layer turns off and back on
  *   - selection from the map, the diagram, a chart bar and the table
@@ -67,12 +68,17 @@ const sourceCount = (page, id) => page.evaluate(`(${MAP}).getSource(${JSON.strin
 const stats = (page) => page.evaluate(() => document.querySelector(".webgeods-dashboard .webgeods-stat-grid")?.textContent.replace(/\s+/g, " ").trim() ?? "");
 const idle = (page) => page.evaluate(`new Promise((resolve) => { const m = ${MAP}; if (m.loaded() && !m.isMoving()) resolve(); else m.once("idle", resolve); })`);
 
+let exampleMs = null;
+
 async function loadAndCompute(page, tool) {
   const exampleStatus = await page.evaluate(`${T(tool)}.config.exampleStatus ?? "example data loaded"`);
   const computeLabel = await page.evaluate(`${T(tool)}.config.computeLabel ?? "▶ Compute"`);
+  const started = Date.now();
   await page.getByRole("button", { name: /Load example/ }).click();
   await page.waitForFunction((text) =>
     (document.querySelector(".webgeods-dashboard .webgeods-panel-row:nth-child(2) .webgeods-panel-status")?.textContent ?? "").includes(text.slice(0, 20)), exampleStatus);
+  // A precomputed example (useToolData.js) shows without the engine.
+  exampleMs = Date.now() - started;
   // A tool that only inspects has nothing more to run.
   if (!(await page.evaluate(`!!${T(tool)}.config.cells.compute`))) {
     await page.waitForTimeout(800);
@@ -96,6 +102,7 @@ const inspectOnly = await page.evaluate(`!${T(tool)}.config.cells.compute`);
 check(inspectOnly ? "example loaded and inspected" : "example + compute finish with ✓ Done",
   inspectOnly ? !/failed|Error|⚠/.test(await status(page)) : /✓ Done/.test(await status(page)), await status(page));
 check("config: no unknown or missing fields", warnings.length === 0, warnings);
+console.log(`– example shown in ${exampleMs} ms (${exampleMs < 5000 ? "precomputed" : "run live"})`);
 
 // A raster layer counts as one "feature" when it has a raster.
 const layers = await page.evaluate(`${T(tool)}.layers.map((l) => ({ id: l.id, label: l.label ?? null, type: l.type,

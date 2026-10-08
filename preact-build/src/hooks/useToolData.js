@@ -35,12 +35,22 @@
 //   tool.compute(), tool.canCompute, tool.busy
 //   <ControlPanel {...tool.panelProps}>...inputs...</ControlPanel>
 //
+// The example computed in advance (blog/examples/precomputed/<tool>.json,
+// written by precompute-examples.mjs) follows the tool's own flow without
+// starting the engine: Load example shows its inspection (and its result
+// when the tool computes on load), and Compute with the inputs it was
+// computed with shows its result. The engine runs at the first action
+// that needs it (other inputs, a cell download), replaying the example
+// in it first. The file is used only when its fingerprint matches this
+// page's cell code, example file and default inputs; otherwise, and with
+// ?live in the URL, the example runs live.
+//
 // Without an inspect cell, a load makes `inspect` an empty object, so
 // compute is enabled once there is data. New data clears the previous
 // result; a page that keeps state derived from them (a selection, a zoom
 // target) resets it with an effect on tool.inspect / tool.result.
 import { useRef, useState } from "preact/hooks";
-import { useCellRunner } from "./useCellRunner.js";
+import { useCellRunner, findCell } from "./useCellRunner.js";
 
 export const base64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
@@ -86,6 +96,14 @@ export function useToolData({
 
   const setInput = (name) => (value) => setInputs((current) => ({ ...current, [name]: value }));
 
+  // False while the page shows a precomputed example the engine hasn't
+  // run yet; the latest result and its inputs, for replaying it there.
+  const engineCurrent = useRef(true);
+  // The precomputed example on show, while the engine hasn't run it.
+  const pre = useRef(null);
+  const latestResult = useRef(null);
+  latestResult.current = { result, resultInputs };
+
   // Inputs reach the cells through `#| inject:` (window[name]).
   const runCompute = async (currentInputs) => {
     const value = await runner.runCell(cells.compute, currentInputs);
@@ -97,6 +115,8 @@ export function useToolData({
   // Runs inside a queued step: new data, so any previous result is stale.
   const runInspect = async () => {
     const value = cells.inspect ? await runner.runCell(cells.inspect) : {};
+    engineCurrent.current = true;
+    pre.current = null;
     setInspect(value);
     // A tool that only inspects: the inspection is its result.
     if (cells.inspect && !cells.compute) window.WebGeoDS.track?.("validation_completed", { tool });
@@ -112,22 +132,99 @@ export function useToolData({
 
   // The example file goes through the same path as an upload, but
   // `files` stays null: downloads keep the tool's default filename.
+  // (Upload.load only queues the file: nothing is written, and no engine
+  // started, until a cell runs.)
   const loadExample = () => runner.queue("⌛ Loading example...", async () => {
     if (example) {
       const response = await fetch(example);
       if (!response.ok) throw new Error(`Example file ${example}: HTTP ${response.status}`);
-      const file = new File([await response.blob()], example.split("/").pop());
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const file = new File([bytes], example.split("/").pop());
       const loaded = await window.WebGeoDS.Upload.load([file], { languages });
       if (!loaded.ok) return loaded.message;
       setKind(loaded.kind);
+      setFiles(null);
+      const precomputed = await precomputedExample(bytes);
+      if (precomputed) {
+        engineCurrent.current = false;
+        pre.current = precomputed;
+        setInspect(precomputed.inspect);
+        setInputs(precomputed.inputs);
+        // As live: a tool that computes on load shows its result now.
+        const auto = typeof autoCompute === "function" ? autoCompute(precomputed.inspect) : autoCompute;
+        setResult(auto && cells.compute ? precomputed.result : null);
+        setResultInputs(auto && cells.compute ? precomputed.resultInputs : null);
+        window.WebGeoDS.track?.("example_loaded", { tool, precomputed: true });
+        return exampleStatus;
+      }
     } else {
       await runner.runCell(cells.example);
       setKind("geojson");
+      setFiles(null);
     }
-    setFiles(null);
+    window.WebGeoDS.track?.("example_loaded", { tool, precomputed: false });
     await runInspect();
     return exampleStatus;
   });
+
+  // What the precomputed file must have been made from.
+  const fingerprint = async (exampleBytes) => {
+    const codes = [];
+    for (const id of [cells.inspect, cells.compute]) {
+      codes.push(id ? await (await findCell(id)).getCode() : "");
+    }
+    const text = new TextEncoder().encode(JSON.stringify({ codes, inputs: initialInputs }));
+    const all = new Uint8Array(text.length + exampleBytes.length);
+    all.set(text);
+    all.set(exampleBytes, text.length);
+    const digest = await crypto.subtle.digest("SHA-256", all);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  };
+
+  const precomputedExample = async (exampleBytes) => {
+    if (cells.example || new URLSearchParams(location.search).has("live")) return null;
+    try {
+      const response = await fetch(`/examples/precomputed/${tool}.json`);
+      if (!response.ok) return null;
+      const pre = await response.json();
+      if (pre.fingerprint === await fingerprint(exampleBytes)) return pre;
+      console.warn(`WebGeoDS: /examples/precomputed/${tool}.json is out of date (run precompute-examples.mjs); running the example live.`);
+    } catch (error) {
+      console.warn("WebGeoDS: precomputed example not usable, running it live.", error);
+    }
+    return null;
+  };
+
+  // Before a step that needs the engine to hold the data shown: replay
+  // the precomputed example there (inspect, and the result when the
+  // step builds on it).
+  const ensureEngine = async ({ withResult }) => {
+    if (engineCurrent.current) return;
+    if (cells.inspect) await runner.runCell(cells.inspect);
+    const { result: shown, resultInputs: shownInputs } = latestResult.current;
+    if (withResult && shown && cells.compute) await runner.runCell(cells.compute, shownInputs);
+    engineCurrent.current = true;
+    pre.current = null;
+  };
+
+  const sameInputs = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  // The visitor is about to use the tool (pointer, focus or touch on
+  // it): start the engine and the packages of its cells now, so a
+  // first Compute or upload mostly finds them ready. Once per cell
+  // (CodeCell.preload()), and never when saving data.
+  const preloadEngine = () => {
+    for (const id of [cells.inspect, cells.compute]) {
+      if (id) findCell(id).then((cell) => cell.preload()).catch(() => {});
+    }
+  };
+
+  // For precompute-examples.mjs: the example as shown now, ready to save.
+  const snapshot = async () => {
+    const response = await fetch(example);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return { fingerprint: await fingerprint(bytes), inspect, inputs, result, resultInputs };
+  };
 
   const handleFiles = (fileList) => runner.queue("⌛ Loading...", async () => {
     const loaded = await window.WebGeoDS.Upload.load(fileList, { languages });
@@ -139,11 +236,21 @@ export function useToolData({
   });
 
   const compute = () => runner.queue(computeLabel, async () => {
+    // The example with the inputs it was computed with: its result.
+    if (pre.current?.result && sameInputs(inputs, pre.current.resultInputs)) {
+      setResultInputs(pre.current.resultInputs);
+      setResult(pre.current.result);
+      window.WebGeoDS.track?.("example_result_viewed", { tool });
+      return doneStatus;
+    }
+    await ensureEngine({ withResult: false });
     await runCompute(inputs);
     return doneStatus;
   });
 
   const reset = () => runner.queue("Resetting...", async () => {
+    engineCurrent.current = true;
+    pre.current = null;
     setInspect(null);
     setResult(null);
     setFiles(null);
@@ -153,6 +260,7 @@ export function useToolData({
 
   // A file written by a cell: run it, decode its base64 value, save it.
   const downloadFromCell = () => runner.queue("⌛ Preparing download...", async () => {
+    await ensureEngine({ withResult: true });
     const extra = download.inputs ? download.inputs({ inspect, result, resultInputs }, inputs, { uploadKind: kind }) : {};
     // What the cell was given: filename()/file() name the file after it.
     const injected = { ...inputs, ...extra };
@@ -210,7 +318,9 @@ export function useToolData({
     canCompute: !!cells.compute && !!inspect && !runner.busy,
     busy: runner.busy,
     status: runner.status,
-    panelProps
+    panelProps,
+    preloadEngine,
+    snapshot
   };
 
 }

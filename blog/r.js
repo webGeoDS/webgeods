@@ -170,7 +170,28 @@
    *   auto-print). stderr: message()/warning() lines, kept separate
    *   from stdout so code-cell.js can show them in their own block.
    */
-  async function run(code, { packages } = {}) {
+  // One call at a time: a preload installing packages while a run
+  // installs the same ones would race inside webR.
+  let queue = Promise.resolve();
+  function enqueue(task) {
+    const next = queue.then(task, task);
+    queue = next.catch(() => {});
+    return next;
+  }
+
+  function run(code, options) {
+    return enqueue(() => runNow(code, options));
+  }
+
+  // Starts webR and installs packages ahead of a run (see python.js).
+  function preload({ packages } = {}) {
+    return enqueue(async () => {
+      const webr = await window.WebGeoDS.Runtime.r();
+      if (packages && packages.length > 0) await webr.installPackages(packages);
+    }).catch((error) => console.warn("WebGeoDS.R: preload failed.", error));
+  }
+
+  async function runNow(code, { packages } = {}) {
     // 1. Retrieve the singleton WebR instance from our Runtime Manager
     const webr = await window.WebGeoDS.Runtime.r();
 
@@ -366,5 +387,5 @@
   // ============================================================
   // Public WebGeoDS API
   // ============================================================
-  window.WebGeoDS.R = { run, writeFile, deleteFile };
+  window.WebGeoDS.R = { run, preload, writeFile, deleteFile };
 })();

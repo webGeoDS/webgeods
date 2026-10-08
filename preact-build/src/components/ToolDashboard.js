@@ -192,9 +192,10 @@ export function ToolDashboard({ config }) {
     return list;
   }, [data, selection, selectedCollection, inputs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // What tool-smoke.mjs reads to test any tool from its own config.
+  // What tool-smoke.mjs reads to test any tool from its own config, and
+  // precompute-examples.mjs to save the example's result.
   const exposed = (window.WebGeoDS.Preact.tools ??= {});
-  exposed[tool] = { config, layers, selectionLayer: selectable?.layer ?? null };
+  exposed[tool] = { config, layers, selectionLayer: selectable?.layer ?? null, snapshot: toolData.snapshot };
 
   const mapHeight = map.height ?? DEFAULT_MAP_HEIGHT;
   // A plain map click (not on a selectable feature) can set inputs: an
@@ -269,7 +270,7 @@ export function ToolDashboard({ config }) {
   const rowDownload = config.download?.withInputs ? toolData.panelProps.cellDownload : null;
 
   return (
-    <div class="webgeods-dashboard">
+    <div class="webgeods-dashboard" onPointerEnter={toolData.preloadEngine} onFocusIn={toolData.preloadEngine} onTouchStart={toolData.preloadEngine}>
       <ControlPanel {...toolData.panelProps} cellDownload={rowDownload ? undefined : toolData.panelProps.cellDownload}>
         {inputSpecs.map((spec) => renderInput(spec, tool, data, inputs, setInput, setInputs, busy))}
         {config.cells.compute &&

@@ -567,6 +567,35 @@
 
 
   // ============================================================
+  // Waiting, measured
+  // ============================================================
+
+  // cellId -> start time of each run in progress, and the languages
+  // that have completed a run on this page (see run()).
+  const runsInProgress =
+    new Map();
+
+  const languagesRun =
+    new Set();
+
+  // A visitor who leaves while a run is still going (most often: still
+  // waiting for the engine) — the sign the wait was too long.
+  // GoatCounter sends events with sendBeacon, so this one still gets
+  // out as the page goes away.
+  window.addEventListener("pagehide", () => {
+    if (runsInProgress.size === 0) {
+      return;
+    }
+    const [cellId, start] =
+      [...runsInProgress.entries()].sort((a, b) => a[1] - b[1])[0];
+    window.WebGeoDS.track?.("left_while_running", {
+      cellId,
+      s: window.WebGeoDS.secondsBand?.(performance.now() - start)
+    });
+  });
+
+
+  // ============================================================
   // WebGeoDSCodeCell
   // ============================================================
 
@@ -751,6 +780,11 @@
         inject =
           [],
 
+        // What run() will load (the cell's `#| package:` lines): lets
+        // preload() start the engine and fetch them ahead of a run.
+        preload =
+          {},
+
         onRun
 
       } =
@@ -795,6 +829,20 @@
 
       this._inject =
         inject;
+
+      this._preloadOptions =
+        preload;
+
+      // A reader about to run a visible cell (pointer over it, focus
+      // in its editor, a touch): start loading its engine now, so the
+      // wait overlaps the reading. Hidden tool cells are preloaded by
+      // their tool instead (useToolData).
+      if (!this.element.classList.contains("tool-cell")) {
+        const intent = () => this.preload();
+        for (const type of ["pointerenter", "focusin", "touchstart"]) {
+          this.element.addEventListener(type, intent, { once: true, passive: true });
+        }
+      }
 
 
       // --------------------------------------------------------
@@ -1042,6 +1090,11 @@
         language: this._language
       });
 
+      const runStart =
+        performance.now();
+
+      runsInProgress.set(this.element.id, runStart);
+
 
       // No generic "running" message here — the loading/execution
       // phases are onRun's responsibility via output.waiting(...),
@@ -1096,9 +1149,19 @@
           new Event("input", { bubbles: true })
         );
 
+        // The first run of a language on a page includes starting its
+        // engine and loading packages: that is the wait a visitor
+        // actually sees, so it is marked apart.
+        const firstForLanguage =
+          !languagesRun.has(this._language);
+
+        languagesRun.add(this._language);
+
         window.WebGeoDS.track?.("code_run_completed", {
           cellId: this.element.id,
-          language: this._language
+          language: this._language,
+          s: window.WebGeoDS.secondsBand?.(performance.now() - runStart),
+          first: firstForLanguage
         });
 
 
@@ -1127,6 +1190,8 @@
 
       } finally {
 
+        runsInProgress.delete(this.element.id);
+
         this._running =
           false;
 
@@ -1148,6 +1213,43 @@
     get value() {
 
       return this.element.value;
+
+    }
+
+
+    // ==========================================================
+    // preload() — start this cell's engine and load its packages
+    // ==========================================================
+    //
+    // Once per cell; skipped when the visitor asked to save data
+    // (WebGeoDS.canPreload()). A failure is left to the real run.
+
+    preload() {
+
+      if (!this._preloading && window.WebGeoDS.canPreload?.()) {
+
+        const runner =
+          this._language === "r" ? window.WebGeoDS.R : window.WebGeoDS.Python;
+
+        this._preloading =
+          runner.preload?.(this._preloadOptions) ?? Promise.resolve();
+
+      }
+
+      return this._preloading ?? Promise.resolve();
+
+    }
+
+
+    // ==========================================================
+    // getCode() — the editor's current source text
+    // ==========================================================
+
+    async getCode() {
+
+      await this.isReady;
+
+      return this.view.state.doc.toString();
 
     }
 

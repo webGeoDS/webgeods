@@ -363,8 +363,20 @@
   // Public WebGeoDS API
   // ============================================================
 
+  // Starts the engine and loads packages ahead of a run (a visitor
+  // about to use a tool), so the run itself only executes the code.
+  // Same worker queue as run(); a failure is left to the real run.
+  function preload(options = {}) {
+    return run("None", options).then(
+      () => undefined,
+      (error) => console.warn("WebGeoDS.Python: preload failed.", error)
+    );
+  }
+
+
   window.WebGeoDS.Python = {
     run,
+    preload,
     writeFile,
     deleteFile
   };
