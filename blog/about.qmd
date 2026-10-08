@@ -50,17 +50,20 @@ newsletter below is the way to follow it.
 
 ## Who's behind it
 
-**Domenico Guadalupi**, engineer and data scientist. My work is
-geographic data end to end: managing and checking spatial datasets,
-analysing them, and modelling what they show, with a focus on
-geostatistics, machine learning on spatial data (GeoML) and
+**Domenico Guadalupi**, engineer and data scientist, working with
+geographic data from start to finish: managing and quality-checking
+spatial datasets, analysing them, and modelling what they show. My
+focus is geostatistics, machine learning on spatial data (GeoML),
+raster and remote-sensing analysis (band math, NDVI, terrain), and
 infrastructure networks.
 
 web<span class="webgeods-wordmark-geo">Geo</span>DS is where that work
 becomes public: free tools anyone can try on their own data, and the
 code behind every result, in Python and in R, so nothing has to be
-taken on trust. The site's code is open too:
-[github.com/webGeoDS](https://github.com/webGeoDS).
+taken on trust.
+
+Contact: [info@webgeods.com](mailto:info@webgeods.com) ·
+Code: [github.com/webGeoDS](https://github.com/webGeoDS)
 
 ## Start here
 
