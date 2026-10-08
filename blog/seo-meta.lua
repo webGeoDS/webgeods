@@ -17,6 +17,8 @@
 ]]
 
 local SITE_URL = "https://webgeods.com"
+-- Named as the author of every article (JSON-LD), see about.qmd.
+local AUTHOR_NAME = "Domenico Guadalupi"
 
 local function canonical_url()
   local rel = quarto.doc.project_output_file()
@@ -89,7 +91,7 @@ function Meta(meta)
   local is_tool = rel:match("^tools/") ~= nil and rel ~= "tools/index.html"
   local og_type = is_post and "article" or "website"
 
-  local title = pandoc.utils.stringify(meta.title or "webGeoDs")
+  local title = pandoc.utils.stringify(meta.title or "webGeoDS")
   local description = meta.description and pandoc.utils.stringify(meta.description) or ""
 
   local tags = {
@@ -120,14 +122,16 @@ function Meta(meta)
     end
     jsonld = '{\n  "@context": "https://schema.org",\n  "@type": "Article",\n  "headline": "'
       .. escape_json(title) .. '",\n  "description": "' .. escape_json(description)
-      .. '",\n  "url": "' .. escape_json(url) .. '"' .. date_line .. '\n}'
+      .. '",\n  "url": "' .. escape_json(url) .. '"' .. date_line
+      .. ',\n  "author": {\n    "@type": "Person",\n    "name": "' .. escape_json(AUTHOR_NAME)
+      .. '",\n    "url": "' .. escape_json(SITE_URL) .. '/about.html"\n  }\n}'
   elseif is_tool then
     jsonld = '{\n  "@context": "https://schema.org",\n  "@type": "WebApplication",\n  "name": "'
       .. escape_json(title) .. '",\n  "description": "' .. escape_json(description)
       .. '",\n  "url": "' .. escape_json(url)
       .. '",\n  "applicationCategory": "UtilitiesApplication",\n  "operatingSystem": "Any (runs in the browser)",\n  "isAccessibleForFree": true\n}'
   elseif rel == "index.html" then
-    jsonld = '{\n  "@context": "https://schema.org",\n  "@type": "WebSite",\n  "name": "webGeoDs",\n  "url": "'
+    jsonld = '{\n  "@context": "https://schema.org",\n  "@type": "WebSite",\n  "name": "webGeoDS",\n  "url": "'
       .. escape_json(SITE_URL) .. '/"\n}'
   end
   if jsonld then

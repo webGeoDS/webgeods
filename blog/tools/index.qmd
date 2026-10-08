@@ -1,5 +1,5 @@
 ---
-title: "webGeoDs — Tools"
+title: "webGeoDS — Tools"
 description: "Free tools for spatial analysis, with no upload to a server: they run entirely in your browser via WebAssembly. Most use Python; Viewshed and the GeoStatistics tools run in R. The [full articles](/articles.html) behind them show the code in both languages."
 listing:
   contents: .

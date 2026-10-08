@@ -5,7 +5,7 @@ description: "Spatial Data Science, learned and used directly in your browser �
 
 ## What it is
 
-web<span class="webgeods-wordmark-geo">Geo</span>Ds brings spatial data analysis, interactive examples, and
+web<span class="webgeods-wordmark-geo">Geo</span>DS brings spatial data analysis, interactive examples, and
 free tools together in one place — Python and R side by side, running
 entirely in your browser. Nothing to install, nothing uploaded
 anywhere.
@@ -23,7 +23,7 @@ spatial reasoning you can actually verify, not just read about.
 
 ## Why it's different
 
-Most spatial data resources pick a side: Python or R. web<span class="webgeods-wordmark-geo">Geo</span>Ds treats
+Most spatial data resources pick a side: Python or R. web<span class="webgeods-wordmark-geo">Geo</span>DS treats
 them as complementary — the same problem, shown in both, using the
 tools each ecosystem actually uses (GeoPandas, Shapely, sf). Seeing
 where they agree, and where they don't, teaches more than either one
@@ -47,6 +47,20 @@ need an answer, not the full explanation.
 ongoing effort to teach spatial data science end to end. Where that
 leads next depends partly on what turns out to be useful — the
 newsletter below is the way to follow it.
+
+## Who's behind it
+
+**Domenico Guadalupi**, engineer and data scientist. My work is
+geographic data end to end: managing and checking spatial datasets,
+analysing them, and modelling what they show, with a focus on
+geostatistics, machine learning on spatial data (GeoML) and
+infrastructure networks.
+
+web<span class="webgeods-wordmark-geo">Geo</span>DS is where that work
+becomes public: free tools anyone can try on their own data, and the
+code behind every result, in Python and in R, so nothing has to be
+taken on trust. The site's code is open too:
+[github.com/webGeoDS](https://github.com/webGeoDS).
 
 ## Start here
 

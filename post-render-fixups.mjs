@@ -271,7 +271,7 @@ function fixLogoAlt() {
     const html = readFileSync(file, "utf8");
     if (needleRe.test(html)) {
       needleRe.lastIndex = 0;
-      writeFileSync(file, html.replace(needleRe, 'src="$1" alt="webgeods"'));
+      writeFileSync(file, html.replace(needleRe, 'src="$1" alt="webGeoDS"'));
       fixedCount++;
     }
   }

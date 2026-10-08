@@ -52,7 +52,7 @@
   --dataviz-selection: #ffeb3b; /* not in _brand.yml — the map/table selection yellow */
 }
 
-/* The wordmark's "Geo" segment, wherever "webGeoDs" is written out by
+/* The wordmark's "Geo" segment, wherever "webGeoDS" is written out by
    hand in prose (the navbar's own instance is styled by a small
    script instead — see blog/_quarto.yml's include-after-body — since
    Quarto generates that text itself, with no markdown to write a
@@ -235,7 +235,7 @@
 
 /* Quarto's title-block description (any page with a `description:`
    in its front matter, e.g. the homepage's one-line pitch under
-   "webGeoDs"): ships with zero spacing of its own -- it sits flush
+   "webGeoDS"): ships with zero spacing of its own -- it sits flush
    against the H1 above it (0px gap, measured) while a full paragraph
    gap (~60px) follows before the next real paragraph, making it read
    as fused to the title rather than as its own line. Muted color and

@@ -49,7 +49,7 @@ project:
     - "examples/precomputed/*.json"
 
 website:
-  title: "webGeoDs"
+  title: "webGeoDS"
   description: "Bilingual (Python/R) spatial data science — interactive articles and tools running entirely in your browser via WebAssembly." # required together with site-url for RSS feed generation, not just descriptive
   navbar:
     logo: webgeods-logo.svg
@@ -59,7 +59,7 @@ website:
     # here anyway (harmless, and free if a future Quarto version wires
     # it up) — post-render-fixups.mjs patches the real HTML output in
     # the meantime, see its own header comment.
-    logo-alt: "webgeods"
+    logo-alt: "webGeoDS"
     background: "#eee5d2" # dark-paper — light navbar in the reference design,
     foreground: "#2a2117" # not a bar filled with the primary color (the cosmo
                            # theme's default behavior, not what's wanted here)
@@ -396,22 +396,22 @@ format:
             // page's own H1 (Quarto's `title:` frontmatter field) are
             // rendered plain by Quarto's own template — no way to hand
             // either already-styled HTML from the source. Every
-            // occurrence of "webGeoDs" in either gets restyled here to
+            // occurrence of "webGeoDS" in either gets restyled here to
             // the wordmark: "web" + "Geo" (capitalized, colored to
             // match the logo's terracotta point) + "Ds" — a substring
             // replace, not an exact-match check, since a page title can
-            // be a compound like "webGeoDs — Articles" and still needs
-            // its "webGeoDs" part colored, with the rest of the string
-            // left alone. Every OTHER "webGeoDs" mention on the site
+            // be a compound like "webGeoDS — Articles" and still needs
+            // its "webGeoDS" part colored, with the rest of the string
+            // left alone. Every OTHER "webGeoDS" mention on the site
             // (body prose, not currently used anywhere) would be real
             // HTML written directly in its own page instead — this
             // only owns the two spots Quarto itself generates the text
             // with no opportunity to write it by hand.
             document.addEventListener("DOMContentLoaded", () => {
-              const wordmarkHtml = 'web<span class="webgeods-wordmark-geo">Geo</span>Ds';
+              const wordmarkHtml = 'web<span class="webgeods-wordmark-geo">Geo</span>DS';
               document.querySelectorAll(".navbar-title, h1.title").forEach((el) => {
-                if (el.textContent.includes("webGeoDs")) {
-                  el.innerHTML = el.textContent.split("webGeoDs").join(wordmarkHtml);
+                if (el.textContent.includes("webGeoDS")) {
+                  el.innerHTML = el.textContent.split("webGeoDS").join(wordmarkHtml);
                 }
               });
             });
