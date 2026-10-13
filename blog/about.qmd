@@ -63,6 +63,7 @@ code behind every result, in Python and in R, so nothing has to be
 taken on trust.
 
 Contact: [info@webgeods.com](mailto:info@webgeods.com) ·
+LinkedIn: [linkedin.com/in/guadalupi](https://www.linkedin.com/in/guadalupi) ·
 Code: [github.com/webGeoDS](https://github.com/webGeoDS)
 
 ## Start here

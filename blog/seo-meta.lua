@@ -19,6 +19,7 @@
 local SITE_URL = "https://webgeods.com"
 -- Named as the author of every article (JSON-LD), see about.qmd.
 local AUTHOR_NAME = "Domenico Guadalupi"
+local AUTHOR_SAME_AS = "https://www.linkedin.com/in/guadalupi"
 
 local function canonical_url()
   local rel = quarto.doc.project_output_file()
@@ -124,7 +125,8 @@ function Meta(meta)
       .. escape_json(title) .. '",\n  "description": "' .. escape_json(description)
       .. '",\n  "url": "' .. escape_json(url) .. '"' .. date_line
       .. ',\n  "author": {\n    "@type": "Person",\n    "name": "' .. escape_json(AUTHOR_NAME)
-      .. '",\n    "url": "' .. escape_json(SITE_URL) .. '/about.html"\n  }\n}'
+      .. '",\n    "url": "' .. escape_json(SITE_URL) .. '/about.html",\n    "sameAs": ["'
+      .. escape_json(AUTHOR_SAME_AS) .. '"]\n  }\n}'
   elseif is_tool then
     jsonld = '{\n  "@context": "https://schema.org",\n  "@type": "WebApplication",\n  "name": "'
       .. escape_json(title) .. '",\n  "description": "' .. escape_json(description)
