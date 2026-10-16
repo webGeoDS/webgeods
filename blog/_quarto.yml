@@ -38,6 +38,7 @@ project:
     - "alidade_smooth.json"
     - "webgeods-logo.svg"
     - "og-image.png"
+    - "og/*.png"
     - "maplibre-gl.js"
     - "maplibre-gl.css"
     - "fonts.css"

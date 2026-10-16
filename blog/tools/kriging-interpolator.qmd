@@ -3,6 +3,7 @@ title: "Kriging Interpolator"
 date: 2026-09-17
 categories: [tool, geostatistics]
 description: "Upload sparse point samples (soil moisture, pH, pollution readings, anything measured at scattered locations) and predict a full continuous surface across the whole area — fitting a variogram model first, not just averaging nearby points. Runs entirely in your browser, powered by R."
+og-image: og/kriging-interpolator.png
 page-layout: full
 ---
 

@@ -3,6 +3,7 @@ title: "GeoJSON & Shapefile Validator"
 date: 2026-09-01
 categories: [tool, geometry]
 description: "Upload a GeoJSON or a Shapefile and check whether every geometry is valid under the Simple Features model — with the reason for each error and an optional automatic repair you can download. Free, runs entirely in your browser: the file never leaves your computer."
+og-image: og/geojson-shapefile-validator.png
 page-layout: full
 ---
 

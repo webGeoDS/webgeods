@@ -3,6 +3,7 @@ title: "Network from Lines"
 date: 2026-09-12
 categories: [tool, network]
 description: "Turn a roads or rivers layer into a graph — nodes, edges, connected components — and see exactly how much a snap tolerance changes the answer. Free, runs entirely in your browser: the file never leaves your computer."
+og-image: og/network-from-lines.png
 page-layout: full
 ---
 

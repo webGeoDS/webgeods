@@ -94,14 +94,19 @@ function Meta(meta)
 
   local title = pandoc.utils.stringify(meta.title or "webGeoDS")
   local description = meta.description and pandoc.utils.stringify(meta.description) or ""
+  -- A page can set its own preview card (`og-image: og/<tool>.png`, built by
+  -- make-og-images.mjs); every other page shares the generic one.
+  local og_image = SITE_URL .. "/" .. (meta["og-image"] and pandoc.utils.stringify(meta["og-image"]) or "og-image.png")
 
   local tags = {
     '<link rel="canonical" href="' .. escape_html_attr(url) .. '">',
     '<meta property="og:url" content="' .. escape_html_attr(url) .. '">',
     '<meta property="og:type" content="' .. og_type .. '">',
-    '<meta property="og:image" content="' .. SITE_URL .. '/og-image.png">',
+    '<meta property="og:image" content="' .. escape_html_attr(og_image) .. '">',
+    '<meta property="og:image:width" content="1200">',
+    '<meta property="og:image:height" content="630">',
     '<meta name="twitter:card" content="summary_large_image">',
-    '<meta name="twitter:image" content="' .. SITE_URL .. '/og-image.png">'
+    '<meta name="twitter:image" content="' .. escape_html_attr(og_image) .. '">'
   }
 
   -- JSON-LD: Article for posts (headline/description/url, plus
