@@ -325,10 +325,23 @@ raw_bytes <- rawConnectionValue(con)
 close(con)
 pred_b64 <- jsonlite::base64_enc(raw_bytes)
 
+# The uncertainty of each prediction: the kriging standard error, the
+# square root of the prediction variance, in the same units as the data.
+se_pred <- sqrt(pmax(var_pred, 0))
+con <- rawConnection(raw(0), "wb")
+writeBin(se_pred, con, size = 4, endian = "little")
+se_b64 <- jsonlite::base64_enc(rawConnectionValue(con))
+close(con)
+
 result_out <- list(
   summary = list(
     gridCellCount = jsonlite::unbox(length(pred)),
     meanVariance = jsonlite::unbox(round(mean(var_pred, na.rm = TRUE), 4))
+  ),
+  uncertainty = list(
+    data = jsonlite::unbox(se_b64),
+    min = jsonlite::unbox(round(min(se_pred, na.rm = TRUE), 3)),
+    max = jsonlite::unbox(round(max(se_pred, na.rm = TRUE), 3))
   ),
   raster = list(
     width = jsonlite::unbox(nx),
@@ -365,6 +378,20 @@ z, variance = ok.execute("grid", grid_lon, grid_lat)
 
 ::: {#lab-prediction}
 :::
+
+### How sure is the map?
+
+Kriging doesn't only predict a value at every cell: it also gives its
+**standard error**, the square root of the prediction variance. Switch
+on the *Uncertainty* layer in the map above to see it. It is lowest right
+next to the samples and grows with distance from them, fastest where
+samples are sparse, until it levels off once the nearest sample is
+farther than the variogram's range: from there on the samples say
+nothing about the cell. It depends only on where the samples are and on
+the variogram, not on the values measured.
+
+That makes it practical as well as honest: it shows where the surface can
+be trusted, and where one more sample would help most.
 
 ## 6. Why Python is reference-only here {#why-python-is-reference-only-here}
 

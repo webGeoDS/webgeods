@@ -9,6 +9,10 @@ import { variogramSpec, pillifyReferenceLabels } from "./variogramChart.js";
 // Brown (dry) to teal (wet): the samples and the surface share it.
 const KRIGE_RAMP = [[0.00, 166, 97, 26], [0.25, 223, 194, 125], [0.50, 245, 245, 245], [0.75, 128, 205, 193], [1.00, 1, 133, 113]];
 const POINT_COLORS = KRIGE_RAMP.map(([, r, g, b]) => `rgb(${r},${g},${b})`);
+// Light to dark orange-brown: low to high standard error. Deliberately
+// not the brown-to-teal ramp, so uncertainty can't be read as moisture.
+const UNCERTAINTY_RAMP = [[0.00, 255, 247, 236], [0.35, 253, 187, 132], [0.70, 227, 74, 51], [1.00, 127, 0, 0]];
+const UNCERTAINTY = "Uncertainty (std. error)";
 const EMPTY_STATS = [["Points", "—"], ["—", "Upload a point GeoJSON/Shapefile or load the example above"]];
 
 // Points colored on the same ramp as the surface, over [min, max].
@@ -37,7 +41,10 @@ const CONFIG = {
   inputs: [
     { kind: "select", name: "valueColumn", label: "Value column:", value: "", options: ({ inspect }) => inspect?.summary?.numericColumns ?? [] },
     { kind: "select", name: "variogramModel", label: "Model:", value: "Sph", options: ["Sph", "Exp", "Gau"] },
-    { kind: "slider", name: "gridResolution", label: "Grid resolution", min: 10, max: 40, step: 5, value: 25 }
+    { kind: "slider", name: "gridResolution", label: "Grid resolution", min: 10, max: 40, step: 5, value: 25 },
+    // What the surface shows: switches the layer and the legend, no recompute.
+    { kind: "select", name: "surface", label: "Map shows:", value: "Prediction", options: ["Prediction", UNCERTAINTY],
+      visible: (inputs, data) => !!data.result }
   ],
   inputsFromInspect: (value, inputs) => {
     const columns = value?.summary?.numericColumns ?? [];
@@ -47,15 +54,19 @@ const CONFIG = {
   busyLabel: "⌛ Kriging...",
   fit: { inspect: (v) => v.features },
 
-  // The surface under the sample points; before Interpolate, the points
-  // are colored by a preview of the likeliest value column.
-  layers: ({ inspect, result }) => {
+  // The surface under the sample points: the prediction, or its standard
+  // error (the "Map shows" menu). Before Interpolate, the points are
+  // colored by a preview of the likeliest value column.
+  layers: ({ inspect, result }, { inputs }) => {
     const s = inspect?.summary;
     const preview = s && s.previewMin != null && s.previewMax != null;
+    const showUncertainty = inputs.surface === UNCERTAINTY && result?.uncertainty;
+    const grid = result && { bounds: result.raster.wgs84Bounds, width: result.raster.width, height: result.raster.height };
     return [
-      { id: "kriging-interpolator-surface", label: "Kriged surface", type: "raster",
-        raster: result && { bounds: result.raster.wgs84Bounds, width: result.raster.width, height: result.raster.height,
-          values: base64ToFloat32(result.raster.data), min: result.raster.min, max: result.raster.max, colorRamp: KRIGE_RAMP } },
+      { id: "kriging-interpolator-surface", label: showUncertainty ? "Uncertainty" : "Kriged surface", type: "raster",
+        raster: result && (showUncertainty
+          ? { ...grid, values: base64ToFloat32(result.uncertainty.data), min: result.uncertainty.min, max: result.uncertainty.max, colorRamp: UNCERTAINTY_RAMP }
+          : { ...grid, values: base64ToFloat32(result.raster.data), min: result.raster.min, max: result.raster.max, colorRamp: KRIGE_RAMP }) },
       { id: "kriging-interpolator-points-r", label: "Samples", type: "circle",
         data: result?.samplePoints ?? inspect?.features ?? null,
         paint: result ? circlePaint(result.raster.min, result.raster.max, "value")
@@ -83,7 +94,7 @@ const CONFIG = {
         ...(!s.numericColumns || s.numericColumns.length === 0 ? [["⚠️", "No numeric column found to interpolate"]] : [])
       ];
     },
-    result: ({ summary: s }) => [
+    result: ({ summary: s, uncertainty: u }) => [
       ["Points used", s.count.toLocaleString()],
       ["Calculation CRS", s.calculationCrs],
       ["Value column", s.valueColumn],
@@ -93,10 +104,14 @@ const CONFIG = {
       ["Range (m)", s.range],
       ["Grid cells", s.gridCellCount.toLocaleString()],
       ["Mean prediction", s.meanPrediction],
-      ["Mean prediction variance", s.meanVariance]
+      ["Mean prediction variance", s.meanVariance],
+      ...(u ? [["Std. error (min – max)", `${u.min} – ${u.max}`]] : [])
     ]
   },
-  legend: ({ inspect, result }) => {
+  legend: ({ inspect, result }, { inputs }) => {
+    if (result && inputs.surface === UNCERTAINTY && result.uncertainty) {
+      return { gradient: UNCERTAINTY_RAMP, minLabel: `± ${result.uncertainty.min}`, maxLabel: `± ${result.uncertainty.max} (std. error)` };
+    }
     if (result) return { gradient: KRIGE_RAMP, minLabel: `${result.raster.min}%`, maxLabel: `${result.raster.max}%` };
     const s = inspect?.summary;
     return s && s.previewMin != null && s.previewMax != null

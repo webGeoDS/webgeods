@@ -17,6 +17,8 @@ const MODEL = "kriging-model-r";
 const PREDICT = "kriging-predict-r";
 const KRIGE_RAMP = [[0.00, 166, 97, 26], [0.25, 223, 194, 125], [0.50, 245, 245, 245], [0.75, 128, 205, 193], [1.00, 1, 133, 113]];
 const POINT_COLORS = KRIGE_RAMP.map(([, r, g, b]) => `rgb(${r},${g},${b})`);
+// Light to dark: low to high standard error, distinct from the moisture ramp.
+const UNCERTAINTY_RAMP = [[0.00, 255, 247, 236], [0.35, 253, 187, 132], [0.70, 227, 74, 51], [1.00, 127, 0, 0]];
 
 const model = ({ byCell }) => byCell[MODEL] ?? null;
 // The prediction only counts when it ran after the latest model.
@@ -53,11 +55,14 @@ const CONFIG = {
     layers: (value, lang, state) => {
       const m = model(state);
       const p = prediction(state);
+      const grid = p?.raster && { bounds: p.raster.wgs84Bounds, width: p.raster.width, height: p.raster.height };
       return [
-        { id: "kriging-r-surface", type: "raster",
-          raster: p?.raster && { bounds: p.raster.wgs84Bounds, width: p.raster.width, height: p.raster.height,
-            values: base64ToFloat32(p.raster.data), min: p.raster.min, max: p.raster.max, colorRamp: KRIGE_RAMP } },
-        ...(m?.summary ? [{ id: "kriging-r-points", type: "circle", data: m.samplePoints, paint: pointsPaint(m.summary) }] : [])
+        { id: "kriging-r-surface", label: "Kriged surface", type: "raster",
+          raster: grid && { ...grid, values: base64ToFloat32(p.raster.data), min: p.raster.min, max: p.raster.max, colorRamp: KRIGE_RAMP } },
+        // The standard error, over the surface; off until switched on.
+        { id: "kriging-r-uncertainty", label: "Uncertainty (std. error)", type: "raster", startHidden: true,
+          raster: grid && p.uncertainty && { ...grid, values: base64ToFloat32(p.uncertainty.data), min: p.uncertainty.min, max: p.uncertainty.max, colorRamp: UNCERTAINTY_RAMP } },
+        ...(m?.summary ? [{ id: "kriging-r-points", label: "Samples", type: "circle", data: m.samplePoints, paint: pointsPaint(m.summary) }] : [])
       ];
     },
     fit: (value) => value.samplePoints ?? null
@@ -67,7 +72,13 @@ const CONFIG = {
       const p = prediction(state);
       const m = model(state);
       const range = p ? p.raster : m?.summary ? { min: m.summary.valueMin, max: m.summary.valueMax } : null;
-      return <Legend items={range ? { gradient: KRIGE_RAMP, minLabel: `${range.min}%`, maxLabel: `${range.max}%` } : null} />;
+      const u = p?.uncertainty;
+      return (
+        <>
+          <Legend items={range ? { gradient: KRIGE_RAMP, minLabel: `${range.min}%`, maxLabel: `${range.max}%` } : null} />
+          {u && <Legend items={{ gradient: UNCERTAINTY_RAMP, minLabel: `± ${u.min}`, maxLabel: `± ${u.max} (std. error)` }} />}
+        </>
+      );
     },
     "#lab-model": (state) => {
       const s = model(state)?.summary;
@@ -84,7 +95,9 @@ const CONFIG = {
     },
     "#lab-prediction": (state) => {
       const s = prediction(state)?.summary;
-      return s ? <StatCard rows={[["Grid cells", s.gridCellCount.toLocaleString()], ["Mean prediction variance", s.meanVariance]]} /> : null;
+      const u = prediction(state)?.uncertainty;
+      return s ? <StatCard rows={[["Grid cells", s.gridCellCount.toLocaleString()], ["Mean prediction variance", s.meanVariance],
+        ...(u ? [["Std. error (min – max)", `${u.min} – ${u.max}`]] : [])]} /> : null;
     }
   }
 };

@@ -237,6 +237,15 @@ raw_bytes <- rawConnectionValue(con)
 close(con)
 pred_b64 <- jsonlite::base64_enc(raw_bytes)
 
+# Kriging's own uncertainty: the standard error of the prediction (the
+# square root of the kriging variance), on the same grid. Low next to the
+# samples, growing with distance from them.
+se_pred <- sqrt(pmax(var_pred, 0))
+con <- rawConnection(raw(0), "wb")
+writeBin(se_pred, con, size = 4, endian = "little")
+se_b64 <- jsonlite::base64_enc(rawConnectionValue(con))
+close(con)
+
 pts_wgs84 <- st_transform(pts_calc, 4326)
 pts_wgs84$value <- pts_wgs84$.krige_value
 pts_out <- pts_wgs84[, "value"]
@@ -266,6 +275,11 @@ result_out <- list(
     wgs84Bounds = round(c(bb_wgs84["xmin"], bb_wgs84["ymin"], bb_wgs84["xmax"], bb_wgs84["ymax"]), 6),
     min = jsonlite::unbox(round(min(pred, na.rm = TRUE), 3)),
     max = jsonlite::unbox(round(max(pred, na.rm = TRUE), 3))
+  ),
+  uncertainty = list(
+    data = jsonlite::unbox(se_b64),
+    min = jsonlite::unbox(round(min(se_pred, na.rm = TRUE), 3)),
+    max = jsonlite::unbox(round(max(se_pred, na.rm = TRUE), 3))
   )
 )
 
