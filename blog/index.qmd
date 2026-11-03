@@ -1,5 +1,6 @@
 ---
 title: "webGeoDS"
+pagetitle: "Geospatial data science tools in Python and R"
 description: "Spatial Data Science, directly in your browser — interactive articles and free tools for Python and R, with no local setup and nothing ever uploaded."
 ---
 

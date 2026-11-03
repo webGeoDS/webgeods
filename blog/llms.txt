@@ -1,0 +1,45 @@
+# webGeoDS
+
+> Free geospatial data science tools and interactive articles that run entirely in the browser. Python and R are compiled to WebAssembly (Pyodide, webR), so uploaded files never leave the user's computer. Every article shows the same analysis in both Python and R.
+
+Author: Domenico Guadalupi (https://webgeods.com/about.html, https://www.linkedin.com/in/guadalupi). Contact: info@webgeods.com.
+
+## Tools
+
+- [GeoSpatial File Inspector](https://webgeods.com/tools/geospatial-file-inspector.html): summary of a GeoJSON or Shapefile: feature count, geometry type, CRS, bounds, attributes, invalid, empty and duplicate geometries.
+- [GeoJSON & Shapefile Validator](https://webgeods.com/tools/geojson-shapefile-validator.html): checks every geometry against the Simple Features model, explains each error, optional repair.
+- [Topology Checker](https://webgeods.com/tools/topology-checker.html): finds overlaps, gaps, slivers, duplicates and dangles.
+- [CRS Inspector & Converter](https://webgeods.com/tools/crs-inspector.html): finds a file's coordinate reference system, flags a CRS that does not match the coordinates, converts to another CRS.
+- [Buffer & Proximity Tool](https://webgeods.com/tools/buffer-proximity.html): buffers or concentric rings around points, lines or polygons.
+- [Raster Inspector & Statistics](https://webgeods.com/tools/raster-inspector.html): GeoTIFF dimensions, resolution, bands, CRS, NoData, per-band statistics and previews.
+- [Raster Calculator & Band Math](https://webgeods.com/tools/raster-calculator.html): combines two bands of a GeoTIFF with an operation.
+- [NDVI Calculator](https://webgeods.com/tools/ndvi-calculator.html): vegetation index from the Red and near-infrared bands.
+- [Viewshed Calculator](https://webgeods.com/tools/viewshed-calculator.html): cells visible from an observer on a DEM (R).
+- [Spatial Clustering Explorer](https://webgeods.com/tools/spatial-clustering-explorer.html): DBSCAN clusters on point data.
+- [Spatial Classifier](https://webgeods.com/tools/spatial-classifier.html): Random Forest class map from field samples, with confidence and spatial block cross-validation.
+- [Network from Lines](https://webgeods.com/tools/network-from-lines.html): turns a line layer into a graph (nodes, edges, connected components) and shows the effect of the snap tolerance.
+- [Kriging Interpolator](https://webgeods.com/tools/kriging-interpolator.html): variogram fitting and ordinary kriging from sparse samples, with an uncertainty map (R).
+- [Raster Gap Filler](https://webgeods.com/tools/raster-gap-filler.html): fills gaps in a raster band with cokriging, using a correlated band as covariate (R).
+
+## Articles
+
+- [First Look at a Geospatial File](https://webgeods.com/posts/geospatial-file-inspection.html): what to check in a vector file before trusting it.
+- [Geometry validity](https://webgeods.com/posts/geometry-validity.html): finding and understanding invalid geometries in Python and R.
+- [Topology Errors in a GeoJSON](https://webgeods.com/posts/topology-errors.html): detecting overlaps, gaps, slivers, duplicates and dangles.
+- [Coordinate Reference Systems: Why Your Map Looks Wrong](https://webgeods.com/posts/crs-mismatch.html): diagnosing and converting CRS.
+- [Buffer & Proximity](https://webgeods.com/posts/buffer-proximity.html): why a buffer distance must be a real distance, not degrees.
+- [First Look at a Raster File](https://webgeods.com/posts/raster-file-inspection.html): dimensions, bands and NoData.
+- [Raster Band Math](https://webgeods.com/posts/raster-band-math.html): combining two bands into one.
+- [NDVI](https://webgeods.com/posts/raster-ndvi.html): measuring vegetation from two bands.
+- [Viewshed](https://webgeods.com/posts/raster-viewshed.html): what is visible from a point, with terrain occlusion.
+- [Finding Spatial Clusters with DBSCAN](https://webgeods.com/posts/spatial-clustering.html): distance in meters and coordinate systems.
+- [Predicting Spatial Classes with Random Forest](https://webgeods.com/posts/spatial-classification.html): why a random split flatters a map and what spatial block cross-validation reports.
+- [Network from Lines](https://webgeods.com/posts/network-from-lines.html): how a few meters of tolerance change a network's connectivity.
+- [Interpolating Soil Moisture with Kriging](https://webgeods.com/posts/kriging-soil-sampling.html): variogram, kriging and its uncertainty.
+- [Filling Raster Gaps with Cokriging](https://webgeods.com/posts/cokriging-raster-gap-filling.html): using a correlated band as covariate.
+
+## Optional
+
+- [About](https://webgeods.com/about.html): who builds webGeoDS and why.
+- [All tools](https://webgeods.com/tools/index.html)
+- [All articles](https://webgeods.com/articles.html)

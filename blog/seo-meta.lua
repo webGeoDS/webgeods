@@ -20,6 +20,7 @@ local SITE_URL = "https://webgeods.com"
 -- Named as the author of every article (JSON-LD), see about.qmd.
 local AUTHOR_NAME = "Domenico Guadalupi"
 local AUTHOR_SAME_AS = "https://www.linkedin.com/in/guadalupi"
+local AUTHOR_GITHUB = "https://github.com/webGeoDS"
 
 local function canonical_url()
   local rel = quarto.doc.project_output_file()
@@ -114,9 +115,8 @@ function Meta(meta)
   -- for individual tool pages (free, browser-only, no install --
   -- isAccessibleForFree/browserRequirements say exactly that, no
   -- rating/price fields since none of that data actually exists),
-  -- WebSite only for the actual homepage (a Person/Organization block
-  -- would need real entity data this project doesn't have yet, so
-  -- left out rather than filled with placeholders).
+  -- WebSite only for the actual homepage, with its author as a Person
+  -- (the same entity the articles name, plus the GitHub profile).
   local jsonld
   if is_post then
     local date_line = ""
@@ -139,7 +139,10 @@ function Meta(meta)
       .. '",\n  "applicationCategory": "UtilitiesApplication",\n  "operatingSystem": "Any (runs in the browser)",\n  "isAccessibleForFree": true\n}'
   elseif rel == "index.html" then
     jsonld = '{\n  "@context": "https://schema.org",\n  "@type": "WebSite",\n  "name": "webGeoDS",\n  "url": "'
-      .. escape_json(SITE_URL) .. '/"\n}'
+      .. escape_json(SITE_URL) .. '/",\n  "description": "' .. escape_json(description)
+      .. '",\n  "author": {\n    "@type": "Person",\n    "name": "' .. escape_json(AUTHOR_NAME)
+      .. '",\n    "url": "' .. escape_json(SITE_URL) .. '/about.html",\n    "sameAs": ["'
+      .. escape_json(AUTHOR_SAME_AS) .. '", "' .. escape_json(AUTHOR_GITHUB) .. '"]\n  }\n}'
   end
   if jsonld then
     table.insert(tags, '<script type="application/ld+json">\n' .. jsonld .. '\n</script>')

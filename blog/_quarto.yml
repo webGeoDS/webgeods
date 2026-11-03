@@ -39,6 +39,7 @@ project:
     - "webgeods-logo.svg"
     - "og-image.png"
     - "og/*.png"
+    - "llms.txt"
     - "maplibre-gl.js"
     - "maplibre-gl.css"
     - "fonts.css"
@@ -167,6 +168,17 @@ website:
   # _site/ when site-url is set. Placeholder to be confirmed — change it if
   # the final domain/path of the blog section differs (see plan §5).
   site-url: "https://webgeods.com"
+  page-footer:
+    left: "© 2026 Domenico Guadalupi · webGeoDS"
+    right:
+      - text: "About"
+        href: about.qmd
+      - text: "LinkedIn"
+        href: https://www.linkedin.com/in/guadalupi
+      - text: "GitHub"
+        href: https://github.com/webGeoDS
+      - text: "info@webgeods.com"
+        href: mailto:info@webgeods.com
 
 format:
   html:
