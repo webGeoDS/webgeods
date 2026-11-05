@@ -3,6 +3,7 @@ title: "Topology Checker"
 date: 2026-09-03
 categories: [tool, geometry]
 description: "Upload a GeoJSON or a Shapefile and check it for the five recurring topology errors — overlap, gap, sliver, duplicates, dangle. Free, runs entirely in your browser: the file never leaves your computer."
+og-image: og/topology-checker.png
 page-layout: full
 ---
 

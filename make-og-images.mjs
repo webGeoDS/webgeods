@@ -10,6 +10,7 @@
 //
 // Usage: node make-og-images.mjs            (all cards)
 //        node make-og-images.mjs generic    (only blog/og-image.png)
+//        node make-og-images.mjs <slug>...  (generic + only these tools)
 import { chromium } from "playwright";
 import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -41,6 +42,24 @@ const TOOLS = [
     title: "Kriging Interpolator",
     blurb: "From scattered point samples to a continuous surface, with a fitted variogram.",
     compute: /interpolate/i,
+    shot: "map",
+  },
+  {
+    slug: "spatial-classifier",
+    title: "Spatial Classifier",
+    blurb: "A class map from field samples, scored with spatial block cross-validation.",
+    compute: /compute/i,
+    // Pyodide + scikit-learn load before the example, then the forest trains
+    loadWait: 20000,
+    computeWait: 30000,
+    shot: "map",
+  },
+  {
+    slug: "topology-checker",
+    title: "Topology Checker",
+    blurb: "Find overlaps, gaps, slivers, duplicates and dangles in a vector layer.",
+    compute: null, // checks the example on its own
+    loadWait: 15000,
     shot: "map",
   },
 ];
@@ -117,10 +136,10 @@ async function captureTool(browser, tool) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 2 });
   await page.goto(`https://webgeods.com/tools/${tool.slug}.html`, { waitUntil: "load", timeout: 60000 });
   await page.getByRole("button", { name: /load example/i }).first().click();
-  await page.waitForTimeout(5000);
+  await page.waitForTimeout(tool.loadWait ?? 5000);
   if (tool.compute) {
     await page.locator("button:visible", { hasText: tool.compute }).first().click();
-    await page.waitForTimeout(12000);
+    await page.waitForTimeout(tool.computeWait ?? 12000);
   }
   const map = page.locator(".maplibregl-map").first();
   await map.scrollIntoViewIfNeeded();
@@ -155,11 +174,12 @@ async function captureTool(browser, tool) {
 }
 
 const only = process.argv[2];
+const slugs = process.argv.slice(2).filter((a) => a !== "generic");
 const browser = await chromium.launch();
 await renderCard(browser, genericHtml(), resolve(ROOT, "blog/og-image.png"));
 if (only !== "generic") {
   mkdirSync(OUT_DIR, { recursive: true });
-  for (const tool of TOOLS) {
+  for (const tool of TOOLS.filter((t) => !slugs.length || slugs.includes(t.slug))) {
     const img = await captureTool(browser, tool);
     await renderCard(browser, toolHtml(tool, img), resolve(OUT_DIR, `${tool.slug}.png`));
   }

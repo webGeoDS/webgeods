@@ -3,6 +3,7 @@ title: "Spatial Classifier"
 date: 2026-09-11
 categories: [tool, geoml]
 description: "Turn field samples of a category (soil type, habitat, land use, anything recorded as a class at scattered points) into a map of the likely class everywhere in the area, with a Random Forest trained on location, see where that map is confident and where it's guessing, and score it with spatial block cross-validation instead of a flattering random split. Runs entirely in your browser, powered by Python."
+og-image: og/spatial-classifier.png
 page-layout: full
 ---
 
