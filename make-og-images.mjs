@@ -2,7 +2,7 @@
 // other link previews show for webgeods.com pages:
 //   blog/og-image.png       generic card, used by every page without its own
 //   blog/og/<tool>.png      per-tool cards with the tool's real example result
-//   blog/og/work-with-me.png the services page's card (packages and prices)
+//   blog/og/work-with-me.png the services page's card (the three packages)
 // Per-tool cards screenshot the LIVE tool after "Load example" (and its
 // compute button, if the example doesn't compute on its own), so re-run
 // after deploying a change that alters what a tool's example looks like.
@@ -124,12 +124,13 @@ function toolHtml(tool, imgDataUrl) {
   </body></html>`;
 }
 
-// The services page: what is offered and from what price, not "free tools".
+// The services page: what is offered, not "free tools". No prices: out of
+// context they read as the price of any job, and LinkedIn caches the image.
 function workWithMeHtml() {
   const pkgs = [
-    ["Automated GIS data quality check", "From €300"],
-    ["ArcGIS workflow automation", "From €300"],
-    ["Interpolation with an uncertainty map", "From €350"],
+    ["Automated GIS data quality check", "Report + reusable script"],
+    ["ArcGIS workflow automation", "Script tool or notebook"],
+    ["Interpolation with an uncertainty map", "Surface + uncertainty map"],
   ];
   return `<html><head><style>${css}
     .text { position: absolute; left: 80px; top: 70px; width: 1040px; }
@@ -138,7 +139,7 @@ function workWithMeHtml() {
     .pkgs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
     .pkg { background: #eee5d2; border: 2px solid #ddd1b8; padding: 22px 24px 20px; display: flex; flex-direction: column; min-height: 170px; }
     .pkg b { font-family: "Serif"; font-weight: 700; font-size: 26px; line-height: 1.2; }
-    .pkg span { margin-top: auto; padding-top: 14px; font-family: "Sans"; font-weight: 600; font-size: 24px; color: #ab502b; }
+    .pkg span { margin-top: auto; padding-top: 14px; font-family: "Sans"; font-weight: 600; font-size: 22px; color: #ab502b; }
     .foot { position: absolute; left: 80px; bottom: 52px; font-size: 20px; }
     .foot .wordmark { font-size: 24px; margin-right: 12px; }
   </style></head><body>
