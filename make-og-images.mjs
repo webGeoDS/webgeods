@@ -145,7 +145,7 @@ function workWithMeHtml() {
   </style></head><body>
     <div class="text">
       <div class="eyebrow">Work with me · Domenico Guadalupi</div>
-      <h1>Fixed-price GIS projects, delivered remotely</h1>
+      <h1>Fixed-price geospatial projects, delivered remotely</h1>
       <div class="pkgs">${pkgs.map(([t, p]) => `<div class="pkg"><b>${t}</b><span>${p}</span></div>`).join("")}</div>
     </div>
     <div class="foot mono">${wordmark} webgeods.com/work-with-me</div>
