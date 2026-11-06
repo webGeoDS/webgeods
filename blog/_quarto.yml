@@ -154,6 +154,7 @@ website:
             text: Interpolate
           - href: posts/cokriging-raster-gap-filling.qmd
             text: Fill Gaps
+      - work-with-me.qmd
       - about.qmd
     # Five groups per dropdown: "Vector" (renamed 2026-09-11 from
     # "Spatial Data Quality" once Buffer joined it as this group's
@@ -171,6 +172,8 @@ website:
   page-footer:
     left: "© 2026 Domenico Guadalupi · webGeoDS"
     right:
+      - text: "Work with me"
+        href: work-with-me.qmd
       - text: "About"
         href: about.qmd
       - text: "LinkedIn"

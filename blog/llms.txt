@@ -41,5 +41,6 @@ Author: Domenico Guadalupi (https://webgeods.com/about.html, https://www.linkedi
 ## Optional
 
 - [About](https://webgeods.com/about.html): who builds webGeoDS and why.
+- [Work with me](https://webgeods.com/work-with-me.html): remote, fixed-price projects: automated GIS data quality checks, ArcGIS workflow automation, interpolation with an uncertainty map.
 - [All tools](https://webgeods.com/tools/index.html)
 - [All articles](https://webgeods.com/articles.html)

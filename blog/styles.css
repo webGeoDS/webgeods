@@ -785,3 +785,81 @@ input[type="range"] {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Work with me (work-with-me.qmd): service packages as hairline-bordered
+   cards, sharp corners like the rest of the Field Atlas system. */
+.wwm-packages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 2rem;
+}
+.wwm-package {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-muted);
+  border: 1px solid var(--border-hairline);
+  padding: 1.1rem 1.2rem 1rem;
+}
+.wwm-package h3 {
+  margin-top: 0.25rem;
+  font-size: 1.2rem;
+  text-wrap: balance;
+}
+.wwm-package p {
+  font-size: 0.95rem;
+}
+.wwm-eyebrow {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.wwm-price {
+  display: block;
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-hairline);
+  font-weight: 600;
+  color: var(--terracotta);
+  font-variant-numeric: tabular-nums;
+}
+.wwm-steps ol {
+  padding-left: 1.25rem;
+}
+.wwm-steps li + li {
+  margin-top: 0.4rem;
+}
+.wwm-contact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  margin: 1rem 0;
+}
+.wwm-contact p {
+  display: contents;
+}
+.wwm-cta.btn {
+  background: var(--action);
+  border: none;
+  border-radius: 0;
+  color: #fff;
+  padding: 0.6rem 1.1rem;
+  font-weight: 600;
+}
+.wwm-cta.btn:hover,
+.wwm-cta.btn:focus-visible {
+  background: var(--action-hover);
+  color: #fff;
+}
+
+/* Footer links: keep multi-word labels ("Work with me") on one line;
+   the list itself wraps between items on narrow screens. */
+.nav-footer .nav-link {
+  white-space: nowrap;
+}
+.nav-footer-right .footer-items {
+  flex-wrap: wrap;
+  justify-content: center;
+}
