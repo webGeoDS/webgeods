@@ -135,7 +135,7 @@ function workWithMeHtml() {
   return `<html><head><style>${css}
     .text { position: absolute; left: 80px; top: 70px; width: 1040px; }
     .eyebrow { font-family: "Mono"; font-size: 20px; color: #766851; text-transform: uppercase; letter-spacing: 0.08em; }
-    h1 { font-family: "Serif"; font-weight: 700; font-size: 54px; line-height: 1.12; margin: 18px 0 40px; letter-spacing: -0.01em; }
+    h1 { font-family: "Serif"; font-weight: 700; font-size: 62px; line-height: 1.1; margin: 22px 0 64px; text-wrap: balance; letter-spacing: -0.01em; }
     .pkgs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
     .pkg { background: #eee5d2; border: 2px solid #ddd1b8; padding: 22px 24px 20px; display: flex; flex-direction: column; min-height: 170px; }
     .pkg b { font-family: "Serif"; font-weight: 700; font-size: 26px; line-height: 1.2; }
@@ -144,11 +144,11 @@ function workWithMeHtml() {
     .foot .wordmark { font-size: 24px; margin-right: 12px; }
   </style></head><body>
     <div class="text">
-      <div class="eyebrow">Work with me · remote · fixed price</div>
-      <h1>GIS automation, data quality checks and spatial analysis, with the code included</h1>
+      <div class="eyebrow">Work with me · Domenico Guadalupi</div>
+      <h1>Fixed-price GIS projects, delivered remotely</h1>
       <div class="pkgs">${pkgs.map(([t, p]) => `<div class="pkg"><b>${t}</b><span>${p}</span></div>`).join("")}</div>
     </div>
-    <div class="foot mono">${wordmark} webgeods.com/work-with-me · Domenico Guadalupi</div>
+    <div class="foot mono">${wordmark} webgeods.com/work-with-me</div>
   </body></html>`;
 }
 
