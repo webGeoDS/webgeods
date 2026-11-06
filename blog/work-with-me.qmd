@@ -2,6 +2,7 @@
 title: "Work with me"
 pagetitle: "Work with me: GIS automation and spatial analysis, remote, fixed price"
 description: "GIS automation, data quality checks and spatial analysis, delivered remotely as fixed-price projects, with the code included."
+og-image: og/work-with-me.png
 ---
 
 I'm **Domenico Guadalupi**, the engineer and data scientist behind

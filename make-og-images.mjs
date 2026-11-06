@@ -2,6 +2,7 @@
 // other link previews show for webgeods.com pages:
 //   blog/og-image.png       generic card, used by every page without its own
 //   blog/og/<tool>.png      per-tool cards with the tool's real example result
+//   blog/og/work-with-me.png the services page's card (packages and prices)
 // Per-tool cards screenshot the LIVE tool after "Load example" (and its
 // compute button, if the example doesn't compute on its own), so re-run
 // after deploying a change that alters what a tool's example looks like.
@@ -123,6 +124,33 @@ function toolHtml(tool, imgDataUrl) {
   </body></html>`;
 }
 
+// The services page: what is offered and from what price, not "free tools".
+function workWithMeHtml() {
+  const pkgs = [
+    ["Automated GIS data quality check", "From €300"],
+    ["ArcGIS workflow automation", "From €300"],
+    ["Interpolation with an uncertainty map", "From €350"],
+  ];
+  return `<html><head><style>${css}
+    .text { position: absolute; left: 80px; top: 70px; width: 1040px; }
+    .eyebrow { font-family: "Mono"; font-size: 20px; color: #766851; text-transform: uppercase; letter-spacing: 0.08em; }
+    h1 { font-family: "Serif"; font-weight: 700; font-size: 54px; line-height: 1.12; margin: 18px 0 40px; letter-spacing: -0.01em; }
+    .pkgs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .pkg { background: #eee5d2; border: 2px solid #ddd1b8; padding: 22px 24px 20px; display: flex; flex-direction: column; min-height: 170px; }
+    .pkg b { font-family: "Serif"; font-weight: 700; font-size: 26px; line-height: 1.2; }
+    .pkg span { margin-top: auto; padding-top: 14px; font-family: "Sans"; font-weight: 600; font-size: 24px; color: #ab502b; }
+    .foot { position: absolute; left: 80px; bottom: 52px; font-size: 20px; }
+    .foot .wordmark { font-size: 24px; margin-right: 12px; }
+  </style></head><body>
+    <div class="text">
+      <div class="eyebrow">Work with me · remote · fixed price</div>
+      <h1>GIS automation, data quality checks and spatial analysis, with the code included</h1>
+      <div class="pkgs">${pkgs.map(([t, p]) => `<div class="pkg"><b>${t}</b><span>${p}</span></div>`).join("")}</div>
+    </div>
+    <div class="foot mono">${wordmark} webgeods.com/work-with-me · Domenico Guadalupi</div>
+  </body></html>`;
+}
+
 async function renderCard(browser, html, outPath) {
   const page = await browser.newPage({ viewport: { width: 1200, height: 630 } });
   await page.setContent(html, { waitUntil: "load" });
@@ -179,6 +207,9 @@ const browser = await chromium.launch();
 await renderCard(browser, genericHtml(), resolve(ROOT, "blog/og-image.png"));
 if (only !== "generic") {
   mkdirSync(OUT_DIR, { recursive: true });
+  if (!slugs.length || slugs.includes("work-with-me")) {
+    await renderCard(browser, workWithMeHtml(), resolve(OUT_DIR, "work-with-me.png"));
+  }
   for (const tool of TOOLS.filter((t) => !slugs.length || slugs.includes(t.slug))) {
     const img = await captureTool(browser, tool);
     await renderCard(browser, toolHtml(tool, img), resolve(OUT_DIR, `${tool.slug}.png`));
