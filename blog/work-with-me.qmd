@@ -30,14 +30,14 @@ system. Every problem is reported with its location.
 features), the script, and instructions to run it again on the next
 delivery. It runs in ArcGIS Pro (arcpy) or in plain Python or R.
 
-**Proof**: at Viberoptix I designed and largely wrote the QA
-automation for fibre network designs; a check that took a day now
-takes half an hour. On this site:
+**Proof**: at a fibre network design company I designed and largely
+wrote the QA automation for network designs; a check that took a day
+now takes half an hour. On this site:
 [Validate](/tools/geojson-shapefile-validator.html) ·
 [Check Topology](/tools/topology-checker.html) ·
 [Network from Lines](/tools/network-from-lines.html).
 
-[From €300 · usually 1–2 weeks]{.wwm-price}
+[From €300 · one dataset, up to about 10 rules · about a week]{.wwm-price}
 :::
 
 ::: {.wwm-package}
@@ -56,12 +56,11 @@ with your licence. Open-source tools if you don't use Esri.
 **You get** the working tool, short documentation, and a handover
 call to walk your team through it.
 
-**Proof**: at Viberoptix, generating layer styles (SLD) from the
-network layers went from three days of manual work to a few hours.
-The automation work there is described on
-[LinkedIn](https://www.linkedin.com/in/guadalupi).
+**Proof**: at the same company, generating layer styles (SLD) from
+the network layers went from three days of manual work to a few
+hours. More on my [LinkedIn](https://www.linkedin.com/in/guadalupi).
 
-[From €400 · usually 1–3 weeks]{.wwm-price}
+[From €300 · one operation as a script tool · about a week]{.wwm-price}
 :::
 
 ::: {.wwm-package}
@@ -84,10 +83,14 @@ R or Python code to reproduce it.
 [Raster Gap Filler](/tools/raster-gap-filler.html), and the article
 [Interpolating Soil Moisture with Kriging](/posts/kriging-soil-sampling.html).
 
-[From €350 · usually 1–2 weeks]{.wwm-price}
+[From €350 · one variable, one study area · about a week]{.wwm-price}
 :::
 
 :::
+
+The prices above are for the smallest version of each job. More rules,
+more datasets or a complete workflow: you get a fixed quote, with a
+delivery date, once I've seen a sample of the data.
 
 ## How it works
 
