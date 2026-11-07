@@ -62,6 +62,10 @@ becomes public: free tools anyone can try on their own data, and the
 code behind every result, in Python and in R, so nothing has to be
 taken on trust.
 
+I also take on remote, fixed-price projects: automated GIS data quality
+checks, ArcGIS workflow automation and spatial analysis. See
+[Work with me](/work-with-me.html).
+
 Contact: [info@webgeods.com](mailto:info@webgeods.com) ·
 LinkedIn: [linkedin.com/in/guadalupi](https://www.linkedin.com/in/guadalupi) ·
 Code: [github.com/webGeoDS](https://github.com/webGeoDS)
