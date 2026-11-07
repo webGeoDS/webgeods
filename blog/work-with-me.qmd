@@ -5,12 +5,20 @@ description: "GIS automation, data quality checks and spatial analysis, delivere
 og-image: og/work-with-me.png
 ---
 
-I'm **Domenico Guadalupi**, the engineer and data scientist behind
-web<span class="webgeods-wordmark-geo">Geo</span>DS. I take on remote
-projects in three areas: automating GIS workflows (in ArcGIS or with
-open-source tools), checking the quality of spatial data, and spatial
-analysis that reports its own uncertainty. Every project has a fixed
-price agreed before I start, and you keep the code.
+I'm **Domenico Guadalupi**, an engineer and data scientist, and I build
+web<span class="webgeods-wordmark-geo">Geo</span>DS. I automate the
+repetitive parts of GIS work and make spatial analysis something you
+can defend. At a fibre network design company, the QA automation I
+designed turned a day-long check of each network design into half an
+hour.
+
+Every project has a fixed price agreed before I start, and you keep
+the code.
+
+## Start with a small project
+
+Each of these is a first project with a fixed scope and price: a
+low-risk way to see how I work, on your own data.
 
 ::: {.wwm-packages .column-page}
 
@@ -31,9 +39,7 @@ system. Every problem is reported with its location.
 features), the script, and instructions to run it again on the next
 delivery. It runs in ArcGIS Pro (arcpy) or in plain Python or R.
 
-**Proof**: at a fibre network design company I designed and largely
-wrote the QA automation for network designs; a check that took a day
-now takes half an hour. On this site:
+**Proof**: the QA automation described above. On this site:
 [Validate](/tools/geojson-shapefile-validator.html) ·
 [Check Topology](/tools/topology-checker.html) ·
 [Network from Lines](/tools/network-from-lines.html).
@@ -89,9 +95,24 @@ R or Python code to reproduce it.
 
 :::
 
-The prices above are for the smallest version of each job. More rules,
-more datasets or a complete workflow: you get a fixed quote, with a
-delivery date, once I've seen a sample of the data.
+## Larger projects
+
+When the first job works, the next step is usually the whole process.
+These are quoted per project, with a fixed price and a delivery date,
+once I've seen a sample of your data.
+
+- **A complete QA pipeline**: every rule your data model needs, run
+  automatically on each new delivery, with a summary your team or your
+  client can sign off.
+- **An end-to-end ArcGIS workflow**: from incoming data to updated
+  layers, styled maps and reports, as tools your team runs without me.
+- **Spatial models you can defend**: interpolation, classification or
+  clustering of your spatial data. Predictions are validated with
+  spatial cross-validation, so the accuracy you report holds in new
+  areas (see the [Spatial Classifier](/tools/spatial-classifier.html)).
+
+Something else? If it's spatial data and the work repeats, write
+anyway. If it isn't a good fit, I'll tell you.
 
 ## How it works
 
@@ -108,14 +129,6 @@ delivery date, once I've seen a sample of the data.
 
 Your data stays confidential: I can sign an NDA, and nothing from a
 project is published without your written permission.
-
-## Something else?
-
-Spatial machine learning with honest validation (see the
-[Spatial Classifier](/tools/spatial-classifier.html)), turning line
-layers into networks, custom checks for your data model: if it's
-spatial data and it repeats, write anyway. If it isn't a good fit,
-I'll tell you.
 
 ## Contact
 
