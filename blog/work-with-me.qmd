@@ -63,8 +63,8 @@ with your licence. Open-source tools if you don't use Esri.
 **You get** the working tool, short documentation, and a handover
 call to walk your team through it.
 
-**Proof**: at the same company, generating layer styles (SLD) from
-the network layers went from three days of manual work to a few
+**Proof**: at the same company, single-line diagrams generated
+automatically from the network layers cut a three-day job to a few
 hours. More on my [LinkedIn](https://www.linkedin.com/in/guadalupi).
 
 [From €300 · one operation as a script tool · about a week]{.wwm-price}
