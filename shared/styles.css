@@ -772,6 +772,15 @@ input[type="range"] {
   font-size: 15px;
 }
 
+/* The one line under every tool pointing to Work with me (added by
+   blog/work-with-me-line.lua): quiet on purpose, below the tool's own
+   next step, not competing with it. */
+.webgeods-work-line {
+  margin: 0 0 32px 0;
+  font-size: 15px;
+  color: var(--text-muted);
+}
+
 /* Inline code inside prose may wrap anywhere: a long unbroken snippet
    (an error message such as `non-numeric argument to binary operator`,
    a file path) otherwise sets the line's minimum width and pushes the
